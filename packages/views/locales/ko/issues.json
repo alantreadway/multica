@@ -356,7 +356,8 @@
     "no_project": "프로젝트 없음",
     "no_assignee": "담당자 없음",
     "open_parent": "상위 태스크 열기",
-    "toggle_collapse": "레인 접기/펼치기"
+    "toggle_collapse": "레인 접기/펼치기",
+    "sub_lanes_hidden_other": "+{{count}} 하위 레인"
   },
   "board": {
     "hidden_columns_label": "숨긴 열",

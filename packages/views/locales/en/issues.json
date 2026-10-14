@@ -360,7 +360,9 @@
     "no_project": "No project",
     "no_assignee": "Unassigned",
     "open_parent": "Open parent issue",
-    "toggle_collapse": "Toggle lane"
+    "toggle_collapse": "Toggle lane",
+    "sub_lanes_hidden_one": "+{{count}} sub-lane",
+    "sub_lanes_hidden_other": "+{{count}} sub-lanes"
   },
   "board": {
     "hidden_columns_label": "Hidden columns",

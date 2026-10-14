@@ -356,7 +356,8 @@
     "no_project": "无项目",
     "no_assignee": "未分配",
     "open_parent": "打开父级任务",
-    "toggle_collapse": "切换泳道"
+    "toggle_collapse": "切换泳道",
+    "sub_lanes_hidden_other": "+{{count}} 个子泳道"
   },
   "board": {
     "hidden_columns_label": "隐藏的列",

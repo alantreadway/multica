@@ -643,3 +643,69 @@ export function issueAttachmentsOptions(issueId: string) {
     queryFn: () => api.listAttachments(issueId),
   });
 }
+
+const ANCESTRY_BATCH_SIZE = 100;
+
+/** The slice of an issue the swimlane tree needs to build an ancestor path. */
+export interface IssueAncestryNode {
+  id: string;
+  identifier: string;
+  parentId: string | null;
+}
+
+/**
+ * Walk up from `startIds`, one batched `listIssues({ ids })` call per tree
+ * level (chunked at the server's 100-id cap, ids sorted), until every chain
+ * reaches a root. Returns every issue fetched, start ids included. Ids already
+ * fetched are never requested again, so a cycle terminates.
+ */
+async function fetchIssueAncestry(
+  startIds: readonly string[],
+): Promise<IssueAncestryNode[]> {
+  const nodes = new Map<string, IssueAncestryNode>();
+  const requested = new Set<string>();
+  let frontier = [...new Set(startIds)].sort();
+  while (frontier.length > 0) {
+    frontier.forEach((id) => requested.add(id));
+    const fetched: Issue[] = [];
+    for (let i = 0; i < frontier.length; i += ANCESTRY_BATCH_SIZE) {
+      const res = await api.listIssues({
+        ids: frontier.slice(i, i + ANCESTRY_BATCH_SIZE),
+        limit: ANCESTRY_BATCH_SIZE,
+      });
+      fetched.push(...res.issues);
+    }
+    const next = new Set<string>();
+    for (const issue of fetched) {
+      nodes.set(issue.id, {
+        id: issue.id,
+        identifier: issue.identifier,
+        parentId: issue.parent_issue_id,
+      });
+      if (issue.parent_issue_id && !requested.has(issue.parent_issue_id)) {
+        next.add(issue.parent_issue_id);
+      }
+    }
+    frontier = [...next].sort();
+  }
+  return [...nodes.values()];
+}
+
+/**
+ * Ancestry of the given issues for the swimlane's tree-ordered parent lanes.
+ * Keyed under `tableAll` so the issue WebSocket handlers that invalidate the
+ * table cache also refresh it after a re-parent.
+ */
+export function issueAncestryOptions(
+  wsId: string,
+  startIds: readonly string[],
+) {
+  const ids = [...new Set(startIds)].sort();
+  return queryOptions({
+    queryKey: [...issueKeys.tableAll(wsId), "ancestry", ids] as const,
+    queryFn: () => fetchIssueAncestry(ids),
+    enabled: ids.length > 0,
+    // Keep the previous tree on screen while a changed id set refetches.
+    placeholderData: keepPreviousData,
+  });
+}
