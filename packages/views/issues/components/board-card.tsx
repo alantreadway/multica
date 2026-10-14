@@ -12,7 +12,7 @@ import { propertyListOptions } from "@multica/core/properties";
 import { CustomPropertyValueDisplay } from "./pickers/custom-property-picker";
 import { descriptionPreview } from "./description-preview";
 import { formatDateOnly, isPastDateOnly } from "@multica/core/issues/date";
-import { CalendarClock, CalendarDays } from "lucide-react";
+import { CalendarClock, CalendarDays, ListTree } from "lucide-react";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { PropertyIcon } from "../../common/property-icon";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -351,12 +351,16 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({
   childProgress,
   project,
   disableSorting,
+  onJumpToLane,
 }: {
   issue: Issue;
   childProgress?: ChildProgress;
   project?: Project;
   disableSorting?: boolean;
+  /** Swimlane only: when set, shows a chip that jumps to the lane this issue heads. */
+  onJumpToLane?: (issueId: string) => void;
 }) {
+  const { t } = useT("issues");
   const p = useWorkspacePaths();
   const peek = useIssuePeekActions();
   const peeked = useIsIssuePeeked(issue.id);
@@ -418,6 +422,26 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({
             project={project}
           />
         </AppLink>
+        {onJumpToLane && (
+          <div className="mt-1 flex justify-end">
+            {/* Outside the link; the pointer-down stop keeps the card's drag
+                listeners from picking the press up. */}
+            <button
+              type="button"
+              data-jump-to-lane=""
+              aria-label={t(($) => $.swimlane.jump_to_lane)}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onJumpToLane(issue.id);
+              }}
+              className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-micro font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <ListTree className="size-3" aria-hidden />
+              {t(($) => $.swimlane.jump_to_lane)}
+            </button>
+          </div>
+        )}
       </div>
     </IssueActionsContextMenu>
   );

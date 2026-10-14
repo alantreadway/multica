@@ -1,7 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import {
+  areSiblingLanes,
   hiddenLaneKeys,
+  laneIsWithinIssue,
+  lanesToExpand,
   orderLanesAsTree,
   type AncestryMap,
   type AncestryNode,
@@ -211,5 +214,70 @@ describe("hiddenLaneKeys", () => {
 
     expect(hiddenLaneKeys(cyclic, new Set(["parent:a", "parent:b"])).size)
       .toBeLessThanOrEqual(2);
+  });
+});
+
+// AG patch: drag guards and jump-to-lane helpers.
+describe("laneIsWithinIssue", () => {
+  const parents: Record<string, string | null> = { a: null, b: "a", c: "b", d: "c" };
+  const parentOf = (id: string) => parents[id];
+  const tree = (path: string[]) => ({
+    depth: 0,
+    treeParentRawId: null,
+    descendantCount: 0,
+    path: path.map((id) => ({ id, identifier: id })),
+  });
+
+  it("is true for the issue's own lane and for lanes below it", () => {
+    expect(laneIsWithinIssue({ parentIssue: { id: "b" } }, "b", parentOf)).toBe(true);
+    expect(laneIsWithinIssue({ parentIssue: { id: "d" } }, "b", parentOf)).toBe(true);
+  });
+
+  it("is false for a lane above, beside or unrelated to the issue", () => {
+    expect(laneIsWithinIssue({ parentIssue: { id: "a" } }, "b", parentOf)).toBe(false);
+    expect(laneIsWithinIssue({ parentIssue: { id: "x" } }, "b", parentOf)).toBe(false);
+    expect(laneIsWithinIssue({ parentIssue: null }, "b", parentOf)).toBe(false);
+  });
+
+  it("reads the lane's tree path before walking loaded issues", () => {
+    const lane = { parentIssue: { id: "d" }, tree: tree(["a", "b", "c", "d"]) };
+    expect(laneIsWithinIssue(lane, "b", () => null)).toBe(true);
+  });
+
+  it("stops on a parent cycle", () => {
+    const loop = (id: string) => (id === "p" ? "q" : "p");
+    expect(laneIsWithinIssue({ parentIssue: { id: "p" } }, "z", loop)).toBe(false);
+  });
+});
+
+describe("areSiblingLanes", () => {
+  const at = (treeParentRawId: string | null) => ({
+    tree: { depth: 0, treeParentRawId, path: [], descendantCount: 0 },
+  });
+
+  it("matches lanes with the same tree parent, or both top-level", () => {
+    expect(areSiblingLanes(at("a"), at("a"))).toBe(true);
+    expect(areSiblingLanes(at(null), at(null))).toBe(true);
+    expect(areSiblingLanes({}, at(null))).toBe(true);
+  });
+
+  it("rejects lanes under different parents or at different levels", () => {
+    expect(areSiblingLanes(at("a"), at("b"))).toBe(false);
+    expect(areSiblingLanes(at("a"), at(null))).toBe(false);
+  });
+});
+
+describe("lanesToExpand", () => {
+  const chain = ancestryOf({ a: null, b: "a", c: "b" });
+  const lanes = orderLanesAsTree([lane("a"), lane("b"), lane("c")], chain, []);
+
+  it("returns the lane and its collapsed ancestors, nearest first", () => {
+    const collapsed = new Set(["parent:a", "parent:c"]);
+    expect(lanesToExpand(lanes, "c", collapsed)).toEqual(["parent:c", "parent:a"]);
+  });
+
+  it("returns nothing when the chain is open or the lane is unknown", () => {
+    expect(lanesToExpand(lanes, "c", new Set())).toEqual([]);
+    expect(lanesToExpand(lanes, "zzz", new Set(["parent:a"]))).toEqual([]);
   });
 });

@@ -201,3 +201,61 @@ export function hiddenLaneKeys(
   }
   return hidden;
 }
+
+/**
+ * Whether dropping `issueId` into `lane` would make it a descendant of itself:
+ * the lane's parent issue is `issueId` or sits below it. Uses the lane's tree
+ * path when it has one, then climbs through `parentOf` (loaded issues) so the
+ * guard also holds before server ancestry has resolved.
+ */
+export function laneIsWithinIssue(
+  lane: { parentIssue: { id: string } | null; tree?: SwimlaneTreeInfo },
+  issueId: string,
+  parentOf: (id: string) => string | null | undefined,
+): boolean {
+  if (lane.tree?.path.some((p) => p.id === issueId)) return true;
+  const seen = new Set<string>();
+  let cursor: string | null | undefined = lane.parentIssue?.id;
+  while (cursor && !seen.has(cursor)) {
+    if (cursor === issueId) return true;
+    seen.add(cursor);
+    cursor = parentOf(cursor);
+  }
+  return false;
+}
+
+/**
+ * Lanes may only be reordered among siblings: same tree parent lane (or both
+ * top-level). Lanes without tree info (server ancestry not resolved yet) all
+ * count as top-level, which is the flat order they render in.
+ */
+export function areSiblingLanes(
+  a: { tree?: SwimlaneTreeInfo },
+  b: { tree?: SwimlaneTreeInfo },
+): boolean {
+  return (a.tree?.treeParentRawId ?? null) === (b.tree?.treeParentRawId ?? null);
+}
+
+/**
+ * Keys of the lanes to expand so the lane `rawId` is on screen and open: the
+ * lane itself plus every ancestor lane that is collapsed. `collapsed` holds
+ * full lane keys, like `hiddenLaneKeys`.
+ */
+export function lanesToExpand(
+  lanes: readonly { key: string; rawId: string; tree?: SwimlaneTreeInfo }[],
+  rawId: string,
+  collapsed: ReadonlySet<string>,
+): string[] {
+  const byRawId = new Map(lanes.map((lane) => [lane.rawId, lane]));
+  const keys: string[] = [];
+  const seen = new Set<string>();
+  let cursor: string | null = rawId;
+  while (cursor !== null && !seen.has(cursor)) {
+    seen.add(cursor);
+    const lane = byRawId.get(cursor);
+    if (!lane) break;
+    if (collapsed.has(lane.key)) keys.push(lane.key);
+    cursor = lane.tree?.treeParentRawId ?? null;
+  }
+  return keys;
+}
