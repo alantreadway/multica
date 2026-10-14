@@ -123,26 +123,23 @@ function makeSwimLaneCollision(
 ): CollisionDetection {
   return (args) => {
     const activeId = args.active.id as string;
-    const isLaneDrag = activeId.startsWith("lane:");
-    // Lane drags only target sibling lanes, so others neither move aside nor
-    // take the drop.
-    const isSiblingLane = (c: { id: unknown }) => {
-      const id = c.id as string;
-      return (
-        laneTreeParents.has(id) &&
-        laneTreeParents.get(id) === laneTreeParents.get(activeId)
+
+    if (activeId.startsWith("lane:")) {
+      // Lane drags only target sibling lanes. A pointer over another level
+      // gives no target, so the lane under it never moves aside.
+      const isSiblingLane = (c: { id: unknown }) =>
+        laneTreeParents.get(c.id as string) === laneTreeParents.get(activeId);
+      const laneHits = pointerWithin(args).filter((c) =>
+        (c.id as string).startsWith("lane:"),
       );
-    };
+      if (laneHits.length > 0) return laneHits.filter(isSiblingLane);
+      return closestCenter(args).filter(isSiblingLane);
+    }
 
     const pointer = pointerWithin(args);
     if (pointer.length > 0) {
-      let filtered = pointer;
-      if (isLaneDrag) {
-        filtered = pointer.filter(isSiblingLane);
-      } else {
-        // Card dragging: ignore parent lane headers entirely
-        filtered = pointer.filter((c) => !(c.id as string).startsWith("lane:"));
-      }
+      // Card dragging: ignore parent lane headers entirely
+      const filtered = pointer.filter((c) => !(c.id as string).startsWith("lane:"));
 
       if (filtered.length > 0) {
         const cards = filtered.filter((c) => !cellIds.has(c.id as string));
@@ -152,14 +149,7 @@ function makeSwimLaneCollision(
     }
 
     const closest = closestCenter(args);
-    let filteredClosest = closest;
-    if (isLaneDrag) {
-      filteredClosest = closest.filter(isSiblingLane);
-    } else {
-      filteredClosest = closest.filter((c) => !(c.id as string).startsWith("lane:"));
-    }
-
-    return filteredClosest;
+    return closest.filter((c) => !(c.id as string).startsWith("lane:"));
   };
 }
 
