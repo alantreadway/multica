@@ -75,6 +75,8 @@ import type {
   IssueGroupBranches,
   IssueGroupPageState,
 } from "../surface/use-issue-group-branches";
+import { hiddenLaneKeys, type SwimlaneTreeInfo } from "./swimlane-tree";
+import { useSwimlaneTreeLanes } from "./use-swimlane-tree";
 
 const COLUMN_WIDTH = 280;
 const COLUMN_GAP = 16;
@@ -251,6 +253,8 @@ interface LaneGroup {
   total?: number;
   /** Opaque compound row keys by concrete status. */
   serverCellKeys?: Partial<Record<IssueStatus, string>>;
+  /** Tree position (parent grouping only) — set by `useSwimlaneTreeLanes`. */
+  tree?: SwimlaneTreeInfo;
 }
 
 const EMPTY_PROGRESS_MAP = new Map<string, ChildProgress>();
@@ -809,7 +813,7 @@ function SwimLaneViewImpl({
     return filteredExtra.length === 0 ? issues : [...issues, ...filteredExtra];
   }, [groupBranches?.enabled, swimlaneGrouping, issues, perParentChildrenLists, subscribedParentIds, batchChildrenMap, activeFilters]);
 
-  const laneGroups = useMemo<LaneGroup[]>(() => {
+  const baseLaneGroups = useMemo<LaneGroup[]>(() => {
     if (groupBranches?.enabled) {
       return buildServerLanes(
         groupBranches.descriptors,
@@ -844,6 +848,20 @@ function SwimLaneViewImpl({
     projectMap,
     sortedStatuses,
   ]);
+
+  // Parent grouping: order lanes as a tree (sub-issue lane under its parent's).
+  const treeSourceIssues = useMemo(
+    () => [...laneSourceIssues, ...mergedIssues],
+    [laneSourceIssues, mergedIssues],
+  );
+  const laneGroups: LaneGroup[] = useSwimlaneTreeLanes({
+    lanes: baseLaneGroups,
+    enabled: swimlaneGrouping === "parent",
+    serverLanes: !!groupBranches?.enabled,
+    wsId,
+    loadedIssues: treeSourceIssues,
+    storedOrder: swimlaneOrder,
+  });
 
   // For parent grouping: issues that are themselves lane headers should not
   // also appear as cards (that would be a double-render). Other groupings
@@ -981,6 +999,11 @@ function SwimLaneViewImpl({
     },
     [viewStoreApi, swimlaneGrouping],
   );
+  // Sub-lanes of a collapsed lane are hidden with it.
+  const hiddenKeys = useMemo(
+    () => hiddenLaneKeys(laneGroups, collapsedLanes),
+    [laneGroups, collapsedLanes],
+  );
 
   const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
   // The outer scroll box is the customScrollParent for the lane Virtuoso.
@@ -1042,11 +1065,13 @@ function SwimLaneViewImpl({
     peek?.publishColumns(
       sortedStatuses.map((status) =>
         laneGroups.flatMap((lane) =>
-          collapsedLanes.has(lane.key) ? [] : (localCells[lane.key]?.[status] ?? []),
+          collapsedLanes.has(lane.key) || hiddenKeys.has(lane.key)
+            ? []
+            : (localCells[lane.key]?.[status] ?? []),
         ),
       ),
     );
-  }, [peek, sortedStatuses, laneGroups, collapsedLanes, localCells]);
+  }, [peek, sortedStatuses, laneGroups, collapsedLanes, hiddenKeys, localCells]);
   useEffect(() => () => peek?.publishColumns(null), [peek]);
 
   const collisionDetection = useMemo(
@@ -1352,9 +1377,9 @@ function SwimLaneViewImpl({
   const orderedLanes = useMemo(
     () => [
       ...laneGroups.filter((g) => g.isPinned),
-      ...laneGroups.filter((g) => !g.isPinned),
+      ...laneGroups.filter((g) => !g.isPinned && !hiddenKeys.has(g.key)),
     ],
-    [laneGroups],
+    [laneGroups, hiddenKeys],
   );
   const nonPinnedLaneIds = useMemo(
     () =>
@@ -1643,8 +1668,18 @@ function DraggableSwimLane({
     );
   }, 0);
 
+  const depth = lane.tree?.depth ?? 0;
+  const ancestorPath = lane.tree && lane.tree.path.length > 1 ? lane.tree.path : null;
+  const pathText = ancestorPath?.map((p) => p.identifier).join(" > ") ?? "";
+  const subLanes = lane.tree?.descendantCount ?? 0;
+
   return (
-    <div ref={setNodeRef} style={style} className={`flex flex-col ${isDragging ? "opacity-50" : ""}`}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      data-lane-depth={depth}
+      className={`flex flex-col ${isDragging ? "opacity-50" : ""}`}
+    >
       {/* Non-interactive container — the inner collapse button and any
           ancillary links (e.g. open-parent) are independent controls so we
           don't nest an <a> inside a <button>. The drag listeners attach
@@ -1654,6 +1689,13 @@ function DraggableSwimLane({
         {...attributes}
         {...listeners}
       >
+        {depth > 0 && (
+          <span aria-hidden className="-my-1 flex shrink-0 self-stretch">
+            {Array.from({ length: depth }, (_, i) => (
+              <span key={i} className="w-3.5 border-l border-border" />
+            ))}
+          </span>
+        )}
         {!lane.isPinned && (
           <GripVertical
             className="!size-3 shrink-0 cursor-grab text-faint-foreground"
@@ -1686,8 +1728,16 @@ function DraggableSwimLane({
               size="sm"
             />
           )}
+          {ancestorPath && (
+            <span
+              title={pathText}
+              className="min-w-0 max-w-[45%] shrink truncate text-micro font-medium tabular-nums text-muted-foreground"
+            >
+              {pathText}
+            </span>
+          )}
           <span className="truncate text-body font-semibold">{lane.title}</span>
-          {lane.identifier && (
+          {lane.identifier && !ancestorPath && (
             <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-micro font-medium tabular-nums text-muted-foreground">
               {lane.identifier}
             </span>
@@ -1695,6 +1745,11 @@ function DraggableSwimLane({
           <span className="shrink-0 text-caption tabular-nums text-muted-foreground">
             {laneTotal}
           </span>
+          {isCollapsed && subLanes > 0 && (
+            <span className="shrink-0 text-caption tabular-nums text-muted-foreground">
+              {t(($) => $.swimlane.sub_lanes_hidden, { count: subLanes })}
+            </span>
+          )}
         </button>
         {lane.parentIssue && (
           <DeferredTooltip

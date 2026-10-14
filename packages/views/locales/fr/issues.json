@@ -360,7 +360,9 @@
     "no_project": "Aucun projet",
     "no_assignee": "Non assigné",
     "open_parent": "Ouvrir la tâche parente",
-    "toggle_collapse": "Replier ou déplier le couloir"
+    "toggle_collapse": "Replier ou déplier le couloir",
+    "sub_lanes_hidden_one": "+{{count}} sous-couloir",
+    "sub_lanes_hidden_other": "+{{count}} sous-couloirs"
   },
   "board": {
     "hidden_columns_label": "Colonnes masquées",

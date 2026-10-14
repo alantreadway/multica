@@ -28,14 +28,20 @@ const mockListChildrenByParents = vi.hoisted(() =>
 const mockGetAgentTaskSnapshot = vi.hoisted(() =>
   vi.fn().mockResolvedValue([]),
 );
+// AG patch: ancestry walk for tree-ordered parent lanes.
+const mockListIssues = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ issues: [], total: 0 }),
+);
 vi.mock("@multica/core/api", () => ({
   api: {
     listChildrenByParents: mockListChildrenByParents,
     getAgentTaskSnapshot: mockGetAgentTaskSnapshot,
+    listIssues: mockListIssues,
   },
   getApi: () => ({
     listChildrenByParents: mockListChildrenByParents,
     getAgentTaskSnapshot: mockGetAgentTaskSnapshot,
+    listIssues: mockListIssues,
   }),
   setApiInstance: vi.fn(),
 }));
@@ -1986,3 +1992,361 @@ describe("SwimLaneView tab-session scroll restoration (MUL-4741)", () => {
     expect(scroller!.scrollTop).toBe(240);
   });
 });
+
+// AG patch: tree-ordered parent lanes. Chain A -> B -> C -> D, plus a second
+// top-level parent X with child Y. Ids are single letters so a lane's raw id
+// is also its collapse key.
+describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
+  const mk = (
+    id: string,
+    number: number,
+    parent: string | null,
+    overrides: Partial<Issue> = {},
+  ): Issue => ({
+    ...mockIssues[0]!,
+    id,
+    number,
+    identifier: `MAG-${number}`,
+    title: `Issue ${id.toUpperCase()}`,
+    status: "todo",
+    parent_issue_id: parent,
+    position: number,
+    ...overrides,
+  });
+  const A = mk("a", 1, null);
+  const B = mk("b", 2, "a");
+  const C = mk("c", 3, "b");
+  const D = mk("d", 4, "c");
+  const X = mk("x", 5, null);
+  const Y = mk("y", 6, "x");
+  const ALL = [A, B, C, D, X, Y];
+
+  const parentDescriptor = (
+    parent: Issue | null,
+  ): IssueTableGroupDescriptor => ({
+    key: `parent:${parent?.id ?? "none"}`,
+    value: parent
+      ? {
+          kind: "parent",
+          parent_id: parent.id,
+          parent: {
+            id: parent.id,
+            number: parent.number,
+            identifier: parent.identifier,
+            title: parent.title,
+            status: parent.status,
+          },
+          value_state: "value",
+        }
+      : { kind: "parent", parent_id: null, parent: null, value_state: "unset" },
+    count: 1,
+    secondary_groups: [
+      {
+        key: `compound:${parent?.id ?? "none"}:status:todo`,
+        value: { kind: "status", status: "todo" },
+        count: 1,
+      },
+    ],
+  });
+
+  const lanesOf = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll<HTMLElement>("[data-lane-depth]")).map(
+      (el) => ({
+        title: el.querySelector(".font-semibold")?.textContent ?? "",
+        depth: Number(el.dataset.laneDepth),
+      }),
+    );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockViewState.swimlaneGrouping = "parent";
+    mockViewState.swimlaneOrders = { parent: [], project: [], assignee: [] };
+    mockViewState.collapsedSwimlanes = { parent: [], project: [], assignee: [] };
+    mockListChildrenByParents.mockResolvedValue({ issues: [] });
+    mockGetAgentTaskSnapshot.mockResolvedValue([]);
+    mockListIssues.mockImplementation(
+      async (params: { ids?: string[] }) => {
+        const issues = ALL.filter((i) => params.ids?.includes(i.id));
+        return { issues, total: issues.length };
+      },
+    );
+  });
+
+  const renderServer = (
+    parents: (Issue | null)[],
+    issues: Issue[],
+    extra: Partial<React.ComponentProps<typeof SwimLaneView>> = {},
+  ) =>
+    renderWithI18n(
+      <SwimLaneView
+        issues={issues}
+        visibleStatuses={["todo"]}
+        groupBranches={makeServerBranches(
+          parents.map(parentDescriptor),
+          issues,
+        )}
+        onMoveIssue={vi.fn()}
+        {...extra}
+      />,
+    );
+
+  it("AG patch: server path nests a sub-issue lane under its parent lane", async () => {
+    const { container } = renderServer([null, B, A, X], [C, B, Y, A, X]);
+
+    await waitFor(() =>
+      expect(lanesOf(container)).toEqual([
+        { title: "No parent", depth: 0 },
+        { title: "Issue A", depth: 0 },
+        { title: "Issue B", depth: 1 },
+        { title: "Issue X", depth: 0 },
+      ]),
+    );
+  });
+
+  it("AG patch: client path nests lanes from loaded issues without a listIssues call", async () => {
+    const { container } = renderWithI18n(
+      <SwimLaneView
+        issues={[C, B, A, Y, X]}
+        visibleStatuses={["todo"]}
+        onMoveIssue={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(lanesOf(container)).toEqual([
+        { title: "No parent", depth: 0 },
+        { title: "Issue A", depth: 0 },
+        { title: "Issue B", depth: 1 },
+        { title: "Issue X", depth: 0 },
+      ]),
+    );
+    expect(mockListIssues).not.toHaveBeenCalled();
+  });
+
+  it("AG patch: three levels get contiguous depths 0, 1 and 2", async () => {
+    const { container } = renderWithI18n(
+      <SwimLaneView
+        issues={[D, C, B, A]}
+        visibleStatuses={["todo"]}
+        onMoveIssue={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(lanesOf(container)).toEqual([
+        { title: "No parent", depth: 0 },
+        { title: "Issue A", depth: 0 },
+        { title: "Issue B", depth: 1 },
+        { title: "Issue C", depth: 2 },
+      ]),
+    );
+  });
+
+  it("AG patch: a nested lane header shows the identifier path, a top-level one does not", async () => {
+    renderWithI18n(
+      <SwimLaneView
+        issues={[D, C, B, A]}
+        visibleStatuses={["todo"]}
+        onMoveIssue={vi.fn()}
+      />,
+    );
+
+    const path = await screen.findByText("MAG-1 > MAG-2 > MAG-3");
+    expect(path).toHaveAttribute("title", "MAG-1 > MAG-2 > MAG-3");
+    expect(screen.getByText("MAG-1 > MAG-2")).toBeInTheDocument();
+    // Top-level lane A keeps today's header: title plus identifier badge.
+    const laneA = screen.getByText("Issue A").closest("[data-lane-depth]")!;
+    expect(laneA.textContent).not.toContain(">");
+    expect(laneA.textContent).toContain("MAG-1");
+  });
+
+  it("AG patch: ancestors without a lane of their own still appear in the path", async () => {
+    // Only D is visible, so only C gets a lane; B and A exist in the
+    // unfiltered set and must still show up in C's header path.
+    const { container } = renderWithI18n(
+      <SwimLaneView
+        issues={[D]}
+        unfilteredIssues={[D, C, B, A]}
+        visibleStatuses={["todo"]}
+        onMoveIssue={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("MAG-1 > MAG-2 > MAG-3")).toBeInTheDocument();
+    expect(lanesOf(container)).toEqual([
+      { title: "No parent", depth: 0 },
+      { title: "Issue C", depth: 0 },
+    ]);
+  });
+
+  it("AG patch: collapsing a lane hides its sub-lanes and toggles by raw parent id", async () => {
+    mockViewState.collapsedSwimlanes = { parent: ["a"], project: [], assignee: [] };
+    const { container } = renderWithI18n(
+      <SwimLaneView
+        issues={[D, C, B, A]}
+        visibleStatuses={["todo"]}
+        onMoveIssue={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(lanesOf(container).map((l) => l.title)).toEqual([
+        "No parent",
+        "Issue A",
+      ]),
+    );
+    expect(screen.getByText("+2 sub-lanes")).toBeInTheDocument();
+
+    const laneA = screen.getByText("Issue A").closest("[data-lane-depth]")!;
+    fireEvent.click(
+      laneA.querySelector<HTMLElement>('button[aria-label="Toggle lane"]')!,
+    );
+    expect(mockToggleSwimlaneCollapsed).toHaveBeenCalledWith("a");
+  });
+
+  it("AG patch: the ancestry walk sends one sorted batch per level and stops at roots", async () => {
+    const { container } = renderServer([null, C, X], [D, C, Y, X]);
+
+    await waitFor(() =>
+      expect(lanesOf(container).map((l) => l.depth)).toEqual([0, 0, 0]),
+    );
+    await waitFor(() =>
+      expect(mockListIssues.mock.calls.map((c) => c[0].ids)).toEqual([
+        ["c", "x"],
+        ["b"],
+        ["a"],
+      ]),
+    );
+  });
+
+  it("AG patch: no ancestry request for a non-parent grouping", async () => {
+    mockViewState.swimlaneGrouping = "project";
+    renderWithI18n(
+      <SwimLaneView
+        issues={[C, B, A]}
+        visibleStatuses={["todo"]}
+        onMoveIssue={vi.fn()}
+      />,
+    );
+
+    await act(async () => {});
+    expect(mockListIssues).not.toHaveBeenCalled();
+  });
+
+  it("AG patch: the client path asks only for ancestors that are not loaded", async () => {
+    // B and A are not in the loaded set; C's lane needs them from the query.
+    const { container } = renderWithI18n(
+      <SwimLaneView
+        issues={[D, C]}
+        visibleStatuses={["todo"]}
+        onMoveIssue={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(mockListIssues.mock.calls.map((c) => c[0].ids)).toEqual([
+        ["b"],
+        ["a"],
+      ]),
+    );
+    expect(await screen.findByText("MAG-1 > MAG-2 > MAG-3")).toBeInTheDocument();
+    expect(lanesOf(container).map((l) => l.title)).toContain("Issue C");
+  });
+
+  it("AG patch: lanes keep today's order, with no spinner, until ancestry resolves", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    mockListIssues.mockImplementation(async (params: { ids?: string[] }) => {
+      await gate;
+      const issues = ALL.filter((i) => params.ids?.includes(i.id));
+      return { issues, total: issues.length };
+    });
+
+    const { container } = renderServer([null, B, A, X], [C, B, Y, A, X]);
+
+    // Server order, flat: B is not nested yet.
+    await waitFor(() =>
+      expect(lanesOf(container)).toEqual([
+        { title: "No parent", depth: 0 },
+        { title: "Issue B", depth: 0 },
+        { title: "Issue A", depth: 0 },
+        { title: "Issue X", depth: 0 },
+      ]),
+    );
+    expect(container.querySelector('[role="status"], .animate-spin')).toBeNull();
+
+    await act(async () => {
+      release();
+    });
+    await waitFor(() =>
+      expect(lanesOf(container).map((l) => l.title)).toEqual([
+        "No parent",
+        "Issue A",
+        "Issue B",
+        "Issue X",
+      ]),
+    );
+  });
+
+  it("AG patch: collapsing a mid-level lane hides only the lanes below it", async () => {
+    mockViewState.collapsedSwimlanes = { parent: ["b"], project: [], assignee: [] };
+    const { container } = renderWithI18n(
+      <SwimLaneView
+        issues={[D, C, B, A]}
+        visibleStatuses={["todo"]}
+        onMoveIssue={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(lanesOf(container).map((l) => l.title)).toEqual([
+        "No parent",
+        "Issue A",
+        "Issue B",
+      ]),
+    );
+    expect(screen.getByText("+1 sub-lane")).toBeInTheDocument();
+  });
+
+  it("AG patch: a server-path lane header shows the path once ancestry resolves", async () => {
+    renderServer([null, C, B, A], [D, C, B, A]);
+
+    expect(await screen.findByText("MAG-1 > MAG-2 > MAG-3")).toHaveAttribute(
+      "title",
+      "MAG-1 > MAG-2 > MAG-3",
+    );
+    // Header path text is clipped with an ellipsis, never wrapped.
+    expect(screen.getByText("MAG-1 > MAG-2 > MAG-3").className).toContain(
+      "truncate",
+    );
+  });
+
+  it("AG patch: server path sends no ancestry request for a non-parent grouping", async () => {
+    mockViewState.swimlaneGrouping = "project";
+    renderServer([null, B, A], [C, B, A]);
+
+    await act(async () => {});
+    expect(mockListIssues).not.toHaveBeenCalled();
+  });
+
+  it("AG patch: a parent cycle in the data still renders every lane", async () => {
+    // A.parent = B and B.parent = A is corrupt data, but must not hang.
+    const cyclicA = { ...A, parent_issue_id: "b" };
+    const { container } = renderWithI18n(
+      <SwimLaneView
+        issues={[cyclicA, B]}
+        visibleStatuses={["todo"]}
+        onMoveIssue={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(lanesOf(container).map((l) => l.title).sort()).toEqual(
+        ["Issue A", "Issue B", "No parent"].sort(),
+      ),
+    );
+  });
+});
+
