@@ -12,7 +12,7 @@ import { propertyListOptions } from "@multica/core/properties";
 import { CustomPropertyValueDisplay } from "./pickers/custom-property-picker";
 import { descriptionPreview } from "./description-preview";
 import { formatDateOnly, isPastDateOnly } from "@multica/core/issues/date";
-import { CalendarClock, CalendarDays } from "lucide-react";
+import { CalendarClock, CalendarDays, ListTree } from "lucide-react";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { PropertyIcon } from "../../common/property-icon";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -346,16 +346,37 @@ const animateLayoutChanges: AnimateLayoutChanges = (args) => {
   return defaultAnimateLayoutChanges(args);
 };
 
+/** Stops pointerdown so pressing the chip doesn't start the card drag. */
+function JumpToLaneChip({ onJump }: { onJump: () => void }) {
+  const { t } = useT("issues");
+  return (
+    <div className="mt-1 flex justify-end">
+      <button
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={onJump}
+        className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-micro font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        <ListTree className="size-3" aria-hidden />
+        {t(($) => $.swimlane.jump_to_lane)}
+      </button>
+    </div>
+  );
+}
+
 export const DraggableBoardCard = memo(function DraggableBoardCard({
   issue,
   childProgress,
   project,
   disableSorting,
+  onJumpToLane,
 }: {
   issue: Issue;
   childProgress?: ChildProgress;
   project?: Project;
   disableSorting?: boolean;
+  /** Swimlane only: when set, shows a chip that jumps to the lane this issue heads. */
+  onJumpToLane?: (issueId: string) => void;
 }) {
   const p = useWorkspacePaths();
   const peek = useIssuePeekActions();
@@ -418,6 +439,9 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({
             project={project}
           />
         </AppLink>
+        {onJumpToLane && (
+          <JumpToLaneChip onJump={() => onJumpToLane(issue.id)} />
+        )}
       </div>
     </IssueActionsContextMenu>
   );

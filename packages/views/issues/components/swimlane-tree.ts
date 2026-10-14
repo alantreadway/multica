@@ -46,16 +46,37 @@ export type TreeLane<L> = L & { tree: SwimlaneTreeInfo };
 
 /**
  * Walk up from `issueId`, returning the ids of its ancestors, nearest first.
- * Stops at a root, at an id the map doesn't know, or on a cycle.
+ * Stops at a root, at an id `parentOf` doesn't know, or on a cycle.
  */
-function ancestorIds(issueId: string, ancestry: AncestryMap): string[] {
+function ancestorIds(
+  issueId: string,
+  parentOf: (id: string) => string | null | undefined,
+): string[] {
   const out: string[] = [];
   const seen = new Set<string>([issueId]);
-  let cursor = ancestry.get(issueId)?.parentId ?? null;
+  let cursor = parentOf(issueId) ?? null;
   while (cursor !== null && !seen.has(cursor)) {
     out.push(cursor);
     seen.add(cursor);
-    cursor = ancestry.get(cursor)?.parentId ?? null;
+    cursor = parentOf(cursor) ?? null;
+  }
+  return out;
+}
+
+/** Tree ancestors of `lane`, nearest first; stops on a cycle or unknown lane. */
+function ancestorLanes<T extends { rawId: string; tree?: SwimlaneTreeInfo }>(
+  lane: T,
+  byRawId: ReadonlyMap<string, T>,
+): T[] {
+  const out: T[] = [];
+  const seen = new Set<string>([lane.rawId]);
+  let parentId = lane.tree?.treeParentRawId ?? null;
+  while (parentId !== null && !seen.has(parentId)) {
+    seen.add(parentId);
+    const ancestor = byRawId.get(parentId);
+    if (!ancestor) break;
+    out.push(ancestor);
+    parentId = ancestor.tree?.treeParentRawId ?? null;
   }
   return out;
 }
@@ -111,7 +132,7 @@ export function orderLanesAsTree<L extends TreeLaneInput>(
   for (const lane of treeLanes) {
     if (!lane.parentIssue) continue;
     const ownId = lane.parentIssue.id;
-    const ancestors = ancestorIds(ownId, ancestry);
+    const ancestors = ancestorIds(ownId, (id) => ancestry.get(id)?.parentId);
     const near = ancestors.find((id) => byParentIssueId.has(id));
     if (near !== undefined) {
       treeParentOf.set(lane.rawId, byParentIssueId.get(near)!.rawId);
@@ -186,18 +207,55 @@ export function hiddenLaneKeys(
   if (collapsed.size === 0) return hidden;
   const byRawId = new Map(lanes.map((lane) => [lane.rawId, lane]));
   for (const lane of lanes) {
-    const seen = new Set<string>([lane.rawId]);
-    let parentId = lane.tree?.treeParentRawId ?? null;
-    while (parentId !== null && !seen.has(parentId)) {
-      seen.add(parentId);
-      const ancestor = byRawId.get(parentId);
-      if (!ancestor) break;
-      if (collapsed.has(ancestor.key)) {
-        hidden.add(lane.key);
-        break;
-      }
-      parentId = ancestor.tree?.treeParentRawId ?? null;
+    if (ancestorLanes(lane, byRawId).some((a) => collapsed.has(a.key))) {
+      hidden.add(lane.key);
     }
   }
   return hidden;
+}
+
+/**
+ * Whether dropping `issueId` into `lane` would make it a descendant of itself:
+ * the lane's parent issue is `issueId` or sits below it. Reads the lane's tree
+ * path when it has one, else climbs `parentOf` (server ancestry unresolved).
+ */
+export function laneIsWithinIssue(
+  lane: { parentIssue: { id: string } | null; tree?: SwimlaneTreeInfo },
+  issueId: string,
+  parentOf: (id: string) => string | null | undefined,
+): boolean {
+  if (lane.tree) return lane.tree.path.some((p) => p.id === issueId);
+  if (!lane.parentIssue) return false;
+  const ownId = lane.parentIssue.id;
+  return ownId === issueId || ancestorIds(ownId, parentOf).includes(issueId);
+}
+
+/**
+ * Lanes may only be reordered among siblings: same tree parent lane (or both
+ * top-level). Lanes without tree info (server ancestry not resolved yet) all
+ * count as top-level, which is the flat order they render in.
+ */
+export function areSiblingLanes(
+  a: { tree?: SwimlaneTreeInfo },
+  b: { tree?: SwimlaneTreeInfo },
+): boolean {
+  return (a.tree?.treeParentRawId ?? null) === (b.tree?.treeParentRawId ?? null);
+}
+
+/**
+ * Keys of the lanes to expand so the lane `rawId` is on screen and open: the
+ * lane itself plus every ancestor lane that is collapsed. `collapsed` holds
+ * full lane keys, like `hiddenLaneKeys`.
+ */
+export function lanesToExpand(
+  lanes: readonly { key: string; rawId: string; tree?: SwimlaneTreeInfo }[],
+  rawId: string,
+  collapsed: ReadonlySet<string>,
+): string[] {
+  const byRawId = new Map(lanes.map((lane) => [lane.rawId, lane]));
+  const target = byRawId.get(rawId);
+  if (!target) return [];
+  return [target, ...ancestorLanes(target, byRawId)]
+    .filter((lane) => collapsed.has(lane.key))
+    .map((lane) => lane.key);
 }
