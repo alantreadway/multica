@@ -117,17 +117,28 @@ type SwimLaneMoveUpdates = SwimLaneMoveTargetUpdates & {
   after_id: string | null;
 };
 
-function makeSwimLaneCollision(cellIds: Set<string>): CollisionDetection {
+function makeSwimLaneCollision(
+  cellIds: Set<string>,
+  laneTreeParents: ReadonlyMap<string, string | null>,
+): CollisionDetection {
   return (args) => {
     const activeId = args.active.id as string;
     const isLaneDrag = activeId.startsWith("lane:");
+    // Lane drags only target sibling lanes, so others neither move aside nor
+    // take the drop.
+    const isSiblingLane = (c: { id: unknown }) => {
+      const id = c.id as string;
+      return (
+        laneTreeParents.has(id) &&
+        laneTreeParents.get(id) === laneTreeParents.get(activeId)
+      );
+    };
 
     const pointer = pointerWithin(args);
     if (pointer.length > 0) {
       let filtered = pointer;
       if (isLaneDrag) {
-        // Lane dragging: only consider other lane headers
-        filtered = pointer.filter((c) => (c.id as string).startsWith("lane:"));
+        filtered = pointer.filter(isSiblingLane);
       } else {
         // Card dragging: ignore parent lane headers entirely
         filtered = pointer.filter((c) => !(c.id as string).startsWith("lane:"));
@@ -143,7 +154,7 @@ function makeSwimLaneCollision(cellIds: Set<string>): CollisionDetection {
     const closest = closestCenter(args);
     let filteredClosest = closest;
     if (isLaneDrag) {
-      filteredClosest = closest.filter((c) => (c.id as string).startsWith("lane:"));
+      filteredClosest = closest.filter(isSiblingLane);
     } else {
       filteredClosest = closest.filter((c) => !(c.id as string).startsWith("lane:"));
     }
@@ -1011,8 +1022,6 @@ function SwimLaneViewImpl({
     [laneGroups, collapsedLanes],
   );
 
-  // Jump-to-lane chip: open the lane headed by `issueId` (and any collapsed
-  // ancestor lanes), then scroll to it once it is laid out.
   const lanesVirtuosoRef = useRef<VirtuosoHandle>(null);
   const [pendingJumpKey, setPendingJumpKey] = useState<string | null>(null);
   const jumpToLane = useCallback(
@@ -1096,9 +1105,18 @@ function SwimLaneViewImpl({
   }, [peek, sortedStatuses, laneGroups, collapsedLanes, hiddenKeys, localCells]);
   useEffect(() => () => peek?.publishColumns(null), [peek]);
 
+  const laneTreeParents = useMemo(
+    () =>
+      new Map(
+        laneGroups
+          .filter((g) => !g.isPinned)
+          .map((g) => [laneIdFor(swimlaneGrouping, g.rawId), g.tree?.treeParentRawId ?? null]),
+      ),
+    [laneGroups, swimlaneGrouping],
+  );
   const collisionDetection = useMemo(
-    () => makeSwimLaneCollision(cellSet),
-    [cellSet],
+    () => makeSwimLaneCollision(cellSet, laneTreeParents),
+    [cellSet, laneTreeParents],
   );
 
   const sensors = useSensors(
@@ -1239,16 +1257,13 @@ function SwimLaneViewImpl({
         overLaneRef &&
         activeLaneRef.rawId !== overLaneRef.rawId
       ) {
-        // Lanes only reorder among siblings (same tree parent); sub-lanes
-        // travel with their parent, and a lane never changes level.
+        // Siblings only: sub-lanes travel with their parent.
         const activeLane = laneGroups.find((g) => g.rawId === activeLaneRef.rawId);
         const overLane = laneGroups.find((g) => g.rawId === overLaneRef.rawId);
         if (!activeLane || !overLane || !areSiblingLanes(activeLane, overLane)) {
           return;
         }
-        // Visible non-pinned lanes, in current render order. Lanes hidden
-        // under a collapsed ancestor are not on screen, so they neither take
-        // part in the move nor have their stored slot overwritten.
+        // Visible non-pinned lanes, in render order (hidden lanes keep their slot).
         const visibleOrder = laneGroups
           .filter((g) => !g.isPinned && !g.isOrphan && !hiddenKeys.has(g.key))
           .map((g) => g.rawId);
@@ -1298,10 +1313,8 @@ function SwimLaneViewImpl({
         return;
       }
 
-      // Self-parent / descendant guard (parent grouping only): refuse drops
-      // where the target lane's parent is the dragged card or one of its
-      // descendants. The backend rejects this as a cycle; intercepting
-      // client-side avoids the optimistic-move → rollback flicker.
+      // Self-parent / descendant guard: the server rejects the cycle, so skip
+      // the optimistic move → rollback flicker.
       const targetLaneForGuard = laneByKey.get(overCell.laneKey);
       if (
         targetLaneForGuard &&
@@ -1944,11 +1957,7 @@ function SwimLaneCell({
               project={
                 issue.project_id ? projectMap?.get(issue.project_id) : undefined
               }
-              onJumpToLane={
-                lane.rawId !== NONE_LANE_ID && headerIssueIds.has(issue.id)
-                  ? onJumpToLane
-                  : undefined
-              }
+              onJumpToLane={headerIssueIds.has(issue.id) ? onJumpToLane : undefined}
             />
           ))}
         </SortableContext>
