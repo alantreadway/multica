@@ -2472,16 +2472,24 @@ describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
       expect(within(laneOf("Issue D")).queryByText("Issue B")).toBeNull();
     });
 
-    it("AG patch: a drop with no preceding dragOver does not reparent into a descendant lane", async () => {
+    it("AG patch: a drop on a descendant's lane after hovering another lane does not reparent", async () => {
       const onMoveIssue = vi.fn();
-      await renderBoard([A, B, C, D, E], onMoveIssue);
+      await renderBoard([A, B, C, D, E, X, Y], onMoveIssue);
       await screen.findAllByText("Issue D");
 
+      // B hovers X's lane (allowed, moved optimistically), then C's lane
+      // (refused, so B stays in X's), then drops on C's cell.
       act(() => {
-        lastOnDragEnd({ active: { id: "b" }, over: { id: "swim:parent:c:todo" } });
+        lastOnDragStart({ active: { id: "b" } });
       });
       act(() => {
-        lastOnDragEnd({ active: { id: "b" }, over: { id: "swim:parent:d:todo" } });
+        lastOnDragOver({ active: { id: "b" }, over: { id: "swim:parent:x:todo" } });
+      });
+      act(() => {
+        lastOnDragOver({ active: { id: "b" }, over: { id: "swim:parent:c:todo" } });
+      });
+      act(() => {
+        lastOnDragEnd({ active: { id: "b" }, over: { id: "swim:parent:c:todo" } });
       });
 
       expect(onMoveIssue).not.toHaveBeenCalled();
@@ -2572,8 +2580,14 @@ describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
       expect(detect("lane:parent:a")).toEqual([lane("x")]);
       expect(detect("lane:parent:b")).toEqual([lane("b")]);
 
-      // No pointer hit: the closest-centre fallback is filtered the same way.
-      vi.mocked(pointerWithin).mockReturnValue([]);
+      // A pointer over a non-sibling lane gives no target, even with a
+      // sibling nearby: the lane under the pointer is the one that must move.
+      vi.mocked(pointerWithin).mockReturnValue([lane("y")] as never);
+      vi.mocked(closestCenter).mockReturnValue([lane("x")] as never);
+      expect(detect("lane:parent:a")).toEqual([]);
+
+      // Pointer over no lane: the closest-centre fallback is filtered the same way.
+      vi.mocked(pointerWithin).mockReturnValue([{ id: "swim:parent:a:todo" }] as never);
       vi.mocked(closestCenter).mockReturnValue([lane("b"), lane("x")] as never);
       expect(detect("lane:parent:a")).toEqual([lane("x")]);
 
