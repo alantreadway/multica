@@ -356,7 +356,8 @@
     "no_project": "プロジェクトなし",
     "no_assignee": "未割り当て",
     "open_parent": "親タスクを開く",
-    "toggle_collapse": "レーンの開閉"
+    "toggle_collapse": "レーンの開閉",
+    "sub_lanes_hidden_other": "+{{count}} サブレーン"
   },
   "board": {
     "hidden_columns_label": "非表示の列",
