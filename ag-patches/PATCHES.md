@@ -13,10 +13,11 @@ lands, is dropped or is reworked during a rebase.
 Test names for every patch start with `AG patch:` so they are easy to find and
 to confirm survived a rebase (`grep -rn "AG patch:" packages/`).
 
-### Tree-ordered parent lanes (pending)
+### Tree-ordered parent lanes (landed)
 
 Swimlane view groups by parent issue and orders lanes as a tree, so sub-issue
-lanes sit under their parent lane. Status: pending until the unit's PR merges.
+lanes sit under their parent lane. Status: landed in
+[#2](https://github.com/alantreadway/multica/pull/2).
 
 - Test prefix: `AG patch:`
 - Files:
@@ -26,11 +27,11 @@ lanes sit under their parent lane. Status: pending until the unit's PR merges.
   - `packages/views/issues/components/swimlane-view.test.tsx`
   - `packages/core/issues/queries.ts` (append only)
 
-### Lane drag rules and jump-to-lane chip (pending)
+### Lane drag rules and jump-to-lane chip (landed)
 
 Drag rules between swimlanes and a chip that jumps to the related lane.
-Status: pending until the unit's PR merges. Depends on the tree-ordered lanes
-patch.
+Status: landed in [#3](https://github.com/alantreadway/multica/pull/3).
+Depends on the tree-ordered lanes patch.
 
 - Test prefix: `AG patch:`
 - Files:
@@ -40,4 +41,11 @@ patch.
 ## Tooling (not a patch)
 
 `ag-patches/` and `.github/workflows/ag-patches.yml` exist only on the patch
-branches. They do not touch product code.
+branches. They do not touch product code. Landed in
+[#1](https://github.com/alantreadway/multica/pull/1).
+
+## Builds
+
+| Git tag | Commit | Image | Built |
+| --- | --- | --- | --- |
+| `ag/v0.6.2-ag.1` | `c59bdb71d0713897e19371e4d11d4c316c56c71b` | `multica-web-ag:v0.6.2-ag.1` | 2026-10-14 |
