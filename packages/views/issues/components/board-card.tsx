@@ -346,7 +346,7 @@ const animateLayoutChanges: AnimateLayoutChanges = (args) => {
   return defaultAnimateLayoutChanges(args);
 };
 
-/** Outside the card's link and drag handle: a press must not start a drag. */
+/** Stops pointerdown so pressing the chip doesn't start the card drag. */
 function JumpToLaneChip({ onJump }: { onJump: () => void }) {
   const { t } = useT("issues");
   return (
