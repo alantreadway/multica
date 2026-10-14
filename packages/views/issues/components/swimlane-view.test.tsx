@@ -2252,4 +2252,101 @@ describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
     expect(await screen.findByText("MAG-1 > MAG-2 > MAG-3")).toBeInTheDocument();
     expect(lanesOf(container).map((l) => l.title)).toContain("Issue C");
   });
+
+  it("AG patch: lanes keep today's order, with no spinner, until ancestry resolves", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    mockListIssues.mockImplementation(async (params: { ids?: string[] }) => {
+      await gate;
+      const issues = ALL.filter((i) => params.ids?.includes(i.id));
+      return { issues, total: issues.length };
+    });
+
+    const { container } = renderServer([null, B, A, X], [C, B, Y, A, X]);
+
+    // Server order, flat: B is not nested yet.
+    await waitFor(() =>
+      expect(lanesOf(container)).toEqual([
+        { title: "No parent", depth: 0 },
+        { title: "Issue B", depth: 0 },
+        { title: "Issue A", depth: 0 },
+        { title: "Issue X", depth: 0 },
+      ]),
+    );
+    expect(container.querySelector('[role="status"], .animate-spin')).toBeNull();
+
+    await act(async () => {
+      release();
+    });
+    await waitFor(() =>
+      expect(lanesOf(container).map((l) => l.title)).toEqual([
+        "No parent",
+        "Issue A",
+        "Issue B",
+        "Issue X",
+      ]),
+    );
+  });
+
+  it("AG patch: collapsing a mid-level lane hides only the lanes below it", async () => {
+    mockViewState.collapsedSwimlanes = { parent: ["b"], project: [], assignee: [] };
+    const { container } = renderWithI18n(
+      <SwimLaneView
+        issues={[D, C, B, A]}
+        visibleStatuses={["todo"]}
+        onMoveIssue={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(lanesOf(container).map((l) => l.title)).toEqual([
+        "No parent",
+        "Issue A",
+        "Issue B",
+      ]),
+    );
+    expect(screen.getByText("+1 sub-lane")).toBeInTheDocument();
+  });
+
+  it("AG patch: a server-path lane header shows the path once ancestry resolves", async () => {
+    renderServer([null, C, B, A], [D, C, B, A]);
+
+    expect(await screen.findByText("MAG-1 > MAG-2 > MAG-3")).toHaveAttribute(
+      "title",
+      "MAG-1 > MAG-2 > MAG-3",
+    );
+    // Header path text is clipped with an ellipsis, never wrapped.
+    expect(screen.getByText("MAG-1 > MAG-2 > MAG-3").className).toContain(
+      "truncate",
+    );
+  });
+
+  it("AG patch: server path sends no ancestry request for a non-parent grouping", async () => {
+    mockViewState.swimlaneGrouping = "project";
+    renderServer([null, B, A], [C, B, A]);
+
+    await act(async () => {});
+    expect(mockListIssues).not.toHaveBeenCalled();
+  });
+
+  it("AG patch: a parent cycle in the data still renders every lane", async () => {
+    // A.parent = B and B.parent = A is corrupt data, but must not hang.
+    const cyclicA = { ...A, parent_issue_id: "b" };
+    const { container } = renderWithI18n(
+      <SwimLaneView
+        issues={[cyclicA, B]}
+        visibleStatuses={["todo"]}
+        onMoveIssue={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(lanesOf(container).map((l) => l.title).sort()).toEqual(
+        ["Issue A", "Issue B", "No parent"].sort(),
+      ),
+    );
+  });
 });
+
