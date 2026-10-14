@@ -181,6 +181,7 @@ vi.mock("@multica/core/modals", () => ({
 }));
 
 // Mock dnd-kit
+const mockDragHandlePointerDown = vi.hoisted(() => vi.fn());
 let lastOnDragEnd: any = null;
 let lastOnDragOver: any = null;
 let lastOnDragStart: any = null;
@@ -215,7 +216,9 @@ vi.mock("@dnd-kit/sortable", () => ({
   },
   useSortable: () => ({
     attributes: {},
-    listeners: {},
+    // AG patch: a spy stands in for dnd-kit's pointer sensor on the drag
+    // handle, so tests can tell whether a press reached it.
+    listeners: { onPointerDown: mockDragHandlePointerDown },
     setNodeRef: vi.fn(),
     transform: null,
     transition: null,
@@ -2397,11 +2400,15 @@ describe("AG patch: SwimLaneView drag rules and jump-to-lane chip", () => {
 
   // Renders and lets the ancestry query settle: its result rebuilds the lanes,
   // and a rebuild between dragOver and dragEnd would resync localCells.
-  const renderBoard = async (issues: Issue[], onMoveIssue = vi.fn()) => {
+  const renderBoard = async (
+    issues: Issue[],
+    onMoveIssue = vi.fn(),
+    visibleStatuses = ["todo"],
+  ) => {
     const result = renderWithI18n(
       <SwimLaneView
         issues={issues}
-        visibleStatuses={["todo"]}
+        visibleStatuses={visibleStatuses}
         onMoveIssue={onMoveIssue}
       />,
     );
@@ -2508,17 +2515,18 @@ describe("AG patch: SwimLaneView drag rules and jump-to-lane chip", () => {
 
     // B's card in A's lane heads lane b; C is a plain card inside it.
     const chip = within(laneOf("Issue A")).getByRole("button", { name: "Jump to lane" });
-    const openIssue = vi.fn();
-    chip.closest("a")?.addEventListener("click", openIssue);
     fireEvent.click(chip);
 
     expect(mockToggleSwimlaneCollapsed).toHaveBeenCalledWith("b");
     expect(mockToggleSwimlaneCollapsed).toHaveBeenCalledTimes(1);
+    // The chip sits outside the card's link, so a click can't open the issue.
     expect(chip.closest("a")).toBeNull();
-    expect(openIssue).not.toHaveBeenCalled();
-    // The card's own drag listeners never see the press.
-    const pointerDown = fireEvent.pointerDown(chip);
-    expect(pointerDown).toBe(true);
+    // The card's own drag listeners never see a press on the chip, but do
+    // see one on the card title.
+    fireEvent.pointerDown(chip);
+    expect(mockDragHandlePointerDown).not.toHaveBeenCalled();
+    fireEvent.pointerDown(within(laneOf("Issue A")).getByText("Issue B"));
+    expect(mockDragHandlePointerDown).toHaveBeenCalled();
   });
 
   it("AG patch: the chip scrolls to an open lane, and the No parent lane has none", async () => {
@@ -2540,5 +2548,89 @@ describe("AG patch: SwimLaneView drag rules and jump-to-lane chip", () => {
       ),
     );
     expect(mockToggleSwimlaneCollapsed).not.toHaveBeenCalled();
+  });
+
+  it("AG patch: the descendant guard holds on dragOver alone, before any drop", async () => {
+    await renderBoard([A, B, C, D, E]);
+    await screen.findAllByText("Issue D");
+
+    act(() => {
+      lastOnDragStart({ active: { id: "b" } });
+    });
+    act(() => {
+      lastOnDragOver({ active: { id: "b" }, over: { id: "swim:parent:d:todo" } });
+    });
+
+    expect(within(laneOf("Issue A")).getByText("Issue B")).toBeInTheDocument();
+    expect(within(laneOf("Issue D")).queryByText("Issue B")).toBeNull();
+  });
+
+  it("AG patch: a drop with no preceding dragOver does not reparent into a descendant lane", async () => {
+    const onMoveIssue = vi.fn();
+    await renderBoard([A, B, C, D, E], onMoveIssue);
+    await screen.findAllByText("Issue D");
+
+    act(() => {
+      lastOnDragEnd({ active: { id: "b" }, over: { id: "swim:parent:c:todo" } });
+    });
+    act(() => {
+      lastOnDragEnd({ active: { id: "b" }, over: { id: "swim:parent:d:todo" } });
+    });
+
+    expect(onMoveIssue).not.toHaveBeenCalled();
+  });
+
+  it("AG patch: a lane drag never reparents a card", async () => {
+    const onMoveIssue = vi.fn();
+    await renderBoard([C, B, A, Z, Y, X], onMoveIssue);
+    await waitFor(() => expect(laneOf("Issue Y")).toBeTruthy());
+
+    dropLane("a", "x");
+    dropLane("b", "y");
+
+    expect(mockSetSwimlaneOrder).toHaveBeenCalledTimes(1);
+    expect(onMoveIssue).not.toHaveBeenCalled();
+  });
+
+  it("AG patch: a card dropped into No parent becomes top-level", async () => {
+    const W = mk("w", 9, null);
+    const onMoveIssue = vi.fn();
+    await renderBoard([A, B, C, W], onMoveIssue);
+    await waitFor(() => expect(laneOf("Issue B")).toBeTruthy());
+
+    // B (a card in A's lane, heading lane b) moves out to the top level.
+    dropCard("b", "swim:parent:none:todo");
+
+    expect(onMoveIssue).toHaveBeenCalledTimes(1);
+    expect(onMoveIssue.mock.calls[0]![0]).toBe("b");
+    expect(onMoveIssue.mock.calls[0]![1]).toMatchObject({ parent_issue_id: null });
+  });
+
+  it("AG patch: a card moved to another status in its lane keeps its parent", async () => {
+    const onMoveIssue = vi.fn();
+    await renderBoard([A, B, C], onMoveIssue, ["todo", "in_progress"]);
+    await waitFor(() => expect(laneOf("Issue B")).toBeTruthy());
+
+    // C is a card in B's lane (todo); drop it on B's in_progress cell.
+    dropCard("c", "swim:parent:b:in_progress");
+
+    expect(onMoveIssue).toHaveBeenCalledTimes(1);
+    expect(onMoveIssue.mock.calls[0]![1]).toMatchObject({
+      parent_issue_id: "b",
+      status: "in_progress",
+    });
+  });
+
+  it("AG patch: a card dropped on a lane header does nothing", async () => {
+    const onMoveIssue = vi.fn();
+    await renderBoard([A, B, C, X], onMoveIssue);
+    await waitFor(() => expect(laneOf("Issue B")).toBeTruthy());
+
+    act(() => {
+      lastOnDragEnd({ active: { id: "b" }, over: { id: "lane:parent:x" } });
+    });
+
+    expect(onMoveIssue).not.toHaveBeenCalled();
+    expect(mockSetSwimlaneOrder).not.toHaveBeenCalled();
   });
 });
