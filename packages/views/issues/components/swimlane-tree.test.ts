@@ -134,6 +134,50 @@ describe("orderLanesAsTree", () => {
   });
 });
 
+describe("orderLanesAsTree (extra cases)", () => {
+  it("orders stored siblings by the stored order, ahead of unstored ones", () => {
+    const out = orderLanesAsTree(
+      [lane("a"), lane("x"), lane("y"), lane("z")],
+      ancestryOf({ a: null, x: "a", y: "a", z: "a" }),
+      ["z", "x"],
+    );
+
+    expect(summary(out)).toEqual(["a@0", "z@1", "x@1", "y@1"]);
+  });
+
+  it("attaches under the nearest laned ancestor, not a farther one", () => {
+    // A and B both have lanes; C hangs under B, which hangs under A.
+    const out = orderLanesAsTree(
+      [lane("c"), lane("b"), lane("a")],
+      ancestryOf({ a: null, b: "a", c: "b" }),
+      [],
+    );
+
+    expect(out.find((l) => l.rawId === "c")!.tree.treeParentRawId).toBe("b");
+    expect(out.find((l) => l.rawId === "b")!.tree.treeParentRawId).toBe("a");
+  });
+
+  it("returns the lanes in incoming order, as roots, with no ancestry", () => {
+    const out = orderLanesAsTree(
+      [lane("b"), lane("a")],
+      ancestryOf({}),
+      [],
+    );
+
+    expect(summary(out)).toEqual(["b@0", "a@0"]);
+    expect(out.every((l) => l.tree.path.length === 1)).toBe(true);
+  });
+
+  it("does not reorder or mutate the pinned lanes' fields", () => {
+    const none = lane("none", { isPinned: true, parentIssue: null });
+    const out = orderLanesAsTree([none, lane("a")], ancestryOf({ a: null }), []);
+
+    expect(out[0]).toMatchObject({ rawId: "none", isPinned: true });
+    expect(out[0]!.tree.depth).toBe(0);
+    expect(out[0]!.tree.treeParentRawId).toBeNull();
+  });
+});
+
 describe("hiddenLaneKeys", () => {
   const tree = orderLanesAsTree(
     [lane("a"), lane("b"), lane("c"), lane("x")],
@@ -156,5 +200,16 @@ describe("hiddenLaneKeys", () => {
 
   it("returns an empty set when nothing is collapsed", () => {
     expect(hiddenLaneKeys(tree, new Set()).size).toBe(0);
+  });
+
+  it("terminates on a cyclic tree", () => {
+    const cyclic = orderLanesAsTree(
+      [lane("a"), lane("b")],
+      ancestryOf({ a: "b", b: "a" }),
+      [],
+    );
+
+    expect(hiddenLaneKeys(cyclic, new Set(["parent:a", "parent:b"])).size)
+      .toBeLessThanOrEqual(2);
   });
 });
