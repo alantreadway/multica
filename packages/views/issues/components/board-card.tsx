@@ -346,6 +346,24 @@ const animateLayoutChanges: AnimateLayoutChanges = (args) => {
   return defaultAnimateLayoutChanges(args);
 };
 
+/** Outside the card's link and drag handle: a press must not start a drag. */
+function JumpToLaneChip({ onJump }: { onJump: () => void }) {
+  const { t } = useT("issues");
+  return (
+    <div className="mt-1 flex justify-end">
+      <button
+        type="button"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={onJump}
+        className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-micro font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        <ListTree className="size-3" aria-hidden />
+        {t(($) => $.swimlane.jump_to_lane)}
+      </button>
+    </div>
+  );
+}
+
 export const DraggableBoardCard = memo(function DraggableBoardCard({
   issue,
   childProgress,
@@ -360,7 +378,6 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({
   /** Swimlane only: when set, shows a chip that jumps to the lane this issue heads. */
   onJumpToLane?: (issueId: string) => void;
 }) {
-  const { t } = useT("issues");
   const p = useWorkspacePaths();
   const peek = useIssuePeekActions();
   const peeked = useIsIssuePeeked(issue.id);
@@ -423,24 +440,7 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({
           />
         </AppLink>
         {onJumpToLane && (
-          <div className="mt-1 flex justify-end">
-            {/* Outside the link; the pointer-down stop keeps the card's drag
-                listeners from picking the press up. */}
-            <button
-              type="button"
-              data-jump-to-lane=""
-              aria-label={t(($) => $.swimlane.jump_to_lane)}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onJumpToLane(issue.id);
-              }}
-              className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-micro font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <ListTree className="size-3" aria-hidden />
-              {t(($) => $.swimlane.jump_to_lane)}
-            </button>
-          </div>
+          <JumpToLaneChip onJump={() => onJumpToLane(issue.id)} />
         )}
       </div>
     </IssueActionsContextMenu>
