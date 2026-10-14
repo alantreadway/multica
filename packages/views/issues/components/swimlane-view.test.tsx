@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SwimLaneView } from "./swimlane-view";
 import { IssueContextMenuProvider } from "../actions";
@@ -183,9 +183,11 @@ vi.mock("@multica/core/modals", () => ({
 // Mock dnd-kit
 let lastOnDragEnd: any = null;
 let lastOnDragOver: any = null;
+let lastOnDragStart: any = null;
 
 vi.mock("@dnd-kit/core", () => ({
-  DndContext: ({ children, onDragEnd, onDragOver }: any) => {
+  DndContext: ({ children, onDragEnd, onDragOver, onDragStart }: any) => {
+    lastOnDragStart = onDragStart;
     lastOnDragEnd = onDragEnd;
     lastOnDragOver = onDragOver;
     return children;
@@ -229,16 +231,27 @@ vi.mock("@dnd-kit/utilities", () => ({
 // nothing (and throws on its resize plumbing). Render every lane inline so the
 // virtualized swimlane exposes its lanes/cells/cards to the DOM, matching the
 // non-virtualized behavior these tests assert.
-vi.mock("react-virtuoso", () => ({
-  Virtuoso: ({ data, itemContent, components }: any) => (
-    <div data-testid="virtuoso-mock">
-      {(data ?? []).map((item: any, i: number) => (
-        <div key={i}>{itemContent(i, item)}</div>
-      ))}
-      {components?.Footer ? <components.Footer /> : null}
-    </div>
-  ),
-}));
+// AG patch: the handle's scrollToIndex is captured for the jump-to-lane chip.
+const mockScrollToIndex = vi.hoisted(() => vi.fn());
+vi.mock("react-virtuoso", async () => {
+  const React = await import("react");
+  return {
+    Virtuoso: React.forwardRef(function VirtuosoMock(
+      { data, itemContent, components }: any,
+      ref,
+    ) {
+      React.useImperativeHandle(ref, () => ({ scrollToIndex: mockScrollToIndex }));
+      return (
+        <div data-testid="virtuoso-mock">
+          {(data ?? []).map((item: any, i: number) => (
+            <div key={i}>{itemContent(i, item)}</div>
+          ))}
+          {components?.Footer ? <components.Footer /> : null}
+        </div>
+      );
+    }),
+  };
+});
 
 const mockIssues: Issue[] = [
   {
@@ -2350,3 +2363,182 @@ describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
   });
 });
 
+
+// AG patch: drag rules and the jump-to-lane chip for tree-ordered lanes.
+// Chain A -> B -> C -> D -> E gives lanes a, b, c and d (E is a leaf card);
+// X -> Y -> Z gives lanes x and y. Every issue is `todo`, so each lane has one
+// cell.
+describe("AG patch: SwimLaneView drag rules and jump-to-lane chip", () => {
+  const mk = (id: string, number: number, parent: string | null): Issue => ({
+    ...mockIssues[0]!,
+    id,
+    number,
+    identifier: `MAG-${number}`,
+    title: `Issue ${id.toUpperCase()}`,
+    status: "todo",
+    parent_issue_id: parent,
+    position: number,
+  });
+  const A = mk("a", 1, null);
+  const B = mk("b", 2, "a");
+  const C = mk("c", 3, "b");
+  const D = mk("d", 4, "c");
+  const E = mk("e", 5, "d");
+  const X = mk("x", 6, null);
+  const Y = mk("y", 7, "x");
+  const Z = mk("z", 8, "y");
+  const ALL = [A, B, C, D, E, X, Y, Z];
+
+  const laneOf = (title: string) =>
+    screen
+      .getAllByText(title)
+      .map((el) => el.closest<HTMLElement>("[data-lane-depth]"))
+      .find((el): el is HTMLElement => el !== null && el.querySelector(".font-semibold")?.textContent === title)!;
+
+  // Renders and lets the ancestry query settle: its result rebuilds the lanes,
+  // and a rebuild between dragOver and dragEnd would resync localCells.
+  const renderBoard = async (issues: Issue[], onMoveIssue = vi.fn()) => {
+    const result = renderWithI18n(
+      <SwimLaneView
+        issues={issues}
+        visibleStatuses={["todo"]}
+        onMoveIssue={onMoveIssue}
+      />,
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return result;
+  };
+
+  const dropCard = (activeId: string, overId: string) => {
+    // dragStart takes the drag lock, so a rebuild of the lanes mid-drag
+    // (the batch children queries re-render here) can't resync localCells.
+    act(() => {
+      lastOnDragStart({ active: { id: activeId } });
+    });
+    act(() => {
+      lastOnDragOver({ active: { id: activeId }, over: { id: overId } });
+    });
+    act(() => {
+      lastOnDragEnd({ active: { id: activeId }, over: { id: overId } });
+    });
+  };
+  const dropLane = (activeRaw: string, overRaw: string) =>
+    act(() => {
+      lastOnDragEnd({
+        active: { id: `lane:parent:${activeRaw}` },
+        over: { id: `lane:parent:${overRaw}` },
+      });
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockViewState.swimlaneGrouping = "parent";
+    mockViewState.swimlaneOrders = { parent: [], project: [], assignee: [] };
+    mockViewState.collapsedSwimlanes = { parent: [], project: [], assignee: [] };
+    mockListChildrenByParents.mockResolvedValue({ issues: [] });
+    mockGetAgentTaskSnapshot.mockResolvedValue([]);
+    mockListIssues.mockImplementation(async (params: { ids?: string[] }) => {
+      const issues = ALL.filter((i) => params.ids?.includes(i.id));
+      return { issues, total: issues.length };
+    });
+  });
+
+  it("AG patch: a card dropped into a descendant's lane is refused without an optimistic move", async () => {
+    const onMoveIssue = vi.fn();
+    await renderBoard([A, B, C, D, E], onMoveIssue);
+    await screen.findAllByText("Issue D");
+
+    // B sits in A's lane; C's lane is a child, D's lane a grandchild.
+    dropCard("b", "swim:parent:c:todo");
+    dropCard("b", "swim:parent:d:todo");
+
+    expect(onMoveIssue).not.toHaveBeenCalled();
+    expect(within(laneOf("Issue A")).getByText("Issue B")).toBeInTheDocument();
+    expect(within(laneOf("Issue D")).queryByText("Issue B")).toBeNull();
+  });
+
+  it("AG patch: a normal cross-lane drop still reparents the card", async () => {
+    const onMoveIssue = vi.fn();
+    await renderBoard([A, B, C, D, E], onMoveIssue);
+    await screen.findAllByText("Issue D");
+
+    // D (a card in C's lane) moves up into A's lane, an ancestor's.
+    dropCard("d", "swim:parent:a:todo");
+
+    expect(onMoveIssue).toHaveBeenCalledTimes(1);
+    expect(onMoveIssue.mock.calls[0]![0]).toBe("d");
+    expect(onMoveIssue.mock.calls[0]![1]).toMatchObject({ parent_issue_id: "a" });
+  });
+
+  it("AG patch: a lane drops onto a sibling lane but not onto another level or parent", async () => {
+    await renderBoard([C, B, A, Z, Y, X]);
+    await waitFor(() => expect(laneOf("Issue Y")).toBeTruthy());
+
+    // Tree order: a, b (under a), x, y (under x).
+    dropLane("a", "y");
+    dropLane("b", "y");
+    dropLane("b", "a");
+    expect(mockSetSwimlaneOrder).not.toHaveBeenCalled();
+
+    dropLane("a", "x");
+    expect(mockSetSwimlaneOrder).toHaveBeenCalledTimes(1);
+    expect(mockSetSwimlaneOrder).toHaveBeenCalledWith(["b", "x", "a", "y"]);
+  });
+
+  it("AG patch: lanes hidden under a collapsed ancestor take no part in a lane reorder", async () => {
+    mockViewState.collapsedSwimlanes = { parent: ["a"], project: [], assignee: [] };
+    mockViewState.swimlaneOrders = { parent: ["a", "b", "x", "y"], project: [], assignee: [] };
+    await renderBoard([C, B, A, Z, Y, X]);
+    await waitFor(() => expect(laneOf("Issue X")).toBeTruthy());
+
+    // B's lane is hidden: it is not a target, and not moved by the reorder.
+    dropLane("x", "b");
+    expect(mockSetSwimlaneOrder).not.toHaveBeenCalled();
+
+    dropLane("x", "a");
+    expect(mockSetSwimlaneOrder).toHaveBeenCalledWith(["x", "b", "a", "y"]);
+  });
+
+  it("AG patch: a card heading a lane shows a chip that expands the collapsed lane", async () => {
+    mockViewState.collapsedSwimlanes = { parent: ["b"], project: [], assignee: [] };
+    await renderBoard([A, B, C, X]);
+    await waitFor(() => expect(laneOf("Issue B")).toBeTruthy());
+
+    // B's card in A's lane heads lane b; C is a plain card inside it.
+    const chip = within(laneOf("Issue A")).getByRole("button", { name: "Jump to lane" });
+    const openIssue = vi.fn();
+    chip.closest("a")?.addEventListener("click", openIssue);
+    fireEvent.click(chip);
+
+    expect(mockToggleSwimlaneCollapsed).toHaveBeenCalledWith("b");
+    expect(mockToggleSwimlaneCollapsed).toHaveBeenCalledTimes(1);
+    expect(chip.closest("a")).toBeNull();
+    expect(openIssue).not.toHaveBeenCalled();
+    // The card's own drag listeners never see the press.
+    const pointerDown = fireEvent.pointerDown(chip);
+    expect(pointerDown).toBe(true);
+  });
+
+  it("AG patch: the chip scrolls to an open lane, and the No parent lane has none", async () => {
+    await renderBoard([A, B, C, X]);
+    await waitFor(() => expect(laneOf("Issue B")).toBeTruthy());
+
+    expect(
+      within(laneOf("No parent")).queryByRole("button", { name: "Jump to lane" }),
+    ).toBeNull();
+    // Only B's card heads a lane (the root header and leaf cards have no chip).
+    expect(screen.getAllByRole("button", { name: "Jump to lane" })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Jump to lane" }));
+
+    // Lane order: No parent, A, B.
+    await waitFor(() =>
+      expect(mockScrollToIndex).toHaveBeenCalledWith(
+        expect.objectContaining({ index: 2, align: "start" }),
+      ),
+    );
+    expect(mockToggleSwimlaneCollapsed).not.toHaveBeenCalled();
+  });
+});
