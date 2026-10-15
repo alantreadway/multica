@@ -47,10 +47,11 @@ Run the guard tests alone with `ag-patches/test.sh`. CI runs the same script on
 PRs into `ag/**` (`.github/workflows/ag-patches.yml`).
 
 The script also runs the Go `TestAGPatch*` tests (`server/internal/daemon`,
-`server/cmd/multica`, `server/internal/agdrain` and `server/pkg/protocol`) from `server/`: it uses local
-`go` if present, else `docker run golang:<version from server/go.mod>`. It fails
-if fewer than `AG_GO_MIN_TESTS` of them pass, since `go test -run` exits 0 when
-nothing matches.
+`server/cmd/multica`, `server/internal/daemonws`, `server/internal/agdrain` and
+`server/pkg/protocol`) from `server/`: it uses local `go` if present, else
+`docker run golang:<version from server/go.mod>`. It fails if fewer than
+`AG_GO_MIN_TESTS` of them pass, since `go test -run` exits 0 when nothing
+matches.
 
 The drain badge's database-backed tests (`TestAGPatch*` in
 `server/internal/handler`) need Postgres and skip without one, so the guard does

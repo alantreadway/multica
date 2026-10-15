@@ -193,7 +193,7 @@ func TestAGPatchDrainReportNormalised(t *testing.T) {
 		}
 	})
 
-	t.Run("AG patch: unreadable stored metadata is treated as unknown, not as a drain", func(t *testing.T) {
+	t.Run("AG patch: unreadable or non-draining stored metadata yields no drain state", func(t *testing.T) {
 		for name, md := range map[string][]byte{
 			"empty":         nil,
 			"not json":      []byte(`{`),
