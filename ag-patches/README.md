@@ -250,9 +250,11 @@ For a new upstream tag `vX`, from the current patch branch `ag/v0.6.2`:
 5. Run `ag-patches/test.sh`.
 6. Build: `ag-patches/build-web.sh --rev 1`, `ag-patches/build-cli.sh --rev 1` and
    `ag-patches/build-backend.sh --rev 1`.
-7. Upgrade the backend to stock `vX` (or switch it to the new patched backend
-   image), then switch the frontend to the new image and the daemon to the new CLI
-   binary.
+7. Upgrade the self-host to `vX`, then switch to the new images: the patched
+   backend image from step 6 first, then the web image and the daemon's new CLI
+   binary. A patched web image on a stock backend freezes the drain badge (see
+   "Backend image"), so if the backend image wasn't built, leave the web image
+   stock too.
 8. Update `PATCHES.md` (base tag and commit, files per patch).
 9. Tag the built commit and push the branch and the tag:
    `git tag ag/vX-ag.1`, `git push origin ag/vX`,

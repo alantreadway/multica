@@ -15,9 +15,11 @@ import (
 // MetadataKey is where the drain state lives in agent_runtime.metadata.
 const MetadataKey = "ag_drain"
 
-// RefreshInterval is how often a draining runtime re-checks its stored state:
-// registration overwrites metadata wholesale, so a long-lived connection's memo
-// can outlive the key. The check is a guarded no-op UPDATE.
+// RefreshInterval is how often a runtime re-checks its stored state, draining
+// or not. Registration overwrites metadata wholesale and the HTTP pending-work
+// hint heartbeat writes the key without updating a WS lease's memo, so a
+// long-lived connection's memo can disagree with the row. The check is a
+// guarded no-op UPDATE.
 const RefreshInterval = 60 * time.Second
 
 // State is the stored value. A runtime that is not draining has no key at all.
@@ -89,14 +91,13 @@ func same(a, b *State) bool {
 // Apply reconciles one heartbeat's report with the stored state and returns
 // the memo to keep and whether the stored state changed. A nil report (a stock
 // daemon) touches nothing; otherwise it writes only when the report differs
-// from the memo, or when RefreshInterval has passed while draining.
+// from the memo, or when RefreshInterval has passed.
 func Apply(ctx context.Context, store Store, runtimeID pgtype.UUID, memo Memo, report *protocol.DaemonDrainReport, now time.Time) (Memo, bool, error) {
 	if report == nil {
 		return memo, false, nil
 	}
 	want := target(report)
-	if memo.Known && same(memo.State, want) &&
-		(want == nil || now.Sub(memo.WrittenAt) < RefreshInterval) {
+	if memo.Known && same(memo.State, want) && now.Sub(memo.WrittenAt) < RefreshInterval {
 		return memo, false, nil
 	}
 
