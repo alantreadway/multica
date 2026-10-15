@@ -79,7 +79,8 @@ func agValidateDrainFlags(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// agChainPreRunE runs prev, if any, before next so a hook upstream adds later is kept.
+// agChainPreRunE runs prev, if any, before next, so a PreRunE set in the
+// command literal is kept. A later init() that assigns PreRunE would replace it.
 func agChainPreRunE(prev, next func(*cobra.Command, []string) error) func(*cobra.Command, []string) error {
 	if prev == nil {
 		return next
@@ -183,13 +184,10 @@ func agDrainAndReport(port int, wait bool, timeout time.Duration, out, progress 
 	if err != nil {
 		return err
 	}
-	// /drain returns only the total; take all three counts from the same /health read.
+	// /drain returns only the total; /health carries the running/waiting split,
+	// so report one /health snapshot when it answers.
 	if health := agHealth(port); daemonAlive(health) {
-		for _, k := range []string{"active_task_count", "running_task_count", "resource_wait_task_count"} {
-			if v, ok := health[k]; ok {
-				resp[k] = v
-			}
-		}
+		resp = health
 	}
 	idle, _ := resp["idle"].(bool)
 	fmt.Fprintf(out, "Draining%s: no new tasks will be claimed.\n", agDrainSinceSuffix(resp))
@@ -240,18 +238,14 @@ func agWaitIdle(ctx context.Context, port int, progress io.Writer) error {
 			}
 		}
 		if ctx.Err() != nil {
-			return agDrainTimeoutError(health, "timed out waiting for the daemon to go idle")
+			return fmt.Errorf("timed out waiting for the daemon to go idle (active tasks: %s); the daemon is still draining, run 'multica daemon resume' to claim again",
+				agActiveTasksSummary(health))
 		}
 		select {
 		case <-ctx.Done():
 		case <-time.After(agDrainPollInterval):
 		}
 	}
-}
-
-func agDrainTimeoutError(health map[string]any, msg string) error {
-	return fmt.Errorf("%s (active tasks: %s); the daemon is still draining, run 'multica daemon resume' to claim again",
-		msg, agActiveTasksSummary(health))
 }
 
 func agHealth(port int) map[string]any {
