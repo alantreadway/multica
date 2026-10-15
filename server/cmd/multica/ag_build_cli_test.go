@@ -1,27 +1,29 @@
 package main
 
-// AG patch: ag-patches/build-cli.sh tests. The script runs against a throwaway
-// git repo with a stub `go` first on PATH, so nothing is compiled. Names are
-// TestAGPatch* so ag-patches/test.sh picks them up.
+// AG patch: ag-patches/build-cli.sh tests, run against a throwaway git repo
+// with stub go and docker binaries so nothing is compiled.
 
 import (
 	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 type agBuildCLIRepo struct {
-	dir     string
-	binDir  string
-	goLog   string
-	testLog string
+	dir       string
+	binDir    string
+	goLog     string
+	dockerLog string
+	testLog   string
 }
 
 // newAGBuildCLIRepo makes a repo on branch ag/v0.6.2 with the upstream tag
-// v0.6.2 on an ancestor commit, a stub ag-patches/test.sh and a stub go.
+// v0.6.2 on an ancestor commit, a stub ag-patches/test.sh, and stub go and
+// docker binaries on PATH.
 func newAGBuildCLIRepo(t *testing.T, testShExit int) *agBuildCLIRepo {
 	t.Helper()
 	for _, tool := range []string{"git", "bash"} {
@@ -31,6 +33,7 @@ func newAGBuildCLIRepo(t *testing.T, testShExit int) *agBuildCLIRepo {
 	}
 	r := &agBuildCLIRepo{dir: t.TempDir(), binDir: t.TempDir()}
 	r.goLog = filepath.Join(r.binDir, "go.log")
+	r.dockerLog = filepath.Join(r.binDir, "docker.log")
 	r.testLog = filepath.Join(r.binDir, "test.log")
 
 	// The stub records its environment and arguments, then creates the file
@@ -49,19 +52,42 @@ done
 	if err := os.WriteFile(filepath.Join(r.binDir, "go"), []byte(stub), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The docker stub runs from the repo root, so -o ../dist/x is server/../dist/x.
+	dockerStub := `#!/bin/sh
+{
+  echo "CGO_ENABLED=$CGO_ENABLED GOOS=$GOOS GOARCH=$GOARCH"
+  echo "ARGS=$*"
+} >> "` + r.dockerLog + `"
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-o" ]; then : > "server/$2"; fi
+  shift
+done
+`
+	if err := os.WriteFile(filepath.Join(r.binDir, "docker"), []byte(dockerStub), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	r.git(t, "init", "-q", "-b", "main")
 	r.write(t, "README", "x")
-	r.write(t, "server/.keep", "")
-	r.git(t, "add", "README", "server/.keep")
+	r.write(t, "server/go.mod", "module example.com/x\n\ngo 1.26.9\n")
+	r.write(t, ".gitignore", "dist/\n")
+	r.git(t, "add", "README", "server/go.mod", ".gitignore")
 	r.git(t, "commit", "-q", "-m", "upstream")
 	r.git(t, "tag", "v0.6.2")
 	r.git(t, "checkout", "-q", "-b", "ag/v0.6.2")
-	r.write(t, "ag-patches/test.sh", "#!/bin/sh\necho ran >> \""+r.testLog+"\"\nexit "+string(rune('0'+testShExit))+"\n")
+	// The real scripts are the code under test.
+	for _, name := range []string{"lib.sh", "build-cli.sh"} {
+		body, err := os.ReadFile(filepath.Join("../../../ag-patches", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.write(t, "ag-patches/"+name, string(body))
+	}
+	r.write(t, "ag-patches/test.sh", "#!/bin/sh\necho ran >> \""+r.testLog+"\"\nexit "+strconv.Itoa(testShExit)+"\n")
 	if err := os.Chmod(filepath.Join(r.dir, "ag-patches/test.sh"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	r.git(t, "add", "ag-patches/test.sh")
+	r.git(t, "add", "ag-patches")
 	r.git(t, "commit", "-q", "-m", "patch")
 	return r
 }
@@ -88,22 +114,20 @@ func (r *agBuildCLIRepo) git(t *testing.T, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// run executes build-cli.sh and returns combined output and the exit code.
+// run executes the repo's own copy of build-cli.sh (committed from the real
+// script) and returns combined output and the exit code.
 func (r *agBuildCLIRepo) run(t *testing.T, args ...string) (string, int) {
+	return r.runEnv(t, nil, args...)
+}
+
+func (r *agBuildCLIRepo) runEnv(t *testing.T, env []string, args ...string) (string, int) {
 	t.Helper()
-	script, err := filepath.Abs("../../../ag-patches/build-cli.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(script); err != nil {
-		t.Fatalf("build-cli.sh not found: %v", err)
-	}
-	cmd := exec.Command("bash", append([]string{script}, args...)...)
+	cmd := exec.Command("bash", append([]string{filepath.Join(r.dir, "ag-patches/build-cli.sh")}, args...)...)
 	cmd.Dir = r.dir
-	cmd.Env = append(os.Environ(), "PATH="+r.binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd.Env = append(append(os.Environ(), "PATH="+r.binDir+string(os.PathListSeparator)+os.Getenv("PATH")), env...)
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf
-	err = cmd.Run()
+	err := cmd.Run()
 	code := 0
 	if ee, ok := err.(*exec.ExitError); ok {
 		code = ee.ExitCode()
@@ -196,6 +220,52 @@ func TestAGPatchBuildCLI(t *testing.T) {
 		out, code := r.run(t, "--rev", "1")
 		if code == 0 || !strings.Contains(out, "dirty") {
 			t.Fatalf("want a dirty-tree refusal, exit %d:\n%s", code, out)
+		}
+	})
+
+	t.Run("AG patch: build-cli falls back to a golang container when go is not used", func(t *testing.T) {
+		r := newAGBuildCLIRepo(t, 0)
+		out, code := r.runEnv(t, []string{"AG_FORCE_DOCKER=1"}, "--rev", "4")
+		if code != 0 {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+		if _, err := os.Stat(r.goLog); err == nil {
+			t.Error("local go ran although the container was forced")
+		}
+		if _, err := os.Stat(filepath.Join(r.dir, "dist", "multica-v0.6.2-ag.4-darwin-arm64")); err != nil {
+			t.Errorf("expected the container build's binary in dist/: %v\n%s", err, out)
+		}
+		log, _ := os.ReadFile(r.dockerLog)
+		for _, want := range []string{
+			"CGO_ENABLED=0 GOOS=darwin GOARCH=arm64",
+			"run --rm",
+			":/src -w /src/server",
+			"-v multica-ag-gomod:/go/pkg/mod",
+			"-e CGO_ENABLED -e GOOS -e GOARCH",
+			"golang:1.26.9 go build",
+			"-buildvcs=false",
+			"-X main.version=v0.6.2-ag.4",
+			"-o ../dist/multica-v0.6.2-ag.4-darwin-arm64 ./cmd/multica",
+		} {
+			if !strings.Contains(string(log), want) {
+				t.Errorf("docker invocation missing %q:\n%s", want, log)
+			}
+		}
+	})
+
+	t.Run("AG patch: build-cli refuses a --rev whose ag/ tag marks another commit", func(t *testing.T) {
+		r := newAGBuildCLIRepo(t, 0)
+		r.git(t, "tag", "ag/v0.6.2-ag.1", "HEAD~1")
+		out, code := r.run(t, "--rev", "1")
+		if code == 0 || !strings.Contains(out, "already marks") {
+			t.Fatalf("want a tag-collision refusal, exit %d:\n%s", code, out)
+		}
+		if _, code := r.run(t, "--rev", "2"); code != 0 {
+			t.Error("a free --rev was refused")
+		}
+		r.git(t, "tag", "ag/v0.6.2-ag.3", "HEAD")
+		if out, code := r.run(t, "--rev", "3"); code != 0 {
+			t.Errorf("rebuilding the tagged commit was refused:\n%s", out)
 		}
 	})
 }

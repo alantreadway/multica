@@ -14,6 +14,7 @@
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
+. ./ag-patches/lib.sh
 
 pnpm install --frozen-lockfile
 
@@ -27,26 +28,9 @@ pnpm --filter @multica/views typecheck
 
 AG_GO_MIN_TESTS=13
 
-go_version="$(awk '/^go /{print $2; exit}' server/go.mod)"
-
-if command -v go >/dev/null 2>&1; then
-  go_test() { (cd server && go "$@"); }
-elif command -v docker >/dev/null 2>&1; then
-  echo "go not found; running Go tests in golang:${go_version} via docker"
-  go_test() {
-    docker run --rm \
-      -v "$PWD":/src -w /src/server \
-      -v multica-ag-gomod:/go/pkg/mod \
-      "golang:${go_version}" go "$@"
-  }
-else
-  echo "ag-patches/test.sh: need either go or docker to run the Go patch tests" >&2
-  exit 1
-fi
-
 go_out="$(mktemp)"
 trap 'rm -f "$go_out"' EXIT
-if ! go_test test ./internal/daemon ./cmd/multica -run '^TestAGPatch' -count=1 -v >"$go_out" 2>&1; then
+if ! ag_go test ./internal/daemon ./cmd/multica -run '^TestAGPatch' -count=1 -v >"$go_out" 2>&1; then
   cat "$go_out"
   echo "ag-patches/test.sh: Go patch tests failed" >&2
   exit 1
