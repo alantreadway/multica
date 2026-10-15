@@ -1,22 +1,13 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import type { AgentRuntime } from "@multica/core/types";
-import { I18nProvider } from "@multica/core/i18n/react";
 import { NavigationProvider, type NavigationAdapter } from "../../navigation";
-import enCommon from "../../locales/en/common.json";
-import enRuntimes from "../../locales/en/runtimes.json";
-import enAgents from "../../locales/en/agents.json";
+import { renderWithI18n } from "../../test/i18n";
 
-const TEST_RESOURCES = {
-  en: { common: enCommon, runtimes: enRuntimes, agents: enAgents },
-};
-
-// Stub the workspace queries the columns reach into. None of them feed the
-// row menu directly, but `createRuntimeColumns` wires CliCell + CostCell
-// against the same query client, so we still need useQuery to resolve.
+// The row's cells query workspace data; none of it feeds the drain badge.
 vi.mock("@tanstack/react-query", async () => {
   const actual =
     await vi.importActual<typeof import("@tanstack/react-query")>(
@@ -29,11 +20,10 @@ vi.mock("@tanstack/react-query", async () => {
 });
 
 vi.mock("@multica/core/runtimes/mutations", () => ({
-  useDeleteRuntime: () => ({ mutate: vi.fn(), isPending: false, mutateAsync: vi.fn() }),
+  useDeleteRuntime: () => ({ mutate: vi.fn(), isPending: false }),
   useUnbindAgentsAndDeleteRuntime: () => ({
     mutate: vi.fn(),
     isPending: false,
-    mutateAsync: vi.fn(),
   }),
 }));
 
@@ -43,19 +33,9 @@ vi.mock("@multica/core/runtimes", () => ({
   runtimeUsageOptions: () => ({ kind: "usage" }),
   runtimeProfileListOptions: () => ({ kind: "runtime-profiles" }),
   parseRuntimeProfileBoundConflict: () => null,
-  useDeleteRuntimeProfile: () => ({
-    mutate: vi.fn(),
-    isPending: false,
-    mutateAsync: vi.fn(),
-  }),
-  useCreateRuntimeProfile: () => ({
-    isPending: false,
-    mutateAsync: vi.fn(),
-  }),
-  useUpdateRuntimeProfile: () => ({
-    isPending: false,
-    mutateAsync: vi.fn(),
-  }),
+  useDeleteRuntimeProfile: () => ({ mutate: vi.fn(), isPending: false }),
+  useCreateRuntimeProfile: () => ({ isPending: false }),
+  useUpdateRuntimeProfile: () => ({ isPending: false }),
 }));
 
 vi.mock("@multica/core/agents", () => ({
@@ -80,19 +60,13 @@ vi.mock("@multica/core/workspace/queries", () => ({
   memberListOptions: () => ({ kind: "members" }),
 }));
 
-// The unified DeleteRuntimeDialog the kebab now opens reaches into auth +
-// the api singleton. The dialog never renders in these tests (`open=false`
-// throughout) but its hooks still mount; stub them so module init is clean.
 vi.mock("@multica/core/auth", () => ({
   useAuthStore: (sel: (s: { user: { id: string } }) => unknown) =>
     sel({ user: { id: "user-me" } }),
 }));
 
 vi.mock("@multica/core/api", () => ({
-  api: {
-    deleteRuntime: vi.fn(),
-    unbindAgentsAndDeleteRuntime: vi.fn(),
-  },
+  api: {},
   ApiError: class ApiError extends Error {},
 }));
 
@@ -147,23 +121,19 @@ function makeAdapter(): NavigationAdapter {
 
 function renderList(runtimes: AgentRuntime[]) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <I18nProvider locale="en" resources={TEST_RESOURCES}>
-      <NavigationProvider value={makeAdapter()}>
-        <QueryClientProvider client={qc}>
-          <RuntimeList
-            runtimes={runtimes}
-            now={Date.parse("2026-01-01T00:00:30Z")}
-          />
-        </QueryClientProvider>
-      </NavigationProvider>
-    </I18nProvider>,
+  return renderWithI18n(
+    <NavigationProvider value={makeAdapter()}>
+      <QueryClientProvider client={qc}>
+        <RuntimeList
+          runtimes={runtimes}
+          now={Date.parse("2026-01-01T00:00:30Z")}
+        />
+      </QueryClientProvider>
+    </NavigationProvider>,
   );
 }
 
 describe("AG patch: RuntimeList drain badge", () => {
-  beforeEach(() => vi.clearAllMocks());
-
   it("AG patch: shows Draining with the running count on the draining row only", () => {
     renderList([
       makeRuntime({

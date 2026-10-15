@@ -6,11 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/multica-ai/multica/server/internal/agdrain"
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/testutil"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -104,6 +106,39 @@ func TestAGPatchDrainHeartbeatMetadata(t *testing.T) {
 		}
 		if !after.Equal(before) {
 			t.Fatalf("updated_at moved %s -> %s on an unchanged report", before, after)
+		}
+	})
+
+	t.Run("AG patch: a changed report publishes a runtime refresh and an unchanged one does not", func(t *testing.T) {
+		runtimeID := createRuntimeLocalSkillTestRuntime(t, testUserID)
+		var mu sync.Mutex
+		refreshes := 0
+		testHandler.Bus.Subscribe(protocol.EventDaemonRegister, func(e events.Event) {
+			payload, _ := e.Payload.(map[string]any)
+			if payload["action"] == "drain" && e.WorkspaceID == testWorkspaceID {
+				mu.Lock()
+				refreshes++
+				mu.Unlock()
+			}
+		})
+		count := func() int {
+			mu.Lock()
+			defer mu.Unlock()
+			return refreshes
+		}
+		draining := map[string]any{"ag_drain": map[string]any{"draining": true, "idle": false, "active_tasks": 1}}
+
+		agDrainHeartbeat(t, runtimeID, draining)
+		if got := count(); got != 1 {
+			t.Fatalf("refreshes after first report = %d, want 1", got)
+		}
+		agDrainHeartbeat(t, runtimeID, draining)
+		if got := count(); got != 1 {
+			t.Fatalf("refreshes after unchanged report = %d, want 1", got)
+		}
+		agDrainHeartbeat(t, runtimeID, map[string]any{"ag_drain": map[string]any{"draining": false}})
+		if got := count(); got != 2 {
+			t.Fatalf("refreshes after resume = %d, want 2", got)
 		}
 	})
 

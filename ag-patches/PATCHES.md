@@ -101,7 +101,7 @@ a failed update result, not as drain state: the badge reports drain only.
 Depends on the daemon drain core patch above.
 
 - Test prefix: `TestAGPatch` / `AG patch:`. Hermetic ones
-  (`server/internal/agdrain`, `server/internal/daemon`, `server/pkg/protocol`, views, core) run in
+  (`server/internal/agdrain`, `server/internal/daemon`, `server/internal/daemonws`, `server/pkg/protocol`, views, core) run in
   `ag-patches/test.sh`; the DB-backed ones in `server/internal/handler` need
   Postgres (see README)
 - Files:
@@ -109,7 +109,8 @@ Depends on the daemon drain core patch above.
   - `server/pkg/protocol/ag_drain_test.go` (new)
   - `server/internal/handler/ag_drain.go` (new), `ag_drain_test.go` (new)
   - `server/internal/handler/daemon.go` (request field and two hooks)
-  - `server/internal/daemonws/hub.go` (lease memo, report into the handler context)
+  - `server/internal/daemonws/hub.go` (lease memo, report into the handler context),
+    `ag_drain_test.go` (new)
   - `server/pkg/protocol/messages.go` (`DaemonDrainReport`, heartbeat field)
   - `server/pkg/db/queries/runtime.sql` and `server/pkg/db/generated/runtime.sql.go`
     (`SetAgentRuntimeAGDrain`, `ClearAgentRuntimeAGDrain`; regenerated with sqlc)
@@ -119,8 +120,9 @@ Depends on the daemon drain core patch above.
   - `packages/core/runtimes/ag-drain.ts` (new), `ag-drain.test.ts` (new),
     `packages/core/package.json` (export)
   - `packages/views/runtimes/components/drain-badge.tsx` (new),
-    `drain-badge.test.tsx` (new), `runtime-list.tsx`, `runtime-detail.tsx`
-  - `packages/views/locales/*/runtimes.json` (`drain` group)
+    `drain-badge.test.tsx` (new), `runtime-list.tsx`, `runtime-list-drain.test.tsx` (new),
+    `runtime-detail.tsx`, `runtime-detail-drain.test.tsx` (new)
+  - `packages/views/locales/*/runtimes.json` (`drain` group), `packages/views/locales/ag-drain.test.ts` (new)
   - `ag-patches/build-backend.sh` (new), `ag-patches/lib.sh` (new, release gate shared with `build-web.sh`)
 
 ## Tooling (not a patch)
