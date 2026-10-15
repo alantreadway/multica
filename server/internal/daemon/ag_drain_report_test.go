@@ -136,4 +136,38 @@ func TestAGPatchDrainHeartbeatReport(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("AG patch: the HTTP heartbeat tick sends the report", func(t *testing.T) {
+		var body map[string]any
+		d, _ := pendingWorkHintDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			w.Write([]byte(`{"status":"ok"}`))
+		})
+		d.agStartDrain()
+		d.activeTasks.Store(2)
+
+		d.runHeartbeatTick(context.Background(), "rt-1")
+
+		got, ok := body["ag_drain"].(map[string]any)
+		if !ok || got["draining"] != true || got["active_tasks"] != float64(2) {
+			t.Fatalf("heartbeat body = %v, want ag_drain draining with 2 active", body)
+		}
+	})
+
+	t.Run("AG patch: the pending-work hint heartbeat sends the report", func(t *testing.T) {
+		var body map[string]any
+		d, _ := pendingWorkHintDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			w.Write([]byte(`{"status":"ok"}`))
+		})
+		d.agStartDrain()
+		d.activeTasks.Store(1)
+
+		d.handlePendingWorkHint("rt-1", protocol.PendingWorkKindModelList)
+
+		got, ok := body["ag_drain"].(map[string]any)
+		if !ok || got["draining"] != true || got["active_tasks"] != float64(1) {
+			t.Fatalf("heartbeat body = %v, want ag_drain draining with 1 active", body)
+		}
+	})
 }
