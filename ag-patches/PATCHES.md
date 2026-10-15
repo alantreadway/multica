@@ -46,11 +46,13 @@ no update installing), and resumes on request. Held in memory only, so any
 restart comes back claiming; `triggerRestart` refuses while draining
 (self-reload, auto-update and server-triggered update all go through it) and
 says so in `reload_pending_reason`. Auto-update and server-triggered update
-also skip the upgrade itself when draining starts first. This unit is the
-daemon core (`POST /drain`, `POST /resume`, `/health` fields `draining`,
-`drain_started_at`, `idle`); the CLI commands and the web badge follow in later
-units. Overlaps upstream multica-ai/multica#5631 and #6677: drop this patch if
-either merges.
+also skip the upgrade itself when draining starts first. The daemon core
+(`POST /drain`, `POST /resume`, `/health` fields `draining`, `drain_started_at`,
+`idle`) and the CLI commands (`daemon drain [--wait] [--timeout]`, `daemon
+resume`, `daemon stop|restart --drain [--timeout]`, extra `daemon status` lines)
+are in; the web badge follows in a later unit. Needs a CLI built with
+`ag-patches/build-cli.sh`: see README "Daemon/CLI patch". Overlaps upstream
+multica-ai/multica#5631 and #6677: drop this patch if either merges.
 
 - Test prefix: `TestAGPatch` / `AG patch:` (run by `ag-patches/test.sh` and the
   `guard` job; the script asserts a minimum number of passing tests)
@@ -63,17 +65,29 @@ either merges.
   - `server/internal/daemon/auto_update.go` (`tryAutoUpdate` skips while
     draining)
   - `server/internal/daemon/health.go` (routes and `/health` fields)
+  - `server/cmd/multica/ag_daemon_drain.go` (new: `daemon drain`, `daemon
+    resume`, `--drain`/`--timeout` handling, status rows)
+  - `server/cmd/multica/ag_daemon_drain_test.go` (new)
+  - `server/cmd/multica/cmd_daemon.go` (one-line hooks: `daemon stop` and
+    `daemon restart` call `agDrainBeforeStop`, `printDaemonStatusReport` adds
+    `agDaemonStatusRows`)
+  - `ag-patches/build-cli.sh` (new, tooling: builds the CLI binary)
 
 ## Tooling (not a patch)
 
-`ag-patches/` and `.github/workflows/ag-patches.yml` exist only on the patch
-branches. They do not touch product code. Landed in
-[#1](https://github.com/alantreadway/multica/pull/1). The guard also runs the
-Go `TestAGPatch*` daemon tests (local `go`, else docker `golang:<server/go.mod
-version>`).
+`ag-patches/` (including `build-web.sh` and `build-cli.sh`) and
+`.github/workflows/ag-patches.yml` exist only on the patch branches. They do not
+touch product code. Landed in [#1](https://github.com/alantreadway/multica/pull/1).
+The guard also runs the Go `TestAGPatch*` daemon and CLI tests (local `go`, else
+docker `golang:<server/go.mod version>`).
 
 ## Builds
 
-| Git tag | Commit | Image | Built |
-| --- | --- | --- | --- |
-| `ag/v0.6.2-ag.1` | `c59bdb71d0713897e19371e4d11d4c316c56c71b` | `multica-web-ag:v0.6.2-ag.1` | 2026-10-14 |
+| Git tag | Commit | Image | CLI | Built |
+| --- | --- | --- | --- | --- |
+| `ag/v0.6.2-ag.1` | `c59bdb71d0713897e19371e4d11d4c316c56c71b` | `multica-web-ag:v0.6.2-ag.1` | none (stock) | 2026-10-14 |
+
+The CLI column is the `dist/multica-<tag>-ag.<n>-darwin-arm64` binary from
+`ag-patches/build-cli.sh`; `none (stock)` means the daemon runs the upstream
+`multica`. The first build that includes the drain patch gets a row with its CLI
+filled in.
