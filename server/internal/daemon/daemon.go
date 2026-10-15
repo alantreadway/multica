@@ -5209,10 +5209,11 @@ func (d *Daemon) releaseClaimBarrier() {
 // restartTargetBinary(). The caller (cmd_daemon.go) checks RestartBinary() and
 // launches the new process.
 //
-// Returns false when the target path could not be resolved, so a caller holding
-// the claim barrier can release it instead of leaving the daemon paused for a
-// restart that will never happen. A restart already scheduled counts as success:
-// the process is going down either way.
+// Returns false when the target path could not be resolved or a drain is
+// holding the restart back, so a caller holding the claim barrier can release
+// it instead of leaving the daemon paused for a restart that will never happen.
+// A restart already scheduled counts as success: the process is going down
+// either way.
 func (d *Daemon) triggerRestart() bool {
 	d.restartMu.Lock()
 	defer d.restartMu.Unlock()
