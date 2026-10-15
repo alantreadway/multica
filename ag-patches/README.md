@@ -119,11 +119,16 @@ docker compose -f docker-compose.selfhost.yml -f docker-compose.isolated.yml up 
 ```
 
 Roll back: remove that line and run the same `up -d backend`. Nothing in the
-schema changes. The `ag_drain` key already stored in `agent_runtime.metadata`
-is ignored by the stock backend and is replaced on that runtime's next
-registration (registration overwrites `metadata` wholesale), so there is nothing
-to clean up. The web badge only reads that key, so a stock backend and a patched
-web image just show no badge.
+schema changes. The stock backend ignores the `ag_drain` key in
+`agent_runtime.metadata` and never clears it. Registration overwrites `metadata`
+wholesale, so a runtime that re-registers loses the key. Until then, a runtime
+that was draining at rollback keeps it, and a patched web image keeps showing
+"Draining · N running" for it, because the runtime stays `online`. Either roll
+the web image back too (see "Roll back" below), or clear the key:
+
+```sql
+UPDATE agent_runtime SET metadata = metadata - 'ag_drain' WHERE metadata ? 'ag_drain';
+```
 
 Heartbeats from stock or Homebrew daemons carry no drain field and leave
 metadata alone, so mixed daemons on one backend are fine.
@@ -133,7 +138,7 @@ metadata alone, so mixed daemons on one backend are fine.
 Remove the `MULTICA_WEB_IMAGE` line from `.env` and run
 `docker compose -f docker-compose.selfhost.yml -f docker-compose.isolated.yml up -d frontend`
 again. The frontend returns to the stock `ghcr.io/multica-ai/multica-web` image.
-No backend or database change is involved.
+This is the web image only; for the backend image see "Backend image" above.
 
 ## Daemon/CLI patch
 
