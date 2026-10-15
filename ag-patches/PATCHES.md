@@ -67,7 +67,10 @@ multica-ai/multica#5631 and #6677: drop this patch if either merges.
   - `server/internal/daemon/health.go` (routes and `/health` fields)
   - `server/cmd/multica/ag_daemon_drain.go` (new: `daemon drain`, `daemon
     resume`, `--drain`/`--timeout` handling, status rows)
-  - `server/cmd/multica/ag_daemon_drain_test.go` (new)
+  - `server/cmd/multica/ag_daemon_drain_test.go`,
+    `server/cmd/multica/ag_daemon_drain_status_test.go` (new: command, status
+    and human-only guard tests)
+  - `server/cmd/multica/ag_build_cli_test.go` (new: `build-cli.sh` tests)
   - `server/cmd/multica/cmd_daemon.go` (one-line hooks: `daemon stop` and
     `daemon restart` call `agDrainBeforeStop`, `printDaemonStatusReport` adds
     `agDaemonStatusRows`)
