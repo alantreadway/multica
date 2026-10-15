@@ -473,6 +473,39 @@ func TestAGPatchDrainDefersRestarts(t *testing.T) {
 		}
 	})
 
+	t.Run("AG patch: a drain that starts during the release fetch stops the upgrade", func(t *testing.T) {
+		d, restartCalls := newAutoUpdateTestDaemon(t, "v0.1.13")
+		d.runUpdateFn = func(string) (string, error) {
+			t.Fatal("auto-update ran an upgrade after a drain began during the fetch")
+			return "", nil
+		}
+		fetching, release := make(chan struct{}), make(chan struct{})
+		prev := fetchLatestRelease
+		fetchLatestRelease = func() (*cli.GitHubRelease, error) {
+			close(fetching)
+			<-release
+			return &cli.GitHubRelease{TagName: "v0.1.14"}, nil
+		}
+		t.Cleanup(func() { fetchLatestRelease = prev })
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			d.tryAutoUpdate(context.Background())
+		}()
+		<-fetching
+
+		d.agStartDrain()
+		close(release)
+		<-done
+
+		if restartCalls.Load() != 0 || claimsPaused(t, d) || d.updating.Load() {
+			t.Fatalf("auto-update acted on a daemon that began draining: restarts=%d", restartCalls.Load())
+		}
+		if raw := agDrainHealthJSON(t, d); raw["draining"] != true || raw["idle"] != true {
+			t.Fatalf("after skipped update: draining=%v idle=%v, want true/true", raw["draining"], raw["idle"])
+		}
+	})
+
 	t.Run("AG patch: a drain that starts during an auto-update upgrade stops the restart", func(t *testing.T) {
 		d, restartCalls := newAutoUpdateTestDaemon(t, "v0.1.13")
 		withStubRelease(t, &cli.GitHubRelease{TagName: "v0.1.14"}, nil)
