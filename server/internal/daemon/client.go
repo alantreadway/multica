@@ -735,11 +735,21 @@ type (
 )
 
 func (c *Client) SendHeartbeat(ctx context.Context, runtimeID string) (*HeartbeatResponse, error) {
-	var resp HeartbeatResponse
-	if err := c.postJSON(ctx, "/api/daemon/heartbeat", map[string]any{
+	return c.SendHeartbeatWithDrain(ctx, runtimeID, nil)
+}
+
+// SendHeartbeatWithDrain is SendHeartbeat plus the AG patch drain report, which
+// an older server ignores. A nil report is omitted.
+func (c *Client) SendHeartbeatWithDrain(ctx context.Context, runtimeID string, drain *protocol.DaemonDrainReport) (*HeartbeatResponse, error) {
+	body := map[string]any{
 		"runtime_id":            runtimeID,
 		"supports_batch_import": true,
-	}, &resp); err != nil {
+	}
+	if drain != nil {
+		body["ag_drain"] = drain
+	}
+	var resp HeartbeatResponse
+	if err := c.postJSON(ctx, "/api/daemon/heartbeat", body, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
