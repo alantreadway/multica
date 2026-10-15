@@ -27,7 +27,8 @@ cat <<MSG
 
 Built multica-web-ag:${version} (also tagged multica-web-ag:${tag}) from ${sha}.
 
-Switch the self-host frontend (backend stays on the stock ${tag} image):
+Switch the self-host frontend (the drain badge also needs the patched backend image,
+see ag-patches/build-backend.sh; without it the backend stays on the stock ${tag} image):
   echo 'MULTICA_WEB_IMAGE=multica-web-ag' >> .env
   docker compose -f docker-compose.selfhost.yml -f docker-compose.isolated.yml up -d frontend
 
@@ -35,5 +36,7 @@ Roll back:
   remove the MULTICA_WEB_IMAGE line from .env, then
   docker compose -f docker-compose.selfhost.yml -f docker-compose.isolated.yml up -d frontend
 
-Do not run a bare 'docker compose pull' while switched; use 'docker compose pull backend'.
+Do not run a bare 'docker compose pull' while switched; name only the stock services you
+still need ('pull backend' while only the web image is switched, 'pull postgres' once the
+backend image is switched too).
 MSG
