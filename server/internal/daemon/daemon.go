@@ -659,7 +659,8 @@ type Daemon struct {
 	claimMu        sync.Mutex
 	pauseClaims    bool // when true, the batch poller skips claiming
 	claimsInFlight int  // pollers that have decided to claim but haven't yet handed the task off to handleTask
-	agDrain        agDrainState // AG patch: drain mode, guarded by claimMu (see ag_drain.go)
+
+	agDrain agDrainState // AG patch: drain mode, guarded by claimMu (see ag_drain.go)
 
 	activeEnvRootsMu   sync.Mutex
 	activeEnvRootsCond *sync.Cond      // signalled when an in-flight env-root GC mutation finishes
@@ -5000,7 +5001,7 @@ func (d *Daemon) handleUpdate(ctx context.Context, runtimeID string, update *Pen
 	d.logger.Info("CLI update completed successfully", "output", output)
 	d.reportUpdateResult(ctx, runtimeID, update.ID, map[string]any{
 		"status": "completed",
-		"output": fmt.Sprintf("Updated to %s", update.TargetVersion),
+		"output": d.agUpdateOutput(fmt.Sprintf("Updated to %s", update.TargetVersion)), // AG patch: drain
 	})
 
 	// Trigger daemon restart with the new binary.
@@ -5042,7 +5043,7 @@ func (d *Daemon) tryBeginServerUpdate(ctx context.Context) serverUpdateAcquireRe
 	for {
 		d.claimMu.Lock()
 		if d.claimsInFlight == 0 {
-			if d.activeTasks.Load() == 0 && !d.agDeferRestartLocked() { // AG patch: drain
+			if d.activeTasks.Load() == 0 {
 				d.claimMu.Unlock()
 				return serverUpdateAcquired
 			}
@@ -5178,7 +5179,7 @@ func (d *Daemon) trySetClaimBarrier() bool {
 	// double-acquires: two holders both believe they own it, and whichever
 	// finishes first releases it out from under the other. tryBeginServerUpdate
 	// makes the same check for the same reason.
-	if d.agDeferRestartLocked() || d.pauseClaims || d.claimsInFlight > 0 || d.activeTasks.Load() > 0 { // AG patch: drain
+	if d.pauseClaims || d.claimsInFlight > 0 || d.activeTasks.Load() > 0 {
 		return false
 	}
 	d.pauseClaims = true
@@ -5210,6 +5211,9 @@ func (d *Daemon) triggerRestart() bool {
 	if d.restartBinary != "" {
 		d.logger.Debug("daemon restart already scheduled", "new_binary", d.restartBinary)
 		return true
+	}
+	if d.agDeferRestart() { // AG patch: drain
+		return false
 	}
 
 	newBin, err := d.restartTargetBinary()
