@@ -78,21 +78,66 @@ multica-ai/multica#5631 and #6677: drop this patch if either merges.
     `ag-patches/lib.sh` (new, tooling: preamble and Go runner shared with
     `build-web.sh` and `test.sh`)
 
+### Drain badge (backend + web)
+
+Shows drain state on the runtimes page: "Draining · N running" while a patched
+daemon is draining, "Idle" once it is drained and empty (safe to restart or
+upgrade). A patched daemon attaches an `ag_drain` report
+(`draining`, `idle`, `active_tasks`) to every heartbeat, over HTTP and
+WebSocket. The backend merges it into `agent_runtime.metadata` under `ag_drain`
+with a JSONB `||`, the way `offline_reason` is merged: no column and no
+migration. It writes only when the report differs from what is stored (two
+guarded `UPDATE`s, rows-affected tells whether anything changed), so a steady
+heartbeat costs no query; the WebSocket path remembers the stored state on the
+connection's runtime lease. A heartbeat without the field (stock or Homebrew
+daemon) leaves metadata alone, and registration's wholesale metadata overwrite
+clears a stale key. A change publishes the existing `daemon:register` event
+(`action: "drain"`) so open runtimes pages refetch. The web side parses the key
+through a zod schema with `parseWithFallback`; an offline runtime shows no badge.
+Needs the backend image from `ag-patches/build-backend.sh`, and the self-host on
+v0.6.2. A server-triggered update refused because the daemon is draining shows as
+a failed update result, not as drain state: the badge reports drain only.
+Depends on the daemon drain core patch above.
+
+- Test prefix: `TestAGPatch` / `AG patch:`. Hermetic ones
+  (`server/internal/agdrain`, `server/internal/daemon`, views, core) run in
+  `ag-patches/test.sh`; the DB-backed ones in `server/internal/handler` need
+  Postgres (see README)
+- Files:
+  - `server/internal/agdrain/agdrain.go` (new), `agdrain_test.go` (new)
+  - `server/internal/handler/ag_drain.go` (new), `ag_drain_test.go` (new)
+  - `server/internal/handler/daemon.go` (request field and two hooks)
+  - `server/internal/daemonws/hub.go` (lease memo, report into the handler context)
+  - `server/pkg/protocol/messages.go` (`DaemonDrainReport`, heartbeat field)
+  - `server/pkg/db/queries/runtime.sql` and `server/pkg/db/generated/runtime.sql.go`
+    (`SetAgentRuntimeAGDrain`, `ClearAgentRuntimeAGDrain`; regenerated with sqlc)
+  - `server/internal/daemon/ag_drain.go` (`agDrainReport`),
+    `ag_drain_report_test.go` (new), `client.go`, `daemon.go`, `wakeup.go`
+    (send the report)
+  - `packages/core/runtimes/ag-drain.ts` (new), `ag-drain.test.ts` (new),
+    `packages/core/package.json` (export)
+  - `packages/views/runtimes/components/drain-badge.tsx` (new),
+    `drain-badge.test.tsx` (new), `runtime-list.tsx`, `runtime-detail.tsx`
+  - `packages/views/locales/*/runtimes.json` (`drain` group)
+  - `ag-patches/build-backend.sh` (new)
+
 ## Tooling (not a patch)
 
-`ag-patches/` (including `build-web.sh`, `build-cli.sh` and `lib.sh`) and
-`.github/workflows/ag-patches.yml` exist only on the patch branches. They do not
-touch product code. Landed in [#1](https://github.com/alantreadway/multica/pull/1).
-The guard also runs the Go `TestAGPatch*` daemon and CLI tests (local `go`, else
-docker `golang:<server/go.mod version>`).
+`ag-patches/` (including `build-web.sh`, `build-backend.sh`, `build-cli.sh` and
+`lib.sh`) and `.github/workflows/ag-patches.yml` exist only on the patch
+branches. They do not touch product code. Landed in
+[#1](https://github.com/alantreadway/multica/pull/1). The guard also runs the Go
+`TestAGPatch*` daemon, CLI and drain-badge tests (local `go`, else docker
+`golang:<server/go.mod version>`).
 
 ## Builds
 
-| Git tag | Commit | Image | CLI | Built |
-| --- | --- | --- | --- | --- |
-| `ag/v0.6.2-ag.1` | `c59bdb71d0713897e19371e4d11d4c316c56c71b` | `multica-web-ag:v0.6.2-ag.1` | none (stock) | 2026-10-14 |
+| Git tag | Commit | Web image | Backend image | CLI | Built |
+| --- | --- | --- | --- | --- | --- |
+| `ag/v0.6.2-ag.1` | `c59bdb71d0713897e19371e4d11d4c316c56c71b` | `multica-web-ag:v0.6.2-ag.1` | none (stock backend) | none (stock) | 2026-10-14 |
 
 The CLI column is the `dist/multica-<tag>-ag.<n>-darwin-arm64` binary from
 `ag-patches/build-cli.sh`; `none (stock)` means the daemon runs the upstream
-`multica`. The first build that includes the drain patch gets a row with its CLI
-filled in.
+`multica`. Backend images are built with `ag-patches/build-backend.sh`. The first
+build that includes the drain patch and the drain badge gets a row with its CLI
+and backend image filled in.
