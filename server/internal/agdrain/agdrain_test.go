@@ -86,7 +86,7 @@ func TestAGPatchDrainStoreOnChange(t *testing.T) {
 		}
 	})
 
-	t.Run("AG patch: not draining clears a stored report once, then costs nothing", func(t *testing.T) {
+	t.Run("AG patch: not draining clears a stored report once, then costs nothing inside the refresh interval", func(t *testing.T) {
 		store := &fakeStore{stored: []byte(`{"draining":true}`)}
 		memo := MemoFromMetadata([]byte(`{"ag_drain":{"draining":true,"idle":false,"active_tasks":1}}`), t0)
 		off := &protocol.DaemonDrainReport{}
@@ -96,13 +96,34 @@ func TestAGPatchDrainStoreOnChange(t *testing.T) {
 			t.Fatalf("clear: changed=%v clears=%d stored=%s err=%v", changed, store.clears, store.stored, err)
 		}
 		for i := 0; i < 5; i++ {
-			memo, changed, err = Apply(context.Background(), store, runtime, memo, off, t0.Add(time.Duration(i+1)*time.Minute))
+			memo, changed, err = Apply(context.Background(), store, runtime, memo, off, t0.Add(time.Duration(i+1)*time.Second))
 			if err != nil || changed {
 				t.Fatalf("repeat %d: changed=%v err=%v", i, changed, err)
 			}
 		}
 		if store.clears != 1 {
 			t.Fatalf("clears = %d, want 1: not draining must not query per heartbeat", store.clears)
+		}
+	})
+
+	t.Run("AG patch: a stored drain written behind a not-draining lease is cleared at the refresh interval", func(t *testing.T) {
+		// Drain, a pending-work hint over HTTP writes the key, then resume: the
+		// WS lease memo says "not draining" on both sides the whole time.
+		store := &fakeStore{}
+		off := &protocol.DaemonDrainReport{}
+		memo, _, err := Apply(context.Background(), store, runtime, Memo{}, off, t0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		store.stored = []byte(`{"draining":true,"idle":false,"active_tasks":1}`)
+
+		memo, changed, err := Apply(context.Background(), store, runtime, memo, off, t0.Add(RefreshInterval-time.Second))
+		if err != nil || changed || store.stored == nil {
+			t.Fatalf("before interval: changed=%v stored=%s err=%v", changed, store.stored, err)
+		}
+		_, changed, err = Apply(context.Background(), store, runtime, memo, off, t0.Add(RefreshInterval))
+		if err != nil || !changed || store.stored != nil {
+			t.Fatalf("at interval: changed=%v stored=%s err=%v, want the stale key cleared", changed, store.stored, err)
 		}
 	})
 

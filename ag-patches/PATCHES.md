@@ -90,8 +90,10 @@ migration. It writes only when the report differs from what is stored (two
 guarded `UPDATE`s, rows-affected tells whether anything changed), so a steady
 heartbeat costs no query; the WebSocket path remembers the stored state on the
 connection's runtime lease, and re-runs the guarded no-op `UPDATE` on a
-connection's first beat and every 60s while draining. A heartbeat without the field (stock or Homebrew
-daemon) leaves metadata alone, and registration's wholesale metadata overwrite
+connection's first beat and every 60s, draining or not (the HTTP pending-work
+hint heartbeat writes the key behind the lease's memo, so a resume would
+otherwise leave a stale "Draining"): one no-op query per WS runtime per minute.
+A heartbeat without the field (stock or Homebrew daemon) leaves metadata alone, and registration's wholesale metadata overwrite
 clears a stale key. A change publishes the existing `daemon:register` event
 (`action: "drain"`) so open runtimes pages refetch. The web side parses the key
 through a zod schema with `parseWithFallback`; an offline runtime shows no badge.

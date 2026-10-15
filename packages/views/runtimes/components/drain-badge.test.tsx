@@ -1,23 +1,15 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
-import { I18nProvider } from "@multica/core/i18n/react";
-import enCommon from "../../locales/en/common.json";
-import enRuntimes from "../../locales/en/runtimes.json";
+import { cleanup, screen } from "@testing-library/react";
+import { renderWithI18n } from "../../test/i18n";
 import { DrainBadge } from "./drain-badge";
-
-const TEST_RESOURCES = { en: { common: enCommon, runtimes: enRuntimes } };
 
 function renderBadge(
   metadata: Record<string, unknown>,
   status: "online" | "offline" = "online",
 ) {
-  return render(
-    <I18nProvider locale="en" resources={TEST_RESOURCES}>
-      <DrainBadge runtime={{ status, metadata }} />
-    </I18nProvider>,
-  );
+  return renderWithI18n(<DrainBadge runtime={{ status, metadata }} />);
 }
 
 afterEach(cleanup);
