@@ -116,10 +116,8 @@ func (d *Daemon) agDrainSnapshot() (agDrainHealth, int64) {
 	}, active
 }
 
-// agDrainReport is the drain state attached to every heartbeat, HTTP and
-// WebSocket, for the server's runtimes page badge. Always non-nil: a
-// not-draining report is what clears a stored one. A server without the
-// drain badge ignores the field.
+// agDrainReport is attached to every heartbeat. Always non-nil: a
+// not-draining report is what clears the stored one.
 func (d *Daemon) agDrainReport() *protocol.DaemonDrainReport {
 	h, active := d.agDrainSnapshot()
 	return &protocol.DaemonDrainReport{Draining: h.Draining, Idle: h.Idle, ActiveTasks: active}

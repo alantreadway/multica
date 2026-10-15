@@ -1,9 +1,6 @@
 package handler
 
-// AG patch: drain badge, backend half. These hit the real queries and need the
-// test database (they skip without one, like the rest of this package), so
-// ag-patches/test.sh counts the hermetic agdrain tests and a developer with a
-// database runs these via `go test ./internal/handler -run '^TestAGPatch'`.
+// These need the test database and are not run by ag-patches/test.sh; see its header.
 
 import (
 	"context"

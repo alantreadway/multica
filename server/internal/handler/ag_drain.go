@@ -25,11 +25,9 @@ func (s agDrainStore) ClearAGDrain(ctx context.Context, id pgtype.UUID) (int64, 
 	return s.q.ClearAgentRuntimeAGDrain(ctx, id)
 }
 
-// agApplyDrainReport stores a heartbeat's drain report. memo is what the caller
-// knows of the stored state: the runtime row on the HTTP path, or the
-// connection lease on the WebSocket path (lease non-nil, so the new memo is
-// kept). A failure is logged and never fails the heartbeat: the badge is
-// advisory and the next heartbeat retries.
+// agApplyDrainReport stores a heartbeat's drain report; memo is the caller's
+// view of the stored state. A failure is logged and never fails the heartbeat:
+// the next one retries. A non-nil lease keeps the new memo (WS path).
 func (h *Handler) agApplyDrainReport(ctx context.Context, runtimeID pgtype.UUID, workspaceID string, memo agdrain.Memo, lease *daemonws.RuntimeLease, report *protocol.DaemonDrainReport) {
 	if report == nil {
 		return
@@ -43,9 +41,6 @@ func (h *Handler) agApplyDrainReport(ctx context.Context, runtimeID pgtype.UUID,
 		lease.SetAGDrain(next)
 	}
 	if changed && workspaceID != "" {
-		// The web client refetches the runtime list on this event.
-		h.publish(protocol.EventDaemonRegister, workspaceID, "system", "", map[string]any{
-			"action": "drain",
-		})
+		h.PublishRuntimeRefresh(workspaceID, "system", "", "drain")
 	}
 }

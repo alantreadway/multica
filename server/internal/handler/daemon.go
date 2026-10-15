@@ -1170,7 +1170,9 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	updateMs = time.Since(updateStart).Milliseconds()
 
-	h.agApplyDrainReport(r.Context(), rt.ID, uuidToString(rt.WorkspaceID), agdrain.MemoFromMetadata(rt.Metadata, time.Now()), nil, req.AGDrain)
+	if req.AGDrain != nil {
+		h.agApplyDrainReport(r.Context(), rt.ID, uuidToString(rt.WorkspaceID), agdrain.MemoFromMetadata(rt.Metadata, time.Now()), nil, req.AGDrain)
+	}
 
 	ack, m, err := h.processHeartbeat(r.Context(), runtimeID, req.SupportsBatchImport)
 	probeModelMs = m.ProbeModelMs

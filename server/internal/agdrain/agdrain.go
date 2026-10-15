@@ -1,9 +1,6 @@
-// Package agdrain is the server half of the AG patch's drain badge: it turns
-// the drain report on a daemon heartbeat into agent_runtime.metadata["ag_drain"].
-//
-// It is its own package, with no database of its own, so the write-only-on-
-// change rules can be tested without Postgres (the handler package's tests
-// skip when no database is reachable).
+// Package agdrain writes a daemon heartbeat's drain report into
+// agent_runtime.metadata["ag_drain"]. It is separate from the handler package
+// so its write-on-change rules are testable without Postgres.
 package agdrain
 
 import (
@@ -18,10 +15,9 @@ import (
 // MetadataKey is where the drain state lives in agent_runtime.metadata.
 const MetadataKey = "ag_drain"
 
-// RefreshInterval is how often a runtime that is still draining re-checks its
-// stored state. Registration overwrites metadata wholesale, so a connection
-// that outlives a re-register would otherwise believe a key that is gone.
-// The check is a guarded UPDATE, a no-op while the key is intact.
+// RefreshInterval is how often a draining runtime re-checks its stored state:
+// registration overwrites metadata wholesale, so a long-lived connection's memo
+// can outlive the key. The check is a guarded no-op UPDATE.
 const RefreshInterval = 60 * time.Second
 
 // State is the stored value. A runtime that is not draining has no key at all.
@@ -31,9 +27,8 @@ type State struct {
 	ActiveTasks int64 `json:"active_tasks"`
 }
 
-// Memo is what a caller remembers of the stored state between heartbeats:
-// the HTTP path rebuilds it from the runtime row it already loaded, the
-// WebSocket path keeps it on the connection's runtime lease.
+// Memo is what a caller remembers of the stored state between heartbeats: the
+// HTTP path rebuilds it from the runtime row, the WS path keeps it on the lease.
 type Memo struct {
 	// Known is false until the stored state has been observed or written.
 	Known bool
@@ -92,11 +87,9 @@ func same(a, b *State) bool {
 }
 
 // Apply reconciles one heartbeat's report with the stored state and returns
-// the memo to keep and whether the stored state changed.
-//
-// A nil report (a stock daemon, or an older patched one) touches nothing.
-// Otherwise it writes only when the report differs from the memo, so the
-// steady state, drain or no drain, costs no query per heartbeat.
+// the memo to keep and whether the stored state changed. A nil report (a stock
+// daemon) touches nothing; otherwise it writes only when the report differs
+// from the memo, or when RefreshInterval has passed while draining.
 func Apply(ctx context.Context, store Store, runtimeID pgtype.UUID, memo Memo, report *protocol.DaemonDrainReport, now time.Time) (Memo, bool, error) {
 	if report == nil {
 		return memo, false, nil
