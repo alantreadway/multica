@@ -1,4 +1,11 @@
 {
+  "drain": {
+    "draining": "排空中 · {{running}} 个运行中",
+    "draining_unknown": "排空中",
+    "idle": "空闲",
+    "draining_hint": "不再领取新任务，运行中的任务会执行完毕。",
+    "idle_hint": "已排空且没有运行中的任务，可安全重启或升级。"
+  },
   "page": {
     "title": "运行时",
     "tagline": "为智能体跑 CLI 会话的机器和云端 worker。",

@@ -1,4 +1,11 @@
 {
+  "drain": {
+    "draining": "Drainage · {{running}} en cours",
+    "draining_unknown": "Drainage",
+    "idle": "Inactif",
+    "draining_hint": "Ne prend plus de nouvelles tâches. Les tâches en cours vont se terminer.",
+    "idle_hint": "Drainé, aucune tâche en cours. Redémarrage ou mise à niveau sans risque."
+  },
   "page": {
     "title": "Runtimes",
     "tagline": "Machines et workers cloud qui exécutent des sessions CLI pour vos agents.",

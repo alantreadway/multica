@@ -1,4 +1,11 @@
 {
+  "drain": {
+    "draining": "Draining · {{running}} running",
+    "draining_unknown": "Draining",
+    "idle": "Idle",
+    "draining_hint": "Not claiming new tasks. Running tasks will finish.",
+    "idle_hint": "Drained with no tasks running. Safe to restart or upgrade."
+  },
   "page": {
     "title": "Runtimes",
     "tagline": "Machines and cloud workers running CLI sessions for your agents.",
