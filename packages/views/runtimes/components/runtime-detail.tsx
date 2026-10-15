@@ -41,6 +41,7 @@ import { ActorAvatar } from "../../common/actor-avatar";
 import { BreadcrumbHeader } from "../../layout/breadcrumb-header";
 import { AppLink, useNavigation } from "../../navigation";
 import { availabilityConfig, workloadConfig } from "../../agents/presence";
+import { DrainBadge } from "./drain-badge";
 import { HealthBadge } from "./shared";
 import { ProviderLogo } from "./provider-logo";
 import { UsageSection } from "./usage-section";
@@ -285,6 +286,7 @@ function HeroCard({
               {runtimeName}
             </h2>
             <HealthBadge health={health} />
+            <DrainBadge runtime={runtime} />
             <span className="text-caption text-muted-foreground">
               {t(($) => $.detail.last_seen, { when: lastSeen })}
             </span>
