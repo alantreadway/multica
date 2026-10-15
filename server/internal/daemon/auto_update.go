@@ -248,6 +248,13 @@ func (d *Daemon) tryAutoUpdate(ctx context.Context) {
 		}
 	}()
 
+	// AG patch: drain — a drain that landed during the fetch saw no update in
+	// flight; from here on it sees updating=true and is never reported idle.
+	if d.agDraining() {
+		d.logger.Debug("auto-update: skip — daemon began draining during the fetch")
+		return
+	}
+
 	// Strict barrier: between the cheap pre-fetch idle check and now the
 	// release fetch took anywhere from tens of milliseconds (typical) to
 	// seconds (slow link, GitHub hiccup), plenty of time for a poller to
