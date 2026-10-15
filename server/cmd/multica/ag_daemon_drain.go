@@ -1,12 +1,6 @@
 package main
 
-// AG patch: daemon drain CLI.
-//
-// `daemon drain` and `daemon resume` drive the daemon's POST /drain and
-// POST /resume (server/internal/daemon/ag_drain.go); `daemon stop --drain` and
-// `daemon restart --drain` drain, wait for idle, then stop. Everything here is
-// human-only like `daemon stop`, so an agent run cannot drain its own daemon.
-// The upstream files carry one-line hooks into this file.
+// AG patch: daemon drain CLI. Upstream files carry one-line hooks into this file.
 
 import (
 	"context"
@@ -23,6 +17,10 @@ import (
 // agDrainPollInterval is how often --wait re-reads /health. Tests shorten it.
 var agDrainPollInterval = time.Second
 
+// agDrainMaxPollFailures is how many consecutive failed /health polls --wait
+// tolerates before it gives up.
+const agDrainMaxPollFailures = 3
+
 var daemonDrainCmd = &cobra.Command{
 	Use:   "drain",
 	Short: "Stop claiming new tasks and let running tasks finish",
@@ -31,8 +29,9 @@ var daemonDrainCmd = &cobra.Command{
 		"Drain is held in memory only, so a daemon that restarts comes back claiming.\n\n" +
 		"--wait blocks until the daemon is idle and exits 0. If --timeout elapses first it exits 1 and leaves\n" +
 		"drain on; run 'multica daemon resume' to claim again.",
-	Args: cobra.NoArgs,
-	RunE: runDaemonDrain,
+	Args:    cobra.NoArgs,
+	PreRunE: agValidateDrainFlags,
+	RunE:    runDaemonDrain,
 }
 
 var daemonResumeCmd = &cobra.Command{
@@ -47,10 +46,10 @@ func init() {
 	df.Bool("wait", false, "Block until the daemon is idle")
 	df.Duration("timeout", 0, "With --wait, give up after this long and exit 1, leaving drain on (0 = wait indefinitely)")
 
-	for _, c := range []*cobra.Command{daemonStopCmd, daemonRestartCmd} {
+	for c, verb := range map[*cobra.Command]string{daemonStopCmd: "stopping", daemonRestartCmd: "restarting"} {
 		f := c.Flags()
 		f.Bool("drain", false, "Drain first: stop claiming, wait for running tasks to finish, then "+c.Name())
-		f.Duration("timeout", 0, "With --drain, give up after this long without "+c.Name()+"ing, leaving drain on (0 = wait indefinitely)")
+		f.Duration("timeout", 0, "With --drain, give up after this long without "+verb+", leaving drain on (0 = wait indefinitely)")
 		c.PreRunE = agValidateDrainFlags
 	}
 
@@ -82,26 +81,24 @@ func agValidateDrainFlags(cmd *cobra.Command, _ []string) error {
 
 // agDrainTarget runs the guards every drain command shares and returns the
 // health port of the daemon the command should act on.
-func agDrainTarget(cmd *cobra.Command, command string) (profile string, port int, err error) {
+func agDrainTarget(cmd *cobra.Command, command string) (int, error) {
 	if err := requireHumanLocalCommand(command); err != nil {
-		return "", 0, err
+		return 0, err
 	}
-	profile = resolveProfile(cmd)
+	profile := resolveProfile(cmd)
 	if err := requireKnownProfile(profile); err != nil {
-		return "", 0, err
+		return 0, err
 	}
-	port = resolveHealthPort(profile)
+	port := resolveHealthPort(profile)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	health := checkDaemonHealthOnPort(ctx, port)
+	health := agHealth(port)
 	if !daemonAlive(health) {
-		return "", 0, fmt.Errorf("%s is not running", agDaemonLabel(profile))
+		return 0, fmt.Errorf("%s is not running", agDaemonLabel(profile))
 	}
 	if err := daemonIdentityMismatch(health, profile, port); err != nil {
-		return "", 0, err
+		return 0, err
 	}
-	return profile, port, nil
+	return port, nil
 }
 
 func agDaemonLabel(profile string) string {
@@ -112,7 +109,7 @@ func agDaemonLabel(profile string) string {
 }
 
 func runDaemonDrain(cmd *cobra.Command, _ []string) error {
-	_, port, err := agDrainTarget(cmd, "daemon drain")
+	port, err := agDrainTarget(cmd, "daemon drain")
 	if err != nil {
 		return err
 	}
@@ -122,7 +119,7 @@ func runDaemonDrain(cmd *cobra.Command, _ []string) error {
 }
 
 func runDaemonResume(cmd *cobra.Command, _ []string) error {
-	_, port, err := agDrainTarget(cmd, "daemon resume")
+	port, err := agDrainTarget(cmd, "daemon resume")
 	if err != nil {
 		return err
 	}
@@ -137,32 +134,43 @@ func runDaemonResume(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// agDrainBeforeStop is the hook for `daemon stop --drain` and
-// `daemon restart --drain`: drain, wait for idle, and only then let the caller
-// go on. Any error, including the timeout, means the caller must not stop the
-// daemon; the drain is left on.
+// agDrainBeforeStop drains and waits for idle when --drain is set. An error,
+// including the timeout, means the caller must not stop the daemon; drain stays on.
 func agDrainBeforeStop(cmd *cobra.Command, port int) error {
 	drain, _ := cmd.Flags().GetBool("drain")
 	if !drain {
 		return nil
 	}
 	timeout, _ := cmd.Flags().GetDuration("timeout")
-	// Progress and results go to stderr: stop and restart report on stderr too.
 	if err := agDrainAndReport(port, true, timeout, os.Stderr, os.Stderr); err != nil {
 		return fmt.Errorf("daemon %s aborted: %w", cmd.Name(), err)
 	}
 	return nil
 }
 
-// agDrainAndReport POSTs /drain, prints the resulting state to out and, with
-// wait, blocks until the daemon is idle (progress goes to progress).
+// agDrainBeforeRestart is agDrainBeforeStop for restart, plus a second
+// preflight: the one before the drain can be hours old by the time it ends.
+func agDrainBeforeRestart(cmd *cobra.Command, port int, profile string) error {
+	if err := agDrainBeforeStop(cmd, port); err != nil {
+		return err
+	}
+	if drain, _ := cmd.Flags().GetBool("drain"); !drain {
+		return nil
+	}
+	if err := requireDaemonRestartPreflight(cmd, profile); err != nil {
+		return fmt.Errorf("%w\nthe daemon is idle but still draining; run 'multica daemon resume' to claim again", err)
+	}
+	return nil
+}
+
+// agDrainAndReport POSTs /drain, prints the state to out and, with wait,
+// blocks until idle (progress goes to progress).
 func agDrainAndReport(port int, wait bool, timeout time.Duration, out, progress io.Writer) error {
 	resp, err := agPostDrainEndpoint(port, "/drain")
 	if err != nil {
 		return err
 	}
-	// The /drain response has only the total; /health has the running vs
-	// waiting-for-resources split.
+	// /drain returns only the total; /health has the split.
 	health := agHealth(port)
 	for _, k := range []string{"running_task_count", "resource_wait_task_count"} {
 		if v, ok := health[k]; ok {
@@ -194,28 +202,32 @@ func agDrainAndReport(port int, wait bool, timeout time.Duration, out, progress 
 	return nil
 }
 
-// agWaitIdle polls /health until the daemon reports idle. It returns an error
-// when ctx ends first, when the daemon stops answering, or when the drain was
-// cancelled underneath it (someone ran `daemon resume`).
+// agWaitIdle polls /health until the daemon reports idle.
 func agWaitIdle(ctx context.Context, port int, progress io.Writer) error {
 	lastActive := int64(-1)
+	failures := 0
 	for {
 		health := agHealth(port)
-		if err := ctx.Err(); err != nil {
+		if daemonAlive(health) {
+			failures = 0
+			if draining, _ := health["draining"].(bool); !draining {
+				return fmt.Errorf("daemon is no longer draining (resumed?); not waiting")
+			}
+			if idle, _ := health["idle"].(bool); idle {
+				return nil
+			}
+			if active, ok := agIntField(health, "active_task_count"); ok && active != lastActive {
+				lastActive = active
+				fmt.Fprintf(progress, "Waiting for active tasks: %s\n", agActiveTasksSummary(health))
+			}
+		} else {
+			failures++
+			if failures >= agDrainMaxPollFailures {
+				return fmt.Errorf("lost contact with the daemon while waiting for it to go idle; if it is still running, drain is still on: run 'multica daemon resume' to claim again")
+			}
+		}
+		if ctx.Err() != nil {
 			return agDrainTimeoutError(health, "timed out waiting for the daemon to go idle")
-		}
-		if !daemonAlive(health) {
-			return fmt.Errorf("daemon stopped while waiting for it to go idle")
-		}
-		if draining, _ := health["draining"].(bool); !draining {
-			return fmt.Errorf("daemon is no longer draining (resumed?); not waiting")
-		}
-		if idle, _ := health["idle"].(bool); idle {
-			return nil
-		}
-		if active, ok := agIntField(health, "active_task_count"); ok && active != lastActive {
-			lastActive = active
-			fmt.Fprintf(progress, "Waiting for active tasks: %s\n", agActiveTasksSummary(health))
 		}
 		select {
 		case <-ctx.Done():
@@ -285,22 +297,12 @@ func agActiveTasksSummary(m map[string]any) string {
 // agDrainSinceSuffix renders " since HH:MM" in local time, or "" when the
 // daemon gave no usable start time.
 func agDrainSinceSuffix(m map[string]any) string {
-	if since := agDrainSinceClock(m); since != "" {
-		return " since " + since
-	}
-	return ""
-}
-
-func agDrainSinceClock(m map[string]any) string {
 	raw, _ := m["drain_started_at"].(string)
-	if raw == "" {
-		return ""
-	}
 	t, err := time.Parse(time.RFC3339, raw)
 	if err != nil {
 		return ""
 	}
-	return t.Local().Format("15:04")
+	return " since " + t.Local().Format("15:04")
 }
 
 // agDaemonStatusRows returns the extra `daemon status` rows for a /health
@@ -314,11 +316,7 @@ func agDaemonStatusRows(health map[string]any) [][2]string {
 	var rows [][2]string
 	claiming := "yes"
 	if draining {
-		claiming = "no (draining"
-		if since := agDrainSinceClock(health); since != "" {
-			claiming += " since " + since
-		}
-		claiming += ")"
+		claiming = "no (draining" + agDrainSinceSuffix(health) + ")"
 	}
 	rows = append(rows, [2]string{"Claiming", claiming})
 	if _, ok := agIntField(health, "active_task_count"); ok {

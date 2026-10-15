@@ -1,17 +1,18 @@
 package main
 
-// AG patch: daemon drain CLI tests. Names are TestAGPatch* so
-// ag-patches/test.sh picks them up.
+// AG patch: daemon drain CLI tests.
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -38,6 +39,8 @@ type agFakeDaemon struct {
 	noDrain        bool // behave like a stock daemon: no /drain, no /resume
 	stopped        bool
 	calls          []string
+
+	failPreflightFrom int // with agStubRestartPreflight: fail preflights from the Nth on (0: never)
 }
 
 func (f *agFakeDaemon) state() map[string]any {
@@ -65,12 +68,13 @@ func (f *agFakeDaemon) callLog() []string {
 }
 
 func (f *agFakeDaemon) called(call string) bool {
-	for _, c := range f.callLog() {
-		if c == call {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(f.callLog(), call)
+}
+
+func (f *agFakeDaemon) record(call string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, call)
 }
 
 func (f *agFakeDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +264,52 @@ func TestAGPatchDaemonDrainCommand(t *testing.T) {
 		}
 	})
 
+	t.Run("AG patch: drain --wait rides out a failed poll", func(t *testing.T) {
+		mkProfiles(t, profile)
+		var polls int
+		var mu sync.Mutex
+		f := &agFakeDaemon{active: 1, running: 1, idleAfterPolls: 4}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			polls++
+			n := polls
+			mu.Unlock()
+			// The second /health read (the first poll of the wait loop) fails.
+			if r.URL.Path == "/health" && n == 3 {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			f.ServeHTTP(w, r)
+		}))
+		t.Cleanup(srv.Close)
+		f.profile = profile
+		port := srv.Listener.Addr().(*net.TCPAddr).Port
+
+		var out bytes.Buffer
+		if err := agDrainAndReport(port, true, 5*time.Second, &out, &out); err != nil {
+			t.Fatalf("a single failed poll ended --wait: %v\n%s", err, out.String())
+		}
+	})
+
+	t.Run("AG patch: drain --wait gives up when the daemon stops answering and says drain may still be on", func(t *testing.T) {
+		mkProfiles(t, profile)
+		f, port := startAGFakeDaemon(t, profile, &agFakeDaemon{active: 1, running: 1, idleAfterPolls: -1})
+		go func() {
+			for !f.called("POST /drain") {
+				time.Sleep(time.Millisecond)
+			}
+			f.mu.Lock()
+			f.stopped = true
+			f.mu.Unlock()
+		}()
+
+		var out bytes.Buffer
+		err := agDrainAndReport(port, true, 5*time.Second, &out, &out)
+		if err == nil || !strings.Contains(err.Error(), "lost contact") || !strings.Contains(err.Error(), "multica daemon resume") {
+			t.Fatalf("error = %v, want a lost-contact error that points at resume", err)
+		}
+	})
+
 	t.Run("AG patch: a daemon without drain support gets an actionable error", func(t *testing.T) {
 		mkProfiles(t, profile)
 		startAGFakeDaemon(t, profile, &agFakeDaemon{noDrain: true})
@@ -285,8 +335,8 @@ func TestAGPatchDaemonDrainCommand(t *testing.T) {
 		if err := runDaemonResume(agDrainCmdFor(t, "resume", profile, map[string]string{}), nil); err != nil {
 			t.Fatalf("resume: %v", err)
 		}
-		if f.draining || !f.called("POST /resume") {
-			t.Errorf("draining=%v calls=%v, want a resume", f.draining, f.callLog())
+		if f.draining || !f.called("POST /resume") || f.called("POST /drain") || f.called("POST /shutdown") {
+			t.Errorf("draining=%v calls=%v, want only a resume", f.draining, f.callLog())
 		}
 	})
 }
@@ -318,14 +368,39 @@ func TestAGPatchDaemonDrainFlagValidation(t *testing.T) {
 		})
 	}
 
-	t.Run("AG patch: the real commands carry the flags and the validator", func(t *testing.T) {
-		for _, c := range []*cobra.Command{daemonStopCmd, daemonRestartCmd} {
-			if c.Flags().Lookup("drain") == nil || c.Flags().Lookup("timeout") == nil || c.PreRunE == nil {
-				t.Errorf("daemon %s is missing --drain, --timeout or the validator", c.Name())
+	t.Run("AG patch: the real commands run the validator", func(t *testing.T) {
+		cases := []struct {
+			cmd     *cobra.Command
+			timeout string
+			want    string
+		}{
+			{daemonDrainCmd, "1s", "--timeout requires --wait"},
+			{daemonDrainCmd, "-1s", "must not be negative"},
+			{daemonStopCmd, "1s", "--timeout requires --drain"},
+			{daemonRestartCmd, "1s", "--timeout requires --drain"},
+		}
+		for _, c := range cases {
+			f := c.cmd.Flags().Lookup("timeout")
+			if f == nil || c.cmd.PreRunE == nil {
+				t.Fatalf("daemon %s is missing --timeout or its validator", c.cmd.Name())
+			}
+			if err := c.cmd.Flags().Set("timeout", c.timeout); err != nil {
+				t.Fatal(err)
+			}
+			err := c.cmd.PreRunE(c.cmd, nil)
+			_ = f.Value.Set(f.DefValue)
+			f.Changed = false
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("daemon %s --timeout %s: error = %v, want %q", c.cmd.Name(), c.timeout, err, c.want)
 			}
 		}
-		if daemonDrainCmd.Flags().Lookup("wait") == nil || daemonDrainCmd.Flags().Lookup("timeout") == nil {
-			t.Error("daemon drain is missing --wait or --timeout")
+		for _, c := range []*cobra.Command{daemonStopCmd, daemonRestartCmd} {
+			if c.Flags().Lookup("drain") == nil {
+				t.Errorf("daemon %s is missing --drain", c.Name())
+			}
+		}
+		if daemonDrainCmd.Flags().Lookup("wait") == nil {
+			t.Error("daemon drain is missing --wait")
 		}
 		for _, name := range []string{"drain", "resume"} {
 			if found, _, err := daemonCmd.Find([]string{name}); err != nil || found.Name() != name {
@@ -386,7 +461,7 @@ func TestAGPatchDaemonStopRestartDrain(t *testing.T) {
 			t.Fatalf("stop --drain: %v", err)
 		}
 		calls := f.callLog()
-		drainAt, shutdownAt := indexOf(calls, "POST /drain"), indexOf(calls, "POST /shutdown")
+		drainAt, shutdownAt := slices.Index(calls, "POST /drain"), slices.Index(calls, "POST /shutdown")
 		if drainAt < 0 || shutdownAt < 0 || drainAt > shutdownAt {
 			t.Fatalf("calls = %v, want POST /drain before POST /shutdown", calls)
 		}
@@ -428,29 +503,65 @@ func TestAGPatchDaemonStopRestartDrain(t *testing.T) {
 
 	t.Run("AG patch: restart --drain --timeout does not restart a busy daemon", func(t *testing.T) {
 		mkProfiles(t, profile)
-		t.Setenv("MULTICA_SERVER_URL", "")
-		api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{}`)
-		}))
-		defer api.Close()
-		if err := cli.SaveCLIConfigForProfile(cli.CLIConfig{Token: "mul_fake", ServerURL: api.URL}, profile); err != nil {
-			t.Fatalf("SaveCLIConfigForProfile: %v", err)
-		}
-		orig := daemonExecutable
-		daemonExecutable = func() (string, error) { return "", fmt.Errorf("restart must not spawn a daemon in this test") }
-		t.Cleanup(func() { daemonExecutable = orig })
-
-		f, _ := startAGFakeDaemon(t, profile, &agFakeDaemon{active: 1, running: 1, idleAfterPolls: -1})
+		f := &agFakeDaemon{active: 1, running: 1, idleAfterPolls: -1}
+		agStubRestartPreflight(t, profile, f)
+		startAGFakeDaemon(t, profile, f)
 
 		err := runDaemonRestart(agDrainCmdFor(t, "restart", profile, map[string]string{"drain": "true", "timeout": "150ms"}), nil)
 		if err == nil || !strings.Contains(err.Error(), "timed out") || cli.ExitCodeFor(err) != 1 {
 			t.Fatalf("error = %v (exit %d), want a timeout with exit 1", err, cli.ExitCodeFor(err))
 		}
-		if f.called("POST /shutdown") {
-			t.Fatal("the daemon was shut down although it never went idle")
+		if f.called("POST /shutdown") || f.called("spawn") {
+			t.Fatalf("the daemon was restarted although it never went idle: %v", f.callLog())
 		}
 		if !f.draining {
 			t.Error("a timed-out restart --drain must leave drain on")
+		}
+	})
+
+	t.Run("AG patch: restart --drain waits for idle, re-checks, shuts down, then starts", func(t *testing.T) {
+		mkProfiles(t, profile)
+		f := &agFakeDaemon{active: 2, running: 2, idleAfterPolls: 4}
+		agStubRestartPreflight(t, profile, f)
+		startAGFakeDaemon(t, profile, f)
+
+		// The stubbed spawn fails, which is what ends the restart: it proves
+		// the start path was reached without launching a real daemon.
+		err := runDaemonRestart(agDrainCmdFor(t, "restart", profile, map[string]string{"drain": "true", "timeout": "5s"}), nil)
+		if err == nil || !strings.Contains(err.Error(), "spawn stub") {
+			t.Fatalf("error = %v, want the stubbed spawn error", err)
+		}
+		var steps []string
+		for _, c := range f.callLog() {
+			if c != "GET /health" {
+				steps = append(steps, c)
+			}
+		}
+		want := []string{"preflight", "POST /drain", "preflight", "POST /shutdown", "spawn"}
+		if !slices.Equal(steps, want) {
+			t.Fatalf("steps = %v, want %v", steps, want)
+		}
+		if f.active != 0 {
+			t.Errorf("shutdown went ahead with %d active tasks", f.active)
+		}
+	})
+
+	t.Run("AG patch: restart --drain stops short when the post-drain preflight fails", func(t *testing.T) {
+		mkProfiles(t, profile)
+		// Fail the second preflight, the one after the drain.
+		f := &agFakeDaemon{active: 1, running: 1, idleAfterPolls: 3, failPreflightFrom: 2}
+		agStubRestartPreflight(t, profile, f)
+		startAGFakeDaemon(t, profile, f)
+
+		err := runDaemonRestart(agDrainCmdFor(t, "restart", profile, map[string]string{"drain": "true", "timeout": "5s"}), nil)
+		if err == nil || !strings.Contains(err.Error(), "refusing to restart") || !strings.Contains(err.Error(), "multica daemon resume") {
+			t.Fatalf("error = %v, want a refusal that points at resume", err)
+		}
+		if f.called("POST /shutdown") || f.called("spawn") {
+			t.Fatalf("the daemon was restarted after a failed preflight: %v", f.callLog())
+		}
+		if !f.draining {
+			t.Error("drain must stay on when the restart is refused")
 		}
 	})
 
@@ -468,13 +579,37 @@ func TestAGPatchDaemonStopRestartDrain(t *testing.T) {
 	})
 }
 
-func indexOf(xs []string, want string) int {
-	for i, x := range xs {
-		if x == want {
-			return i
+// agStubRestartPreflight points profile at a fake API server that logs each
+// restart preflight into f's call log, and replaces the daemon spawn and the
+// autostart hook so a restart that gets that far touches nothing real.
+func agStubRestartPreflight(t *testing.T, profile string, f *agFakeDaemon) {
+	t.Helper()
+	t.Setenv("MULTICA_SERVER_URL", "")
+	var preflights int
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.record("preflight")
+		f.mu.Lock()
+		preflights++
+		fail := f.failPreflightFrom > 0 && preflights >= f.failPreflightFrom
+		f.mu.Unlock()
+		if fail {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
+		fmt.Fprint(w, `{}`)
+	}))
+	t.Cleanup(api.Close)
+	if err := cli.SaveCLIConfigForProfile(cli.CLIConfig{Token: "mul_fake", ServerURL: api.URL}, profile); err != nil {
+		t.Fatalf("SaveCLIConfigForProfile: %v", err)
 	}
-	return -1
+
+	origExe, origSync := daemonExecutable, syncDaemonAutostart
+	daemonExecutable = func() (string, error) {
+		f.record("spawn")
+		return "", errors.New("spawn stub")
+	}
+	syncDaemonAutostart = func(string, bool) {}
+	t.Cleanup(func() { daemonExecutable, syncDaemonAutostart = origExe, origSync })
 }
 
 func TestAGPatchDaemonStatusDrainRows(t *testing.T) {
