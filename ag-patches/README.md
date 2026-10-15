@@ -86,7 +86,9 @@ Rules while switched:
 - The web image's base tag must equal the running backend tag. Never run a
   patched `v0.6.2` web image against a different backend version.
 - Don't run a bare `docker compose pull`: it would fail on the local-only
-  image. Use `docker compose ... pull backend`.
+  image. Name the stock services you still need (`pull backend` while only the
+  web image is switched; with the patched backend image too, `pull` only
+  services such as `postgres` that are still stock).
 - To pin a particular build, re-tag it: `docker tag multica-web-ag:<tag>-ag.<n> multica-web-ag:<tag>`.
   The compose file resolves `multica-web-ag:<MULTICA_IMAGE_TAG>`, so that tag is
   the one that runs.
