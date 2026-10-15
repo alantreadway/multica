@@ -1310,7 +1310,7 @@ func runDaemonRestart(cmd *cobra.Command, args []string) error {
 		if err := requireDaemonRestartPreflight(cmd, profile); err != nil {
 			return err
 		}
-		if err := agDrainBeforeStop(cmd, healthPort); err != nil { // AG patch: drain
+		if err := agDrainBeforeRestart(cmd, healthPort, profile); err != nil { // AG patch: drain
 			return err
 		}
 		pid, _ := health["pid"].(float64)

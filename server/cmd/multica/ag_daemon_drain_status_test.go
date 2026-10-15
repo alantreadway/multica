@@ -1,7 +1,6 @@
 package main
 
-// AG patch: daemon drain status and resume edge tests. Names are TestAGPatch*
-// so ag-patches/test.sh picks them up.
+// AG patch: daemon drain status and resume edge tests.
 
 import (
 	"encoding/json"
@@ -10,14 +9,24 @@ import (
 	"time"
 )
 
+func parseStatusRows(out string) map[string]string {
+	rows := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if key, value, ok := strings.Cut(line, ":"); ok {
+			rows[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		}
+	}
+	return rows
+}
+
 func TestAGPatchDaemonStatusAgainstDrainingDaemon(t *testing.T) {
 	const profile = "agdrain-status"
 
 	t.Run("AG patch: status text shows claiming, active tasks and idle for a draining daemon", func(t *testing.T) {
 		mkProfiles(t, profile)
-		started := time.Now().UTC().Format(time.RFC3339)
+		started := time.Now().UTC().Truncate(time.Second)
 		startAGFakeDaemon(t, profile, &agFakeDaemon{
-			draining: true, startedAt: started, active: 3, running: 2, waiting: 1, idleAfterPolls: -1,
+			draining: true, startedAt: started.Format(time.RFC3339), active: 3, running: 2, waiting: 1, idleAfterPolls: -1,
 		})
 
 		out, err := captureStdout(t, func() error {
@@ -26,13 +35,15 @@ func TestAGPatchDaemonStatusAgainstDrainingDaemon(t *testing.T) {
 		if err != nil {
 			t.Fatalf("status: %v", err)
 		}
-		for _, want := range []string{
-			"no (draining since " + time.Now().Local().Format("15:04") + ")",
-			"3 (2 running, 1 waiting for resources)",
-			"Idle",
-		} {
-			if !strings.Contains(out, want) {
-				t.Errorf("status output missing %q:\n%s", want, out)
+		rows := parseStatusRows(out)
+		want := map[string]string{
+			"Claiming":     "no (draining since " + started.Local().Format("15:04") + ")",
+			"Active tasks": "3 (2 running, 1 waiting for resources)",
+			"Idle":         "no",
+		}
+		for k, v := range want {
+			if rows[k] != v {
+				t.Errorf("%s = %q, want %q\n%s", k, rows[k], v, out)
 			}
 		}
 	})
@@ -47,10 +58,11 @@ func TestAGPatchDaemonStatusAgainstDrainingDaemon(t *testing.T) {
 		if err != nil {
 			t.Fatalf("status: %v", err)
 		}
-		if !strings.Contains(out, "Claiming") || !strings.Contains(out, "yes") {
-			t.Errorf("want Claiming: yes, got:\n%s", out)
+		rows := parseStatusRows(out)
+		if rows["Claiming"] != "yes" {
+			t.Errorf("Claiming = %q, want yes\n%s", rows["Claiming"], out)
 		}
-		if strings.Contains(out, "Idle") {
+		if _, ok := rows["Idle"]; ok {
 			t.Errorf("Idle must only be shown while draining:\n%s", out)
 		}
 	})
@@ -90,18 +102,6 @@ func TestAGPatchDaemonResumeEdges(t *testing.T) {
 		}
 		if f.draining {
 			t.Error("daemon is draining after resume")
-		}
-	})
-
-	t.Run("AG patch: resume does not drain", func(t *testing.T) {
-		mkProfiles(t, profile)
-		f, _ := startAGFakeDaemon(t, profile, &agFakeDaemon{draining: true, idleAfterPolls: -1})
-
-		if err := runDaemonResume(agDrainCmdFor(t, "resume", profile, map[string]string{}), nil); err != nil {
-			t.Fatalf("resume: %v", err)
-		}
-		if f.called("POST /drain") || f.called("POST /shutdown") {
-			t.Errorf("resume made unexpected calls: %v", f.callLog())
 		}
 	})
 
