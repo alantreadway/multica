@@ -7,8 +7,8 @@
 # arrives with the tree-ordered lanes patch) is safe while swimlane-view.test.tsx
 # is present.
 #
-# The Go half runs TestAGPatch* in server/internal/daemon, server/cmd/multica and
-# server/internal/agdrain (see PATCHES.md). `go test -run` passes silently on no
+# The Go half runs TestAGPatch* in server/internal/daemon, server/cmd/multica,
+# server/internal/agdrain and server/pkg/protocol (see PATCHES.md). `go test -run` passes silently on no
 # match, so the passing top-level tests are counted against AG_GO_MIN_TESTS:
 # raise it when a Go patch adds tests. The DB-backed TestAGPatch* tests in
 # server/internal/handler are not run here (CI has no Postgres and that package
@@ -24,7 +24,10 @@ pnpm install --frozen-lockfile
 pnpm --filter @multica/views exec vitest run \
   issues/components/swimlane-view.test.tsx \
   issues/components/swimlane-tree.test.ts \
-  runtimes/components/drain-badge.test.tsx
+  runtimes/components/drain-badge.test.tsx \
+  runtimes/components/runtime-list-drain.test.tsx \
+  runtimes/components/runtime-detail-drain.test.tsx \
+  locales/ag-drain.test.ts
 
 pnpm --filter @multica/core exec vitest run runtimes/ag-drain.test.ts
 
@@ -36,7 +39,7 @@ AG_GO_MIN_TESTS=23
 
 go_out="$(mktemp)"
 trap 'rm -f "$go_out"' EXIT
-if ! ag_go test ./internal/daemon ./cmd/multica ./internal/agdrain -run '^TestAGPatch' -count=1 -v >"$go_out" 2>&1; then
+if ! ag_go test ./internal/daemon ./cmd/multica ./internal/agdrain ./pkg/protocol -run '^TestAGPatch' -count=1 -v >"$go_out" 2>&1; then
   cat "$go_out"
   echo "ag-patches/test.sh: Go patch tests failed" >&2
   exit 1

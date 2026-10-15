@@ -100,11 +100,12 @@ a failed update result, not as drain state: the badge reports drain only.
 Depends on the daemon drain core patch above.
 
 - Test prefix: `TestAGPatch` / `AG patch:`. Hermetic ones
-  (`server/internal/agdrain`, `server/internal/daemon`, views, core) run in
+  (`server/internal/agdrain`, `server/internal/daemon`, `server/pkg/protocol`, views, core) run in
   `ag-patches/test.sh`; the DB-backed ones in `server/internal/handler` need
   Postgres (see README)
 - Files:
   - `server/internal/agdrain/agdrain.go` (new), `agdrain_test.go` (new)
+  - `server/pkg/protocol/ag_drain_test.go` (new)
   - `server/internal/handler/ag_drain.go` (new), `ag_drain_test.go` (new)
   - `server/internal/handler/daemon.go` (request field and two hooks)
   - `server/internal/daemonws/hub.go` (lease memo, report into the handler context)
