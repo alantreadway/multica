@@ -3,18 +3,10 @@ package daemon
 // AG patch: daemon drain mode. The daemon stops claiming new tasks, lets the
 // running ones finish, reports when it is idle, and resumes on request.
 //
-// Everything lives here so the upstream files only carry one-line hooks:
-//   - daemon.go: the agDrain field, tryEnterClaim, tryBeginServerUpdate,
-//     pollLoop (wakeup channel) and the handleUpdate switch;
-//   - auto_update.go: trySetClaimBarrier;
-//   - health.go: route registration and the /health fields.
-//
-// Drain is deliberately its own flag rather than a use of pauseClaims: several
-// paths clear pauseClaims unconditionally (releaseClaimBarrier, the failure
-// branch of tryBeginServerUpdate), and any of them would silently end a drain.
-// The flag is held in memory only, so a restart always comes back claiming.
-// A restart is what the flag guards against, which is why the restart paths
-// refuse while it is set instead of the other way round.
+// Drain is its own flag, not pauseClaims: releaseClaimBarrier and the failure
+// branch of tryBeginServerUpdate clear pauseClaims unconditionally and would
+// silently end a drain. It is in memory only, so a restart comes back claiming;
+// that is why every restart path refuses while it is set (see triggerRestart).
 
 import (
 	"context"
@@ -29,29 +21,25 @@ import (
 // being held back by a drain.
 const agDrainDeferredNote = "restart deferred: daemon is draining"
 
-// serverUpdateDraining is returned by tryBeginServerUpdate while draining. It
-// extends the upstream serverUpdateAcquireResult enum without editing it.
+// serverUpdateDraining extends the upstream serverUpdateAcquireResult enum
+// without editing it.
 const serverUpdateDraining serverUpdateAcquireResult = 100
 
-// agDrainState is guarded by Daemon.claimMu, the same lock tryEnterClaim and
-// the restart barriers take, so a drain and a claim decision can never
-// interleave.
+// agDrainState is guarded by Daemon.claimMu, so a drain and a claim decision
+// never interleave.
 type agDrainState struct {
 	draining  bool
 	startedAt time.Time
-	// wakeup is the batch poller's wakeup channel, registered by pollLoop so
-	// resume can start a claim cycle at once instead of after PollInterval.
+	// wakeup is the batch poller's wakeup channel, so resume can claim at once.
 	wakeup chan struct{}
 }
 
-// agDrainHealth is embedded in HealthResponse; its fields are flattened into
-// the /health JSON.
+// agDrainHealth is embedded in HealthResponse and flattened into /health.
 type agDrainHealth struct {
-	Draining bool `json:"draining"`
-	// DrainStartedAt is RFC3339 and omitted when the daemon is not draining.
+	Draining       bool   `json:"draining"`
 	DrainStartedAt string `json:"drain_started_at,omitempty"`
-	// Idle is true when draining and nothing is left: no active tasks
-	// (including tasks parked on a local-directory lock) and no claim in flight.
+	// Idle: draining with no active tasks (including ones parked on a
+	// local-directory lock) and no claim in flight.
 	Idle bool `json:"idle"`
 }
 
@@ -60,22 +48,19 @@ func (d *Daemon) agDrainingLocked() bool {
 	return d.agDrain.draining
 }
 
-// agDraining reports whether the daemon is draining.
 func (d *Daemon) agDraining() bool {
 	d.claimMu.Lock()
 	defer d.claimMu.Unlock()
 	return d.agDrain.draining
 }
 
-// agSetPollerWakeup registers the batch poller's wakeup channel for resume.
 func (d *Daemon) agSetPollerWakeup(wakeup chan struct{}) {
 	d.claimMu.Lock()
 	defer d.claimMu.Unlock()
 	d.agDrain.wakeup = wakeup
 }
 
-// agStartDrain flips the daemon into drain mode. Idempotent: a second call
-// keeps the original start time.
+// agStartDrain is idempotent: a second call keeps the original start time.
 func (d *Daemon) agStartDrain() {
 	d.claimMu.Lock()
 	if d.agDrain.draining {
@@ -88,19 +73,20 @@ func (d *Daemon) agStartDrain() {
 	d.logger.Info("drain: not claiming new tasks; running tasks will finish", "active_tasks", d.activeTasks.Load())
 }
 
-// agResume ends drain mode and wakes the poller so queued work is claimed
-// immediately. Idempotent.
+// agResume ends drain mode and wakes the poller. Idempotent.
 func (d *Daemon) agResume() {
 	d.claimMu.Lock()
 	was := d.agDrain.draining
 	d.agDrain.draining = false
 	d.agDrain.startedAt = time.Time{}
 	wakeup := d.agDrain.wakeup
+	if was {
+		d.agClearDrainNoteLocked()
+	}
 	d.claimMu.Unlock()
 	if !was {
 		return
 	}
-	d.agClearDrainNote()
 	if wakeup != nil {
 		signalPollerWakeup(wakeup)
 	}
@@ -120,55 +106,66 @@ func (d *Daemon) agDrainHealth() agDrainHealth {
 	}
 }
 
-// agDeferRestartLocked is the restart barriers' drain check (claimMu held).
-// It returns true, and records why in reload_pending_reason, when the restart
-// must not go ahead.
-func (d *Daemon) agDeferRestartLocked() bool {
+// agDeferRestart is triggerRestart's gate. While draining it records why in
+// reload_pending_reason and returns true: the restart must not go ahead, since
+// the new process would come back claiming.
+func (d *Daemon) agDeferRestart() bool {
+	d.claimMu.Lock()
+	defer d.claimMu.Unlock()
 	if !d.agDrain.draining {
 		return false
 	}
-	d.agAppendDrainNote()
+	d.agAppendDrainNoteLocked()
+	d.logger.Info("restart deferred: daemon is draining")
 	return true
 }
 
 // agDeferServerUpdate reports a server-triggered update as deferred by drain.
 func (d *Daemon) agDeferServerUpdate(ctx context.Context, runtimeID string, update *PendingUpdate) {
 	d.logger.Info("update deferred: daemon is draining", "runtime_id", runtimeID, "update_id", update.ID)
-	d.agAppendDrainNote()
 	d.reportUpdateResult(ctx, runtimeID, update.ID, map[string]any{
 		"status": "failed",
 		"error":  "runtime update deferred because the daemon is draining; resume it, then retry",
 	})
 }
 
-// agAppendDrainNote adds the drain note to the pending-restart reason, keeping
-// any version-change text already there.
-func (d *Daemon) agAppendDrainNote() {
-	base := strings.TrimSuffix(strings.TrimSuffix(d.reloadPending(), " ("+agDrainDeferredNote+")"), agDrainDeferredNote)
-	reason := agDrainDeferredNote
-	if base != "" {
-		reason = fmt.Sprintf("%s (%s)", base, agDrainDeferredNote)
+// agUpdateOutput tells the server when an update was installed but its restart
+// is being held back by a drain that started mid-update.
+func (d *Daemon) agUpdateOutput(output string) string {
+	if d.agDraining() {
+		return output + " (" + agDrainDeferredNote + ")"
 	}
-	d.reloadPendingReason.Store(&reason)
+	return output
 }
 
-// agClearDrainNote removes the drain note on resume, restoring the underlying
-// version-change reason if there was one.
-func (d *Daemon) agClearDrainNote() {
+// agStripDrainNote removes the drain note, leaving any version-change reason.
+func agStripDrainNote(reason string) string {
+	return strings.TrimSuffix(strings.TrimSuffix(reason, " ("+agDrainDeferredNote+")"), agDrainDeferredNote)
+}
+
+// The note helpers run under claimMu so a note cannot outlive its drain.
+func (d *Daemon) agAppendDrainNoteLocked() {
+	reason := agDrainDeferredNote
+	if base := agStripDrainNote(d.reloadPending()); base != "" {
+		reason = fmt.Sprintf("%s (%s)", base, agDrainDeferredNote)
+	}
+	d.setReloadPending(reason)
+}
+
+func (d *Daemon) agClearDrainNoteLocked() {
 	current := d.reloadPending()
-	if !strings.HasSuffix(current, agDrainDeferredNote) && !strings.HasSuffix(current, agDrainDeferredNote+")") {
-		return
+	base := agStripDrainNote(current)
+	switch {
+	case base == current:
+	case base == "":
+		d.clearReloadPending()
+	default:
+		d.setReloadPending(base)
 	}
-	base := strings.TrimSuffix(strings.TrimSuffix(current, " ("+agDrainDeferredNote+")"), agDrainDeferredNote)
-	if base == "" {
-		d.reloadPendingReason.Store(nil)
-		return
-	}
-	d.reloadPendingReason.Store(&base)
 }
 
 // agDrainHandler serves POST /drain (drain=true) and POST /resume (drain=false)
-// on the localhost-only health listener. Both return the resulting state.
+// and returns the resulting state.
 func (d *Daemon) agDrainHandler(drain bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

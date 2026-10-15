@@ -42,9 +42,10 @@ Depends on the tree-ordered lanes patch.
 
 The daemon can be put into drain: it stops claiming new tasks, lets running
 tasks finish, reports `idle` on `/health`, and resumes on request. Held in
-memory only, so any restart comes back claiming; self-reload, auto-update and
-server-triggered update refuse to restart while draining and say so in
-`reload_pending_reason`. This unit is the daemon core (`POST /drain`,
+memory only, so any restart comes back claiming; `triggerRestart` refuses while
+draining (self-reload, auto-update and server-triggered update all go through
+it) and says so in `reload_pending_reason`. Auto-update and server-triggered
+update also skip the upgrade itself when draining starts first. This unit is the daemon core (`POST /drain`,
 `POST /resume`, `/health` fields `draining`, `drain_started_at`, `idle`); the
 CLI commands and the web badge follow in later units.
 Overlaps upstream multica-ai/multica#5631 and #6677: drop this patch if either
@@ -56,8 +57,10 @@ merges.
   - `server/internal/daemon/ag_drain.go` (new)
   - `server/internal/daemon/ag_drain_test.go` (new)
   - `server/internal/daemon/daemon.go` (one-line hooks: `agDrain` field,
-    `tryEnterClaim`, `trySetClaimBarrier`, `tryBeginServerUpdate`,
+    `tryEnterClaim`, `triggerRestart`, `tryBeginServerUpdate`,
     `handleUpdate`, `pollLoop`)
+  - `server/internal/daemon/auto_update.go` (`tryAutoUpdate` skips while
+    draining)
   - `server/internal/daemon/health.go` (routes and `/health` fields)
 
 ## Tooling (not a patch)
