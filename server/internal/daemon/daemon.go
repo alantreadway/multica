@@ -660,6 +660,8 @@ type Daemon struct {
 	pauseClaims    bool // when true, the batch poller skips claiming
 	claimsInFlight int  // pollers that have decided to claim but haven't yet handed the task off to handleTask
 
+	agDrain agDrainState // AG patch: drain mode, guarded by claimMu (see ag_drain.go)
+
 	activeEnvRootsMu   sync.Mutex
 	activeEnvRootsCond *sync.Cond      // signalled when an in-flight env-root GC mutation finishes
 	activeEnvRoots     map[string]int  // env root path -> reference count (handles reuse paths marked twice)
@@ -5069,6 +5071,9 @@ func (d *Daemon) handleUpdate(ctx context.Context, runtimeID string, update *Pen
 			"error":  "another runtime update is already in progress on this machine",
 		})
 		return
+	case serverUpdateDraining: // AG patch: drain
+		d.agDeferServerUpdate(ctx, runtimeID, update)
+		return
 	case serverUpdateRuntimeBusy:
 		d.logger.Info("update deferred: task or claim in progress", "runtime_id", runtimeID, "update_id", update.ID)
 		d.reportUpdateResult(ctx, runtimeID, update.ID, map[string]any{
@@ -5105,7 +5110,7 @@ func (d *Daemon) handleUpdate(ctx context.Context, runtimeID string, update *Pen
 	d.logger.Info("CLI update completed successfully", "output", output)
 	d.reportUpdateResult(ctx, runtimeID, update.ID, map[string]any{
 		"status": "completed",
-		"output": fmt.Sprintf("Updated to %s", update.TargetVersion),
+		"output": d.agUpdateOutput(fmt.Sprintf("Updated to %s", update.TargetVersion)), // AG patch: drain
 	})
 
 	// Trigger daemon restart with the new binary.
@@ -5126,6 +5131,9 @@ const (
 // therefore never starve an update; a claim that returns work increments
 // activeTasks before exitClaim, so the final check still defers safely.
 func (d *Daemon) tryBeginServerUpdate(ctx context.Context) serverUpdateAcquireResult {
+	if d.agDraining() { // AG patch: drain
+		return serverUpdateDraining
+	}
 	if !d.updating.CompareAndSwap(false, true) {
 		return serverUpdateAlreadyRunning
 	}
@@ -5252,7 +5260,7 @@ func (d *Daemon) reportUpdateResultWithRetry(ctx context.Context, runtimeID, upd
 func (d *Daemon) tryEnterClaim() bool {
 	d.claimMu.Lock()
 	defer d.claimMu.Unlock()
-	if d.pauseClaims {
+	if d.pauseClaims || d.agDrainingLocked() { // AG patch: drain
 		return false
 	}
 	d.claimsInFlight++
@@ -5301,10 +5309,11 @@ func (d *Daemon) releaseClaimBarrier() {
 // restartTargetBinary(). The caller (cmd_daemon.go) checks RestartBinary() and
 // launches the new process.
 //
-// Returns false when the target path could not be resolved, so a caller holding
-// the claim barrier can release it instead of leaving the daemon paused for a
-// restart that will never happen. A restart already scheduled counts as success:
-// the process is going down either way.
+// Returns false when the target path could not be resolved or a drain is
+// holding the restart back, so a caller holding the claim barrier can release
+// it instead of leaving the daemon paused for a restart that will never happen.
+// A restart already scheduled counts as success: the process is going down
+// either way.
 func (d *Daemon) triggerRestart() bool {
 	d.restartMu.Lock()
 	defer d.restartMu.Unlock()
@@ -5312,6 +5321,9 @@ func (d *Daemon) triggerRestart() bool {
 	if d.restartBinary != "" {
 		d.logger.Debug("daemon restart already scheduled", "new_binary", d.restartBinary)
 		return true
+	}
+	if d.agDeferRestart() { // AG patch: drain
+		return false
 	}
 
 	newBin, err := d.restartTargetBinary()
@@ -5396,6 +5408,7 @@ func (d *Daemon) pollLoop(ctx context.Context, taskWakeups <-chan taskWakeup) er
 	defer unsub()
 
 	wakeup := make(chan struct{}, 1)
+	d.agSetPollerWakeup(wakeup) // AG patch: drain resume wakes the poller
 	nudge := func() {
 		signalPollerWakeup(wakeup)
 	}
