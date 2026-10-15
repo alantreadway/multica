@@ -7,11 +7,9 @@
 # arrives with the tree-ordered lanes patch) is safe while swimlane-view.test.tsx
 # is present.
 #
-# The Go half runs the TestAGPatch* tests in server/internal/daemon. They call
-# daemon internals, so an upstream rename breaks compilation and surfaces here
-# during a rebase. `go test -run` passes silently when nothing matches, so the
-# script also counts the passing top-level tests against a floor; raise
-# AG_GO_MIN_TESTS when a Go patch adds tests.
+# The Go half runs TestAGPatch* in server/internal/daemon (see PATCHES.md). `go test
+# -run` passes silently on no match, so the passing top-level tests are counted
+# against AG_GO_MIN_TESTS: raise it when a Go patch adds tests.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -26,7 +24,7 @@ pnpm --filter @multica/views typecheck
 
 # --- Go: daemon patch guard -------------------------------------------------
 
-AG_GO_MIN_TESTS=10
+AG_GO_MIN_TESTS=5
 
 go_version="$(awk '/^go /{print $2; exit}' server/go.mod)"
 

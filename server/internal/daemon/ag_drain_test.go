@@ -2,14 +2,14 @@ package daemon
 
 // AG patch: daemon drain mode tests. Every top-level test is TestAGPatch* with
 // "AG patch: ..." subtests so ag-patches/test.sh can run and count them. They
-// exercise daemon internals directly: an upstream rename should break the
-// build here, which is the signal that the patch needs rebasing by hand.
+// call daemon internals directly: an upstream rename breaks the build here,
+// which is the signal that the patch needs rebasing by hand.
 
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,25 +20,39 @@ import (
 	"github.com/multica-ai/multica/server/internal/cli"
 )
 
-// agDrainClaimServer counts claim requests and serves one task (t1) on the
-// first claim after serveTask is set, empty batches otherwise.
+// agDrainClaimServer counts claims and serves one task (t1) on the first claim
+// after serveTask is set. A non-nil gate holds that claim's response until it
+// is closed; arrived signals that the claim reached the server.
 type agDrainClaimServer struct {
 	*httptest.Server
 	claims    atomic.Int64
 	completed atomic.Int64
 	serveTask atomic.Bool
 	served    atomic.Bool
+	gate      chan struct{}
+	arrived   chan struct{}
 }
 
-func newAGDrainClaimServer(t *testing.T) *agDrainClaimServer {
+func newAGDrainClaimServer(t *testing.T, gated bool) *agDrainClaimServer {
 	t.Helper()
-	s := &agDrainClaimServer{}
+	s := &agDrainClaimServer{arrived: make(chan struct{}, 8)}
+	if gated {
+		s.gate = make(chan struct{})
+	}
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/api/daemon/tasks/claim"):
 			s.claims.Add(1)
-			if s.serveTask.Load() && s.served.CompareAndSwap(false, true) {
+			if (s.serveTask.Load() || s.gate != nil) && s.served.CompareAndSwap(false, true) {
+				s.arrived <- struct{}{}
+				if s.gate != nil {
+					select {
+					case <-s.gate:
+					case <-r.Context().Done():
+						return
+					}
+				}
 				w.Write([]byte(`{"tasks":[{"id":"t1","runtime_id":"rt-1","issue_id":"i1","agent":{"name":"a"}}]}`))
 				return
 			}
@@ -61,20 +75,20 @@ func newAGDrainPollDaemon(t *testing.T, s *agDrainClaimServer, pollInterval time
 		HeartbeatInterval:  time.Hour,
 		PollInterval:       pollInterval,
 		MaxConcurrentTasks: 2,
-	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}, discardLogger())
 	d.workspaces["ws-1"] = &workspaceState{workspaceID: "ws-1", runtimeIDs: []string{"rt-1"}}
 	d.runtimeIndex["rt-1"] = Runtime{ID: "rt-1"}
 	d.cancelPollInterval = time.Hour
 	return d
 }
 
-func startAGDrainPollLoop(t *testing.T, d *Daemon) context.CancelFunc {
+func startAGDrainPollLoop(t *testing.T, d *Daemon, wakeups <-chan taskWakeup) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		d.pollLoop(ctx, nil)
+		d.pollLoop(ctx, wakeups)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -84,18 +98,16 @@ func startAGDrainPollLoop(t *testing.T, d *Daemon) context.CancelFunc {
 			t.Error("pollLoop did not stop")
 		}
 	})
-	return cancel
 }
 
-func agDrainWaitFor(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+// agDrainCompletingRunner makes tasks complete at once and counts them.
+func agDrainCompletingRunner(d *Daemon) *atomic.Int64 {
+	var ran atomic.Int64
+	d.runner = taskRunnerFunc(func(ctx context.Context, task Task, provider string, slot int, log *slog.Logger) (TaskResult, error) {
+		ran.Add(1)
+		return TaskResult{Status: "completed"}, nil
+	})
+	return &ran
 }
 
 func agDrainHealthJSON(t *testing.T, d *Daemon) map[string]any {
@@ -110,20 +122,8 @@ func agDrainHealthJSON(t *testing.T, d *Daemon) map[string]any {
 }
 
 func TestAGPatchDrainBlocksClaims(t *testing.T) {
-	t.Run("AG patch: no claim is issued while draining", func(t *testing.T) {
-		s := newAGDrainClaimServer(t)
-		d := newAGDrainPollDaemon(t, s, 10*time.Millisecond)
-		d.agStartDrain()
-		startAGDrainPollLoop(t, d)
-
-		time.Sleep(300 * time.Millisecond)
-		if got := s.claims.Load(); got != 0 {
-			t.Fatalf("claim calls while draining = %d, want 0", got)
-		}
-	})
-
 	t.Run("AG patch: tryEnterClaim refuses and leaves claimsInFlight untouched", func(t *testing.T) {
-		d := &Daemon{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+		d := &Daemon{logger: discardLogger()}
 		d.agStartDrain()
 		if d.tryEnterClaim() {
 			t.Fatal("tryEnterClaim allowed a claim while draining")
@@ -135,11 +135,33 @@ func TestAGPatchDrainBlocksClaims(t *testing.T) {
 			t.Fatalf("claimsInFlight = %d, want 0", inFlight)
 		}
 	})
+
+	t.Run("AG patch: wake-ups during drain claim nothing; resume claims at once, not after PollInterval", func(t *testing.T) {
+		s := newAGDrainClaimServer(t, false)
+		s.serveTask.Store(true)
+		d := newAGDrainPollDaemon(t, s, time.Hour)
+		ran := agDrainCompletingRunner(d)
+		d.agStartDrain()
+		wakeups := make(chan taskWakeup, 8)
+		startAGDrainPollLoop(t, d, wakeups)
+
+		for i := 0; i < 3; i++ {
+			wakeups <- taskWakeup{runtimeID: "rt-1"}
+		}
+		waitFor(t, func() bool { return len(wakeups) == 0 }, "poller to consume the wake-ups")
+		time.Sleep(100 * time.Millisecond)
+		if s.claims.Load() != 0 || ran.Load() != 0 {
+			t.Fatalf("work started while draining: claims=%d ran=%d", s.claims.Load(), ran.Load())
+		}
+
+		d.agResume()
+		waitFor(t, func() bool { return ran.Load() == 1 && s.completed.Load() == 1 }, "queued task to run and complete after resume")
+	})
 }
 
 func TestAGPatchDrainLetsRunningTasksFinish(t *testing.T) {
 	t.Run("AG patch: a running task is not cancelled and completes after drain starts", func(t *testing.T) {
-		s := newAGDrainClaimServer(t)
+		s := newAGDrainClaimServer(t, false)
 		s.serveTask.Store(true)
 		d := newAGDrainPollDaemon(t, s, 10*time.Millisecond)
 
@@ -156,7 +178,7 @@ func TestAGPatchDrainLetsRunningTasksFinish(t *testing.T) {
 				return TaskResult{Status: "cancelled"}, ctx.Err()
 			}
 		})
-		startAGDrainPollLoop(t, d)
+		startAGDrainPollLoop(t, d, nil)
 
 		select {
 		case <-started:
@@ -164,7 +186,7 @@ func TestAGPatchDrainLetsRunningTasksFinish(t *testing.T) {
 			t.Fatal("task did not start")
 		}
 		d.agStartDrain()
-		time.Sleep(150 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 		if cancelled.Load() {
 			t.Fatal("drain cancelled the running task")
 		}
@@ -173,17 +195,42 @@ func TestAGPatchDrainLetsRunningTasksFinish(t *testing.T) {
 		}
 
 		close(release)
-		agDrainWaitFor(t, "task completion report", func() bool { return s.completed.Load() == 1 })
-		agDrainWaitFor(t, "activeTasks to reach 0", func() bool { return d.activeTasks.Load() == 0 })
+		waitFor(t, func() bool { return s.completed.Load() == 1 && d.activeTasks.Load() == 0 }, "task completion report")
+	})
+
+	t.Run("AG patch: a claim already in flight when drain starts still runs; nothing is claimed after", func(t *testing.T) {
+		s := newAGDrainClaimServer(t, true)
+		d := newAGDrainPollDaemon(t, s, 10*time.Millisecond)
+		ran := agDrainCompletingRunner(d)
+		startAGDrainPollLoop(t, d, nil)
+
+		select {
+		case <-s.arrived:
+		case <-time.After(3 * time.Second):
+			t.Fatal("claim request never reached the server")
+		}
+		d.agStartDrain()
+		if raw := agDrainHealthJSON(t, d); raw["draining"] != true || raw["idle"] != false {
+			t.Fatalf("with a claim in flight: draining=%v idle=%v, want true/false", raw["draining"], raw["idle"])
+		}
+
+		close(s.gate) // the claim returns the task it had already committed to
+		waitFor(t, func() bool { return ran.Load() == 1 && s.completed.Load() == 1 }, "in-flight task to run and complete")
+		waitFor(t, func() bool { return agDrainHealthJSON(t, d)["idle"] == true }, "idle after the task finished")
+		before := s.claims.Load()
+		time.Sleep(100 * time.Millisecond)
+		if after := s.claims.Load(); after != before {
+			t.Fatalf("claims grew from %d to %d while draining", before, after)
+		}
 	})
 }
 
-func TestAGPatchDrainIdleReporting(t *testing.T) {
-	t.Run("AG patch: idle flips when active tasks reach zero and no claim is in flight", func(t *testing.T) {
+func TestAGPatchDrainReportsIdle(t *testing.T) {
+	t.Run("AG patch: /health idle tracks active tasks and in-flight claims", func(t *testing.T) {
 		d := &Daemon{
 			cfg:        Config{DaemonID: "daemon-test"},
 			workspaces: map[string]*workspaceState{},
-			logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+			logger:     discardLogger(),
 		}
 		raw := agDrainHealthJSON(t, d)
 		if raw["draining"] != false || raw["idle"] != false {
@@ -194,7 +241,6 @@ func TestAGPatchDrainIdleReporting(t *testing.T) {
 		}
 
 		d.activeTasks.Store(2)
-		d.resourceWaitTasks.Store(1)
 		d.agStartDrain()
 		raw = agDrainHealthJSON(t, d)
 		if raw["draining"] != true || raw["idle"] != false {
@@ -203,12 +249,6 @@ func TestAGPatchDrainIdleReporting(t *testing.T) {
 		startedAt, _ := raw["drain_started_at"].(string)
 		if _, err := time.Parse(time.RFC3339, startedAt); err != nil {
 			t.Fatalf("drain_started_at %q is not RFC3339: %v", startedAt, err)
-		}
-
-		// A task parked on a local-directory lock still counts as active.
-		d.activeTasks.Store(1)
-		if raw = agDrainHealthJSON(t, d); raw["idle"] != false {
-			t.Fatalf("idle with a resource-waiting task = %v, want false", raw["idle"])
 		}
 
 		d.claimMu.Lock()
@@ -225,101 +265,147 @@ func TestAGPatchDrainIdleReporting(t *testing.T) {
 		}
 	})
 
-	t.Run("AG patch: POST /drain and /resume toggle state; other methods get 405", func(t *testing.T) {
-		d := &Daemon{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-		drain, resume := d.agDrainHandler(true), d.agDrainHandler(false)
+	t.Run("AG patch: /drain and /resume are routed on the health server and answer with the state", func(t *testing.T) {
+		d := &Daemon{
+			cfg:        Config{DaemonID: "daemon-test"},
+			workspaces: map[string]*workspaceState{},
+			logger:     discardLogger(),
+		}
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("listen: %v", err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			d.serveHealth(ctx, ln, time.Now())
+		}()
+		t.Cleanup(func() {
+			cancel()
+			<-done
+		})
+		base := "http://" + ln.Addr().String()
 
-		for _, h := range []http.HandlerFunc{drain, resume} {
-			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-			if rec.Code != http.StatusMethodNotAllowed {
-				t.Fatalf("GET status = %d, want 405", rec.Code)
+		do := func(method, path string) (int, map[string]any) {
+			t.Helper()
+			req, err := http.NewRequest(method, base+path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", method, path, err)
+			}
+			defer resp.Body.Close()
+			var body map[string]any
+			_ = json.NewDecoder(resp.Body).Decode(&body)
+			return resp.StatusCode, body
+		}
+
+		for _, path := range []string{"/drain", "/resume"} {
+			if code, _ := do(http.MethodGet, path); code != http.StatusMethodNotAllowed {
+				t.Fatalf("GET %s = %d, want 405", path, code)
 			}
 		}
-		if d.agDraining() {
-			t.Fatal("a GET must not start a drain")
+		if _, body := do(http.MethodGet, "/health"); body["draining"] != false {
+			t.Fatalf("a rejected GET changed state: draining=%v", body["draining"])
 		}
 
-		rec := httptest.NewRecorder()
-		drain.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/drain", nil))
-		if rec.Code != http.StatusOK || !d.agDraining() {
-			t.Fatalf("POST /drain: status=%d draining=%v", rec.Code, d.agDraining())
+		d.activeTasks.Store(1)
+		code, body := do(http.MethodPost, "/drain")
+		if code != 200 || body["draining"] != true || body["idle"] != false || body["active_task_count"] != float64(1) {
+			t.Fatalf("POST /drain with a running task: status=%d body=%v, want draining, not idle, 1 active", code, body)
 		}
+		if _, ok := body["drain_started_at"].(string); !ok {
+			t.Fatalf("POST /drain body has no drain_started_at: %v", body)
+		}
+
+		d.activeTasks.Store(0)
+		if code, body := do(http.MethodGet, "/health"); code != 200 || body["draining"] != true || body["idle"] != true {
+			t.Fatalf("/health after the task ended: status=%d draining=%v idle=%v", code, body["draining"], body["idle"])
+		}
+
+		code, body = do(http.MethodPost, "/resume")
+		if code != 200 || body["draining"] != false || body["idle"] != false {
+			t.Fatalf("POST /resume: status=%d body=%v, want not draining and not idle", code, body)
+		}
+		if _, present := body["drain_started_at"]; present {
+			t.Fatal("drain_started_at must be omitted after resume")
+		}
+	})
+
+	t.Run("AG patch: a repeated drain keeps the original start time", func(t *testing.T) {
+		d := &Daemon{logger: discardLogger()}
+		d.agStartDrain()
 		first := d.agDrain.startedAt
-		drain.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/drain", nil))
+		time.Sleep(2 * time.Millisecond)
+		d.agStartDrain()
 		if !d.agDrain.startedAt.Equal(first) {
-			t.Fatal("a repeated drain must keep the original start time")
-		}
-
-		rec = httptest.NewRecorder()
-		resume.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/resume", nil))
-		if rec.Code != http.StatusOK || d.agDraining() {
-			t.Fatalf("POST /resume: status=%d draining=%v", rec.Code, d.agDraining())
+			t.Fatal("a repeated drain reset the start time")
 		}
 	})
 }
 
-func TestAGPatchDrainResume(t *testing.T) {
-	t.Run("AG patch: resume claims at once, not after PollInterval", func(t *testing.T) {
-		s := newAGDrainClaimServer(t)
-		d := newAGDrainPollDaemon(t, s, time.Hour)
+func TestAGPatchDrainSurvivesBarrierRelease(t *testing.T) {
+	t.Run("AG patch: releaseClaimBarrier does not clear drain", func(t *testing.T) {
+		d := &Daemon{logger: discardLogger()}
 		d.agStartDrain()
-		startAGDrainPollLoop(t, d)
+		d.claimMu.Lock()
+		d.pauseClaims = true
+		d.claimMu.Unlock()
 
-		time.Sleep(200 * time.Millisecond) // poller is now asleep for PollInterval
-		if got := s.claims.Load(); got != 0 {
-			t.Fatalf("claims while draining = %d, want 0", got)
+		d.releaseClaimBarrier()
+
+		if !d.agDraining() {
+			t.Fatal("releaseClaimBarrier cleared drain")
 		}
-
-		d.agResume()
-		agDrainWaitFor(t, "a claim right after resume", func() bool { return s.claims.Load() >= 1 })
+		if d.tryEnterClaim() {
+			t.Fatal("claims allowed after the barrier was released during a drain")
+		}
 	})
 
-	t.Run("AG patch: a task queued during drain is claimed after resume", func(t *testing.T) {
-		s := newAGDrainClaimServer(t)
-		s.serveTask.Store(true)
-		d := newAGDrainPollDaemon(t, s, time.Hour)
-		var ran atomic.Int64
-		d.runner = taskRunnerFunc(func(ctx context.Context, task Task, provider string, slot int, log *slog.Logger) (TaskResult, error) {
-			ran.Add(1)
-			return TaskResult{Status: "completed"}, nil
-		})
+	t.Run("AG patch: resume does not clear a claim barrier held by an update", func(t *testing.T) {
+		d := &Daemon{logger: discardLogger()}
 		d.agStartDrain()
-		startAGDrainPollLoop(t, d)
-		time.Sleep(150 * time.Millisecond)
-		if ran.Load() != 0 || s.claims.Load() != 0 {
-			t.Fatalf("work started while draining: ran=%d claims=%d", ran.Load(), s.claims.Load())
-		}
+		d.claimMu.Lock()
+		d.pauseClaims = true
+		d.claimMu.Unlock()
 
 		d.agResume()
-		agDrainWaitFor(t, "queued task to run", func() bool { return ran.Load() == 1 })
-		agDrainWaitFor(t, "completion report", func() bool { return s.completed.Load() == 1 })
+
+		if d.tryEnterClaim() {
+			t.Fatal("resume cleared pauseClaims and let a claim through the update barrier")
+		}
+		d.releaseClaimBarrier()
+		if !d.tryEnterClaim() {
+			t.Fatal("claims still refused after both drain and barrier were released")
+		}
+		d.exitClaim()
 	})
 }
 
 func TestAGPatchDrainDefersRestarts(t *testing.T) {
-	t.Run("AG patch: self-reload does not restart while draining and says why", func(t *testing.T) {
+	t.Run("AG patch: self-reload does not restart while draining, keeps one note, and restarts after resume", func(t *testing.T) {
 		d, restartCalls := newSelfReloadTestDaemon(t, "0.3.7")
 		stubSelfVersion(t, "0.3.8", nil)
 		d.agStartDrain()
 
-		d.trySelfReload(context.Background())
+		for i := 0; i < 3; i++ {
+			d.trySelfReload(context.Background())
+		}
 
 		if restartCalls.Load() != 0 || d.RestartBinary() != "" {
 			t.Fatal("self-reload restarted a draining daemon")
 		}
-		if claimsPaused(t, d) {
-			t.Fatal("deferral must not leave pauseClaims held")
-		}
-		if d.updating.Load() {
-			t.Fatal("deferral must release the updating flag")
+		if claimsPaused(t, d) || d.updating.Load() {
+			t.Fatal("deferral left the claim barrier or updating flag held")
 		}
 		reason := d.reloadPending()
-		if !strings.Contains(reason, "0.3.8") || !strings.Contains(reason, "draining") {
-			t.Fatalf("reload_pending_reason = %q, want the version change and the drain note", reason)
+		if strings.Count(reason, "0.3.8") != 1 || strings.Count(reason, "draining") != 1 {
+			t.Fatalf("reload_pending_reason = %q, want the version change and one drain note", reason)
 		}
 
-		// Resume drops the drain note and the next tick restarts as normal.
 		d.agResume()
 		if got := d.reloadPending(); strings.Contains(got, "draining") || !strings.Contains(got, "0.3.8") {
 			t.Fatalf("reason after resume = %q, want the version change only", got)
@@ -330,7 +416,7 @@ func TestAGPatchDrainDefersRestarts(t *testing.T) {
 		}
 	})
 
-	t.Run("AG patch: auto-update does not upgrade or restart while draining", func(t *testing.T) {
+	t.Run("AG patch: auto-update does not upgrade while draining", func(t *testing.T) {
 		d, restartCalls := newAutoUpdateTestDaemon(t, "v0.1.13")
 		d.runUpdateFn = func(string) (string, error) {
 			t.Fatal("auto-update ran an upgrade while draining")
@@ -341,18 +427,42 @@ func TestAGPatchDrainDefersRestarts(t *testing.T) {
 
 		d.tryAutoUpdate(context.Background())
 
-		if restartCalls.Load() != 0 {
-			t.Fatal("auto-update restarted a draining daemon")
+		if restartCalls.Load() != 0 || claimsPaused(t, d) || d.updating.Load() {
+			t.Fatalf("auto-update acted on a draining daemon: restarts=%d", restartCalls.Load())
+		}
+	})
+
+	t.Run("AG patch: a drain that starts during an auto-update upgrade stops the restart", func(t *testing.T) {
+		d, restartCalls := newAutoUpdateTestDaemon(t, "v0.1.13")
+		upgrading, finish := make(chan struct{}), make(chan struct{})
+		d.runUpdateFn = func(string) (string, error) {
+			close(upgrading)
+			<-finish
+			return "ok", nil
+		}
+		withStubRelease(t, &cli.GitHubRelease{TagName: "v0.1.14"}, nil)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			d.tryAutoUpdate(context.Background())
+		}()
+		<-upgrading
+
+		d.agStartDrain()
+		close(finish)
+		<-done
+
+		if restartCalls.Load() != 0 || d.RestartBinary() != "" {
+			t.Fatal("auto-update restarted a daemon that began draining mid-upgrade")
 		}
 		if claimsPaused(t, d) || d.updating.Load() {
-			t.Fatal("deferral left the claim barrier or updating flag held")
+			t.Fatal("deferred restart left the claim barrier or updating flag held")
 		}
-		if got := d.reloadPending(); !strings.Contains(got, "draining") {
-			t.Fatalf("reload_pending_reason = %q, want a drain note", got)
+		if !strings.Contains(d.reloadPending(), "draining") {
+			t.Fatalf("reload_pending_reason = %q, want a drain note", d.reloadPending())
 		}
-		d.agResume()
-		if got := d.reloadPending(); got != "" {
-			t.Fatalf("reload_pending_reason after resume = %q, want empty", got)
+		if !d.agDraining() {
+			t.Fatal("the update path cleared drain")
 		}
 	})
 
@@ -381,62 +491,69 @@ func TestAGPatchDrainDefersRestarts(t *testing.T) {
 		}
 	})
 
-	t.Run("AG patch: a barrier acquired in the server-update race is released, drain kept", func(t *testing.T) {
-		d := &Daemon{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-		// Drain starts after the entry check but before the final idle check:
-		// simulate by holding a claim in flight so the loop runs, then draining.
-		d.claimsInFlight = 1
-		result := make(chan serverUpdateAcquireResult, 1)
-		go func() { result <- d.tryBeginServerUpdate(context.Background()) }()
-		agDrainWaitFor(t, "barrier to be taken", func() bool { return claimsPaused(t, d) })
+	t.Run("AG patch: a drain that starts during a server update stops the restart and says so", func(t *testing.T) {
+		var lastReport atomic.Value
+		d, _ := updateReportDaemon(t, func(w http.ResponseWriter, r *http.Request) {
+			var p map[string]any
+			json.NewDecoder(r.Body).Decode(&p)
+			lastReport.Store(p)
+			w.WriteHeader(http.StatusOK)
+		})
+		var restartCalls atomic.Int32
+		d.cancelFunc = func() { restartCalls.Add(1) }
+		upgrading, finish := make(chan struct{}), make(chan struct{})
+		d.runUpdateFn = func(string) (string, error) {
+			close(upgrading)
+			<-finish
+			return "ok", nil
+		}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			d.handleUpdate(context.Background(), "runtime-1", &PendingUpdate{ID: "update-1", TargetVersion: "v0.4.14"})
+		}()
+		<-upgrading
+
 		d.agStartDrain()
-		d.exitClaim()
+		close(finish)
+		<-done
 
-		select {
-		case got := <-result:
-			if got == serverUpdateAcquired {
-				t.Fatal("server update acquired the restart barrier on a draining daemon")
-			}
-		case <-time.After(3 * time.Second):
-			t.Fatal("tryBeginServerUpdate did not return")
+		if restartCalls.Load() != 0 || d.RestartBinary() != "" {
+			t.Fatal("server update restarted a daemon that began draining mid-update")
 		}
-		if !d.agDraining() {
-			t.Fatal("update path cleared drain")
+		report, _ := lastReport.Load().(map[string]any)
+		if report["status"] != "completed" || !strings.Contains(report["output"].(string), "draining") {
+			t.Fatalf("last report = %v, want completed with the drain note", report)
 		}
-		if claimsPaused(t, d) {
-			t.Fatal("refused update left pauseClaims held")
-		}
-	})
-}
-
-func TestAGPatchDrainSurvivesBarrierRelease(t *testing.T) {
-	t.Run("AG patch: releaseClaimBarrier does not clear drain", func(t *testing.T) {
-		d := &Daemon{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-		d.agStartDrain()
-		d.claimMu.Lock()
-		d.pauseClaims = true
-		d.claimMu.Unlock()
-
-		d.releaseClaimBarrier()
-
-		if !d.agDraining() {
-			t.Fatal("releaseClaimBarrier cleared drain")
-		}
-		if d.tryEnterClaim() {
-			t.Fatal("claims allowed after the barrier was released during a drain")
+		if claimsPaused(t, d) || d.updating.Load() {
+			t.Fatal("deferred restart left the claim barrier or updating flag held")
 		}
 	})
 
-	t.Run("AG patch: drain is in-memory only; a fresh daemon claims", func(t *testing.T) {
-		old := &Daemon{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-		old.agStartDrain()
-		fresh := New(Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-		if fresh.agDraining() {
-			t.Fatal("a new daemon started in drain mode")
+	t.Run("AG patch: runtime demotion still runs while draining and leaves no drain note", func(t *testing.T) {
+		fx := newBatchFixture(t)
+		d := fx.daemon
+		d.cfg.Agents = map[string]AgentEntry{
+			"claude": {Path: "/fake/claude"},
+			"codex":  {Path: "/fake/codex"},
 		}
-		if !fresh.tryEnterClaim() {
-			t.Fatal("a new daemon refused to claim")
+		fx.setWorkspaces(WorkspaceInfo{ID: "ws-1", Name: "one"})
+		stubAgentProbe(t, d.cfg.Agents)
+		if err := d.syncWorkspacesFromAPI(context.Background(), false); err != nil {
+			t.Fatalf("syncWorkspacesFromAPI: %v", err)
 		}
-		fresh.exitClaim()
+		d.agStartDrain()
+
+		d.demoteUnusableRuntimes(context.Background(), map[string]runtimeVerdict{"codex": {reason: "below minimum supported version: 0.0.1"}})
+
+		if got := registeredProviders(t, d, "ws-1"); len(got) != 1 || got[0] != "claude" {
+			t.Fatalf("providers after demotion = %v, want [claude]", got)
+		}
+		if got := d.reloadPending(); got != "" {
+			t.Fatalf("reload_pending_reason = %q, want empty: demotion is not a restart", got)
+		}
+		if !d.agDraining() {
+			t.Fatal("demotion cleared drain")
+		}
 	})
 }

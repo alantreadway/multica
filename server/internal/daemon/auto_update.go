@@ -216,6 +216,11 @@ func (d *Daemon) tryAutoUpdate(ctx context.Context) {
 		return
 	}
 
+	if d.agDraining() { // AG patch: drain
+		d.logger.Debug("auto-update: skip — daemon is draining")
+		return
+	}
+
 	release, err := fetchLatestRelease()
 	if err != nil {
 		d.logger.Warn("auto-update: fetch latest release failed — will retry", "error", err)
