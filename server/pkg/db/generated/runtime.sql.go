@@ -236,6 +236,24 @@ func (q *Queries) CancelNonOwnerTasksByRuntime(ctx context.Context, arg CancelNo
 	return items, nil
 }
 
+const clearAgentRuntimeAGDrain = `-- name: ClearAgentRuntimeAGDrain :execrows
+UPDATE agent_runtime
+SET metadata = metadata - 'ag_drain',
+    updated_at = now()
+WHERE id = $1
+  AND (metadata -> 'ag_drain') IS NOT NULL
+`
+
+// AG patch: drain badge. Removes a stored drain report once the daemon
+// reports it is no longer draining. No-op when none is stored.
+func (q *Queries) ClearAgentRuntimeAGDrain(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, clearAgentRuntimeAGDrain, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countActiveAgentsByRuntime = `-- name: CountActiveAgentsByRuntime :one
 SELECT count(*) FROM agent WHERE runtime_id = $1 AND archived_at IS NULL
 `
@@ -1610,6 +1628,32 @@ func (q *Queries) SelectStaleOnlineRuntimes(ctx context.Context, staleSeconds fl
 		return nil, err
 	}
 	return items, nil
+}
+
+const setAgentRuntimeAGDrain = `-- name: SetAgentRuntimeAGDrain :execrows
+UPDATE agent_runtime
+SET metadata = metadata || jsonb_build_object('ag_drain', $2::jsonb),
+    updated_at = now()
+WHERE id = $1
+  AND (metadata -> 'ag_drain') IS DISTINCT FROM $2::jsonb
+`
+
+type SetAgentRuntimeAGDrainParams struct {
+	ID    pgtype.UUID `json:"id"`
+	Drain []byte      `json:"drain"`
+}
+
+// AG patch: drain badge. Merges the daemon's drain report into metadata under
+// "ag_drain", the way offline_reason is merged above: no column, and
+// registration's wholesale metadata overwrite drops it when a runtime comes
+// back. The IS DISTINCT FROM guard makes an unchanged report a no-op, so the
+// rows-affected count doubles as "state changed" for the caller.
+func (q *Queries) SetAgentRuntimeAGDrain(ctx context.Context, arg SetAgentRuntimeAGDrainParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setAgentRuntimeAGDrain, arg.ID, arg.Drain)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setAgentRuntimeOffline = `-- name: SetAgentRuntimeOffline :exec

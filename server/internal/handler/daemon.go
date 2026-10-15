@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/agdrain"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
@@ -1030,6 +1031,8 @@ func (h *Handler) DaemonDeregister(w http.ResponseWriter, r *http.Request) {
 type DaemonHeartbeatRequest struct {
 	RuntimeID           string `json:"runtime_id"`
 	SupportsBatchImport bool   `json:"supports_batch_import,omitempty"`
+	// AGDrain: AG patch drain report; nil from a stock daemon.
+	AGDrain *protocol.DaemonDrainReport `json:"ag_drain,omitempty"`
 }
 
 // heartbeatHasPendingTimeout bounds the cheap HasPending probe on the
@@ -1171,6 +1174,8 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	updateMs = time.Since(updateStart).Milliseconds()
 
+	h.agApplyDrainReport(r.Context(), rt.ID, uuidToString(rt.WorkspaceID), agdrain.MemoFromMetadata(rt.Metadata, time.Now()), nil, req.AGDrain)
+
 	ack, m, err := h.processHeartbeat(r.Context(), runtimeID, req.SupportsBatchImport)
 	probeModelMs = m.ProbeModelMs
 	popModelMs = m.PopModelMs
@@ -1234,6 +1239,11 @@ func (h *Handler) HandleDaemonWSHeartbeat(ctx context.Context, identity daemonws
 			return runtimeGoneHeartbeatAck(runtimeID), nil
 		}
 		return nil, err
+	}
+	if report := agdrain.ReportFrom(ctx); report != nil {
+		if runtimeUUID, err := util.ParseUUID(runtimeID); err == nil {
+			h.agApplyDrainReport(ctx, runtimeUUID, lease.Snapshot().WorkspaceID, lease.AGDrain(), lease, report)
+		}
 	}
 	ack, _, err := h.processHeartbeat(ctx, runtimeID, supportsBatchImport)
 	return ack, err
