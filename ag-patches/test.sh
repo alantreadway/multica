@@ -26,7 +26,7 @@ pnpm --filter @multica/views typecheck
 
 # --- Go: daemon patch guard -------------------------------------------------
 
-AG_GO_MIN_TESTS=6
+AG_GO_MIN_TESTS=10
 
 go_version="$(awk '/^go /{print $2; exit}' server/go.mod)"
 
