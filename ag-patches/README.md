@@ -150,9 +150,21 @@ Replacing the binary a running daemon was started from triggers its auto-reload:
 within about 10 minutes the daemon notices the version on disk changed and
 restarts into it, but only at a moment with no task running. While draining, that
 reload is held even once the daemon is idle, and `reload_pending_reason` in
-`daemon status` says so. To swap binaries on your own schedule, drain, replace the
-file, then `multica-ag daemon restart` (or use `restart --drain`, which does the
-drain and the restart in one step).
+`daemon status` says so.
+
+To swap binaries on your own schedule, with the daemon under launchd:
+
+```sh
+multica-ag daemon drain --wait          # blocks until idle
+install -m 0755 <new binary> ~/.local/bin/multica-ag   # or edit the plist
+~/bin/multica-daemon-reload             # relaunches under launchd, claiming again
+```
+
+Don't use `daemon restart` for a launchd daemon: `/shutdown` is a clean exit, so
+launchd does not respawn it, and `restart` starts a new daemon outside launchd
+with your shell's environment, losing the plist's settings
+(`MULTICA_DAEMON_MAX_CONCURRENT_TASKS` and the rest). `stop --drain` and
+`restart --drain` suit a daemon that is not under launchd.
 
 Self-host defaults auto-update off (`MULTICA_DAEMON_AUTO_UPDATE`). Keep it off: a
 self-update would replace the patched binary with a stock release.
@@ -166,10 +178,10 @@ self-update would replace the patched binary with a stock release.
 
 ### Roll back
 
-Point the launchd plist back at `/opt/homebrew/bin/multica` and reload it, or run
-`multica-ag daemon stop` and start the daemon from the Homebrew binary. Nothing
-on the backend or in the database changed. Keep the old binary in `dist/` until
-the new one has run for a while.
+Point the launchd plist back at `/opt/homebrew/bin/multica` and run
+`~/bin/multica-daemon-reload`; drain first with `multica-ag daemon drain --wait`
+so no run is cut off. Nothing on the backend or in the database changed. Keep
+the old binary in `dist/` until the new one has run for a while.
 
 ## Rebase onto a new upstream tag
 

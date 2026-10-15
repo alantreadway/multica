@@ -50,7 +50,7 @@ func init() {
 		f := c.Flags()
 		f.Bool("drain", false, "Drain first: stop claiming, wait for running tasks to finish, then "+c.Name())
 		f.Duration("timeout", 0, "With --drain, give up after this long without "+verb+", leaving drain on (0 = wait indefinitely)")
-		c.PreRunE = agValidateDrainFlags
+		c.PreRunE = agChainPreRunE(c.PreRunE, agValidateDrainFlags)
 	}
 
 	daemonCmd.AddCommand(daemonDrainCmd)
@@ -77,6 +77,19 @@ func agValidateDrainFlags(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("--timeout requires --drain")
 	}
 	return nil
+}
+
+// agChainPreRunE runs prev, if any, before next so a hook upstream adds later is kept.
+func agChainPreRunE(prev, next func(*cobra.Command, []string) error) func(*cobra.Command, []string) error {
+	if prev == nil {
+		return next
+	}
+	return func(cmd *cobra.Command, args []string) error {
+		if err := prev(cmd, args); err != nil {
+			return err
+		}
+		return next(cmd, args)
+	}
 }
 
 // agDrainTarget runs the guards every drain command shares and returns the
@@ -170,11 +183,12 @@ func agDrainAndReport(port int, wait bool, timeout time.Duration, out, progress 
 	if err != nil {
 		return err
 	}
-	// /drain returns only the total; /health has the split.
-	health := agHealth(port)
-	for _, k := range []string{"running_task_count", "resource_wait_task_count"} {
-		if v, ok := health[k]; ok {
-			resp[k] = v
+	// /drain returns only the total; take all three counts from the same /health read.
+	if health := agHealth(port); daemonAlive(health) {
+		for _, k := range []string{"active_task_count", "running_task_count", "resource_wait_task_count"} {
+			if v, ok := health[k]; ok {
+				resp[k] = v
+			}
 		}
 	}
 	idle, _ := resp["idle"].(bool)
@@ -202,7 +216,6 @@ func agDrainAndReport(port int, wait bool, timeout time.Duration, out, progress 
 	return nil
 }
 
-// agWaitIdle polls /health until the daemon reports idle.
 func agWaitIdle(ctx context.Context, port int, progress io.Writer) error {
 	lastActive := int64(-1)
 	failures := 0
@@ -247,8 +260,6 @@ func agHealth(port int) map[string]any {
 	return checkDaemonHealthOnPort(ctx, port)
 }
 
-// agPostDrainEndpoint POSTs to /drain or /resume and decodes the state the
-// daemon returns.
 func agPostDrainEndpoint(port int, path string) (map[string]any, error) {
 	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
 	req, err := http.NewRequest(http.MethodPost, url, nil)
@@ -305,9 +316,8 @@ func agDrainSinceSuffix(m map[string]any) string {
 	return " since " + t.Local().Format("15:04")
 }
 
-// agDaemonStatusRows returns the extra `daemon status` rows for a /health
-// response. A daemon that does not report drain state (stock upstream) gets
-// none, so its output is unchanged.
+// agDaemonStatusRows returns the extra `daemon status` rows; a daemon that
+// reports no drain state gets none.
 func agDaemonStatusRows(health map[string]any) [][2]string {
 	draining, ok := health["draining"].(bool)
 	if !ok {

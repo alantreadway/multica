@@ -23,9 +23,8 @@ import (
 	"github.com/multica-ai/multica/server/internal/cli"
 )
 
-// agFakeDaemon stands in for the daemon's health listener. While draining it
-// counts /health reads and drops its active tasks to zero after idleAfterPolls
-// of them (-1: never), so a --wait loop sees the daemon go idle on its own.
+// agFakeDaemon stands in for the daemon's health listener; idleAfterPolls is
+// the number of /health reads while draining before it goes idle (-1: never).
 type agFakeDaemon struct {
 	mu             sync.Mutex
 	profile        string
@@ -579,9 +578,8 @@ func TestAGPatchDaemonStopRestartDrain(t *testing.T) {
 	})
 }
 
-// agStubRestartPreflight points profile at a fake API server that logs each
-// restart preflight into f's call log, and replaces the daemon spawn and the
-// autostart hook so a restart that gets that far touches nothing real.
+// agStubRestartPreflight logs each restart preflight and the daemon spawn into
+// f's call log; nothing real is started.
 func agStubRestartPreflight(t *testing.T, profile string, f *agFakeDaemon) {
 	t.Helper()
 	t.Setenv("MULTICA_SERVER_URL", "")
@@ -616,15 +614,7 @@ func TestAGPatchDaemonStatusDrainRows(t *testing.T) {
 	render := func(health map[string]any) map[string]string {
 		var buf bytes.Buffer
 		printDaemonStatusReport(&buf, "Daemon", health)
-		rows := map[string]string{}
-		for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
-			key, value, ok := strings.Cut(line, ":")
-			if !ok {
-				t.Fatalf("status line %q has no key", line)
-			}
-			rows[key] = strings.TrimSpace(value)
-		}
-		return rows
+		return parseStatusRows(buf.String())
 	}
 	startedAt := time.Date(2026, 10, 15, 9, 41, 0, 0, time.UTC)
 	base := func() map[string]any {
