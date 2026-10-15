@@ -246,6 +246,27 @@ SET status = 'offline',
     updated_at = now()
 WHERE id = $1;
 
+-- name: SetAgentRuntimeAGDrain :execrows
+-- AG patch: drain badge. Merges the daemon's drain report into metadata under
+-- "ag_drain", the way offline_reason is merged above: no column, and
+-- registration's wholesale metadata overwrite drops it when a runtime comes
+-- back. The IS DISTINCT FROM guard makes an unchanged report a no-op, so the
+-- rows-affected count doubles as "state changed" for the caller.
+UPDATE agent_runtime
+SET metadata = metadata || jsonb_build_object('ag_drain', @drain::jsonb),
+    updated_at = now()
+WHERE id = $1
+  AND (metadata -> 'ag_drain') IS DISTINCT FROM @drain::jsonb;
+
+-- name: ClearAgentRuntimeAGDrain :execrows
+-- AG patch: drain badge. Removes a stored drain report once the daemon
+-- reports it is no longer draining. No-op when none is stored.
+UPDATE agent_runtime
+SET metadata = metadata - 'ag_drain',
+    updated_at = now()
+WHERE id = $1
+  AND (metadata -> 'ag_drain') IS NOT NULL;
+
 -- name: SelectStaleOnlineRuntimes :many
 -- Lists online runtimes whose last_seen_at exceeds the stale window. The
 -- sweeper uses this as a candidate set, then optionally filters via the
