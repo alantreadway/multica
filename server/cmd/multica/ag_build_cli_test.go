@@ -21,9 +21,8 @@ type agBuildCLIRepo struct {
 	testLog   string
 }
 
-// newAGBuildCLIRepo makes a repo on branch ag/v0.6.2 with the upstream tag
-// v0.6.2 on an ancestor commit, a stub ag-patches/test.sh, and stub go and
-// docker binaries on PATH.
+// newAGBuildCLIRepo makes a repo on ag/v0.6.2 with a stub test.sh and stub go
+// and docker binaries on PATH.
 func newAGBuildCLIRepo(t *testing.T, testShExit int) *agBuildCLIRepo {
 	t.Helper()
 	for _, tool := range []string{"git", "bash"} {
@@ -103,10 +102,23 @@ func (r *agBuildCLIRepo) write(t *testing.T, rel, content string) {
 	}
 }
 
+// agBuildCLIEnv is the caller's environment without AG_FORCE_DOCKER, and with
+// no global git config, so the host cannot change what the script does.
+func agBuildCLIEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "AG_FORCE_DOCKER=") && !strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") {
+			env = append(env, kv)
+		}
+	}
+	return append(env, "GIT_CONFIG_GLOBAL=/dev/null")
+}
+
 func (r *agBuildCLIRepo) git(t *testing.T, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"}, args...)...)
 	cmd.Dir = r.dir
+	cmd.Env = agBuildCLIEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -124,7 +136,7 @@ func (r *agBuildCLIRepo) runEnv(t *testing.T, env []string, args ...string) (str
 	t.Helper()
 	cmd := exec.Command("bash", append([]string{filepath.Join(r.dir, "ag-patches/build-cli.sh")}, args...)...)
 	cmd.Dir = r.dir
-	cmd.Env = append(append(os.Environ(), "PATH="+r.binDir+string(os.PathListSeparator)+os.Getenv("PATH")), env...)
+	cmd.Env = append(append(agBuildCLIEnv(), "PATH="+r.binDir+string(os.PathListSeparator)+os.Getenv("PATH")), env...)
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf
 	err := cmd.Run()
