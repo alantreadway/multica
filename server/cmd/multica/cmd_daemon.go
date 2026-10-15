@@ -1310,6 +1310,9 @@ func runDaemonRestart(cmd *cobra.Command, args []string) error {
 		if err := requireDaemonRestartPreflight(cmd, profile); err != nil {
 			return err
 		}
+		if err := agDrainBeforeRestart(cmd, healthPort, profile); err != nil { // AG patch: drain
+			return err
+		}
 		pid, _ := health["pid"].(float64)
 		if pid > 0 {
 			fmt.Fprintf(os.Stderr, "Stopping daemon (pid %d)...\n", int(pid))
@@ -1370,6 +1373,9 @@ func runDaemonStop(cmd *cobra.Command, _ []string) error {
 	// The PID to kill comes from whatever answered on this port, so verify it
 	// is ours before signalling it.
 	if err := daemonIdentityMismatch(health, profile, healthPort); err != nil {
+		return err
+	}
+	if err := agDrainBeforeStop(cmd, healthPort); err != nil { // AG patch: drain
 		return err
 	}
 
@@ -1582,6 +1588,9 @@ func printDaemonStatusReport(w io.Writer, label string, health map[string]any) {
 	}
 	if ws, ok := health["workspaces"].([]any); ok {
 		rows = append(rows, row{"Workspaces", strconv.Itoa(len(ws))})
+	}
+	for _, kv := range agDaemonStatusRows(health) { // AG patch: drain
+		rows = append(rows, row{kv[0], kv[1]})
 	}
 
 	keyWidth := 0
