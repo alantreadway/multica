@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import type { AgentRuntime } from "@multica/core/types";
 import { runtimeDrainState } from "@multica/core/runtimes/ag-drain";
 import {
@@ -9,16 +10,18 @@ import {
 } from "@multica/ui/components/ui/tooltip";
 import { useT } from "../../i18n";
 
-// AG patch: drain badge. Shown only while the runtime's daemon is draining,
-// so a stock daemon (which never reports it) renders nothing. "Idle" means
-// drained and empty, i.e. safe to restart or upgrade.
+// AG patch: drain badge. Renders nothing unless the daemon is draining.
 export function DrainBadge({
   runtime,
 }: {
   runtime: Pick<AgentRuntime, "status" | "metadata">;
 }) {
   const { t } = useT("runtimes");
-  const drain = runtimeDrainState(runtime);
+  const { status, metadata } = runtime;
+  const drain = useMemo(
+    () => runtimeDrainState({ status, metadata }),
+    [status, metadata],
+  );
   if (!drain) return null;
 
   const label = drain.idle

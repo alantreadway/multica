@@ -89,7 +89,8 @@ with a JSONB `||`, the way `offline_reason` is merged: no column and no
 migration. It writes only when the report differs from what is stored (two
 guarded `UPDATE`s, rows-affected tells whether anything changed), so a steady
 heartbeat costs no query; the WebSocket path remembers the stored state on the
-connection's runtime lease. A heartbeat without the field (stock or Homebrew
+connection's runtime lease, and re-runs the guarded no-op `UPDATE` on a
+connection's first beat and every 60s while draining. A heartbeat without the field (stock or Homebrew
 daemon) leaves metadata alone, and registration's wholesale metadata overwrite
 clears a stale key. A change publishes the existing `daemon:register` event
 (`action: "drain"`) so open runtimes pages refetch. The web side parses the key
@@ -120,7 +121,7 @@ Depends on the daemon drain core patch above.
   - `packages/views/runtimes/components/drain-badge.tsx` (new),
     `drain-badge.test.tsx` (new), `runtime-list.tsx`, `runtime-detail.tsx`
   - `packages/views/locales/*/runtimes.json` (`drain` group)
-  - `ag-patches/build-backend.sh` (new)
+  - `ag-patches/build-backend.sh` (new), `ag-patches/lib.sh` (new, release gate shared with `build-web.sh`)
 
 ## Tooling (not a patch)
 

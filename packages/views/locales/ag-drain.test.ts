@@ -2,9 +2,8 @@
 import { describe, expect, it } from "vitest";
 import { RESOURCES } from "./index";
 
-// AG patch: drain badge. The badge strings must exist, and carry the running
-// count placeholder, in every shipped locale: a missing key silently falls
-// back to English, and a dropped placeholder shows "Draining · {{running}}".
+// A missing key silently falls back to English; a dropped placeholder renders
+// "Draining · {{running}}".
 const DRAIN_KEYS = [
   "draining",
   "draining_unknown",

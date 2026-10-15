@@ -1,8 +1,5 @@
 package agdrain
 
-// AG patch: drain badge, server half; TestAGPatch* with "AG patch:" subtests,
-// as counted by ag-patches/test.sh. Hermetic: no database.
-
 import (
 	"context"
 	"encoding/json"

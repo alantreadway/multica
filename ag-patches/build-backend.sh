@@ -9,67 +9,11 @@
 # the whole backend, so build it for the same <tag> as the web image.
 set -euo pipefail
 
-usage() {
-  echo "usage: ag-patches/build-backend.sh [--rev N] [--skip-tests]" >&2
-  exit 2
-}
+# shellcheck source=ag-patches/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+ag_prepare build-backend.sh image "$@"
+ag_guard_tests
 
-rev=1
-skip_tests=0
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --rev)
-      [ $# -ge 2 ] || usage
-      rev="$2"
-      shift 2
-      ;;
-    --skip-tests)
-      skip_tests=1
-      shift
-      ;;
-    *) usage ;;
-  esac
-done
-
-case "$rev" in
-  '' | *[!0-9]*)
-    echo "error: --rev must be a non-negative integer, got '$rev'" >&2
-    exit 2
-    ;;
-esac
-
-cd "$(git rev-parse --show-toplevel)"
-
-if [ -n "$(git status --porcelain)" ]; then
-  echo "error: working tree is dirty; commit or stash first so the image matches HEAD" >&2
-  exit 1
-fi
-
-branch="$(git symbolic-ref --quiet --short HEAD || true)"
-case "$branch" in
-  ag/*) tag="${branch#ag/}" ;;
-  *)
-    echo "error: must be on a patch branch named ag/<upstream-tag> (on '${branch:-detached HEAD}')" >&2
-    exit 1
-    ;;
-esac
-
-if ! git rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null; then
-  echo "error: upstream tag '${tag}' not found; run: git fetch upstream --tags" >&2
-  exit 1
-fi
-if ! git merge-base --is-ancestor "${tag}" HEAD; then
-  echo "error: ${tag} is not an ancestor of HEAD; the branch is not based on that tag" >&2
-  exit 1
-fi
-
-if [ "$skip_tests" -eq 0 ]; then
-  ./ag-patches/test.sh
-else
-  echo "warning: --skip-tests set; guard tests not run" >&2
-fi
-
-version="${tag}-ag.${rev}"
 sha="$(git rev-parse HEAD)"
 
 docker build \
@@ -97,8 +41,10 @@ Switch the self-host backend (compose resolves multica-backend-ag:\$MULTICA_IMAG
 Roll back:
   remove the MULTICA_BACKEND_IMAGE line from .env, then
   docker compose -f docker-compose.selfhost.yml -f docker-compose.isolated.yml up -d backend
-  (the drain key stays in metadata, is ignored by the stock backend and is
-  overwritten when the runtime next registers)
+  If a runtime is draining, the stock backend never clears its key and the
+  patched web image shows the badge until that daemon re-registers. Either roll
+  the web image back too, or clear it:
+    UPDATE agent_runtime SET metadata = metadata - 'ag_drain' WHERE metadata ? 'ag_drain';
 
 Do not run a bare 'docker compose pull' while switched; use 'docker compose pull frontend'
 (or the other stock services you still need).

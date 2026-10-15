@@ -1,8 +1,5 @@
 package daemon
 
-// AG patch: drain state on the heartbeat; TestAGPatch* with "AG patch:"
-// subtests, as counted by ag-patches/test.sh.
-
 import (
 	"context"
 	"encoding/json"
