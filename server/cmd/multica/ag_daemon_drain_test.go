@@ -60,6 +60,20 @@ func (f *agFakeDaemon) state() map[string]any {
 	return m
 }
 
+// drainState is the body the real /drain and /resume handlers return: the
+// drain fields and the total, without the running/waiting split.
+func (f *agFakeDaemon) drainState() map[string]any {
+	m := map[string]any{
+		"draining":          f.draining,
+		"idle":              f.draining && f.active == 0,
+		"active_task_count": f.active,
+	}
+	if f.draining {
+		m["drain_started_at"] = f.startedAt
+	}
+	return m
+}
+
 func (f *agFakeDaemon) callLog() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -103,7 +117,7 @@ func (f *agFakeDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			f.draining = true
 			f.startedAt = time.Now().UTC().Format(time.RFC3339)
 		}
-		_ = json.NewEncoder(w).Encode(f.state())
+		_ = json.NewEncoder(w).Encode(f.drainState())
 	case "/resume":
 		if f.noDrain {
 			http.NotFound(w, r)
@@ -111,7 +125,7 @@ func (f *agFakeDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		f.draining = false
 		f.startedAt = ""
-		_ = json.NewEncoder(w).Encode(f.state())
+		_ = json.NewEncoder(w).Encode(f.drainState())
 	case "/shutdown":
 		f.stopped = true
 	default:
@@ -675,6 +689,48 @@ func TestAGPatchDaemonStatusDrainRows(t *testing.T) {
 		h := map[string]any{"status": "running", "pid": 1, "uptime": "1h", "draining": true, "active_task_count": float64(4)}
 		if got := render(h)["Active tasks"]; got != "4" {
 			t.Errorf("Active tasks = %q, want 4", got)
+		}
+	})
+}
+
+func TestAGPatchChainPreRunE(t *testing.T) {
+	var calls []string
+	step := func(name string, err error) func(*cobra.Command, []string) error {
+		return func(*cobra.Command, []string) error {
+			calls = append(calls, name)
+			return err
+		}
+	}
+	run := func(f func(*cobra.Command, []string) error) error { return f(&cobra.Command{}, nil) }
+
+	t.Run("AG patch: no previous hook runs only the new one", func(t *testing.T) {
+		calls = nil
+		if err := run(agChainPreRunE(nil, step("next", nil))); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(calls, []string{"next"}) {
+			t.Errorf("calls = %v, want [next]", calls)
+		}
+	})
+
+	t.Run("AG patch: previous hook runs first and both run", func(t *testing.T) {
+		calls = nil
+		if err := run(agChainPreRunE(step("prev", nil), step("next", nil))); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(calls, []string{"prev", "next"}) {
+			t.Errorf("calls = %v, want [prev next]", calls)
+		}
+	})
+
+	t.Run("AG patch: a previous hook error stops the chain", func(t *testing.T) {
+		calls = nil
+		want := errors.New("prev failed")
+		if err := run(agChainPreRunE(step("prev", want), step("next", nil))); !errors.Is(err, want) {
+			t.Errorf("err = %v, want %v", err, want)
+		}
+		if !slices.Equal(calls, []string{"prev"}) {
+			t.Errorf("calls = %v, want [prev]", calls)
 		}
 	})
 }

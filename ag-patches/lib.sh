@@ -101,6 +101,6 @@ ag_go() {
       "golang:${go_version}" go "$@"
   else
     echo "error: need either go or docker to run the Go toolchain" >&2
-    exit 1
+    return 1
   fi
 }
