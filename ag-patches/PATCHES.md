@@ -72,13 +72,15 @@ multica-ai/multica#5631 and #6677: drop this patch if either merges.
     and human-only guard tests)
   - `server/cmd/multica/ag_build_cli_test.go` (new: `build-cli.sh` tests)
   - `server/cmd/multica/cmd_daemon.go` (one-line hooks: `daemon stop` and
-    `daemon restart` call `agDrainBeforeStop`, `printDaemonStatusReport` adds
-    `agDaemonStatusRows`)
-  - `ag-patches/build-cli.sh` (new, tooling: builds the CLI binary)
+    `daemon restart` call `agDrainBeforeStop` / `agDrainBeforeRestart`,
+    `printDaemonStatusReport` adds `agDaemonStatusRows`)
+  - `ag-patches/build-cli.sh` (new, tooling: builds the CLI binary) and
+    `ag-patches/lib.sh` (new, tooling: preamble and Go runner shared with
+    `build-web.sh` and `test.sh`)
 
 ## Tooling (not a patch)
 
-`ag-patches/` (including `build-web.sh` and `build-cli.sh`) and
+`ag-patches/` (including `build-web.sh`, `build-cli.sh` and `lib.sh`) and
 `.github/workflows/ag-patches.yml` exist only on the patch branches. They do not
 touch product code. Landed in [#1](https://github.com/alantreadway/multica/pull/1).
 The guard also runs the Go `TestAGPatch*` daemon and CLI tests (local `go`, else

@@ -104,8 +104,9 @@ multica daemon status                           # Claiming / Active tasks / Idle
   **leaves drain on**; run `multica daemon resume`. `stop --drain` and
   `restart --drain` behave the same and do not stop the daemon on a timeout.
   `--timeout` defaults to 0, which waits indefinitely (Ctrl-C leaves drain on).
-- All of these are human-only, like `daemon stop`: an agent run cannot drain its
-  own daemon.
+- All of these are human-only, like `daemon stop`: the CLI refuses inside an
+  agent run. That is a CLI guard only; `/drain` on the daemon's loopback port is
+  unauthenticated, like `/shutdown`.
 - Drain is held in memory. A daemon that restarts for any reason comes back
   claiming. While draining, the daemon's own restart paths (self-reload,
   auto-update, server-triggered update) are deferred and say so in
@@ -116,15 +117,18 @@ multica daemon status                           # Claiming / Active tasks / Idle
 From the patch branch with a clean tree and upstream tags fetched:
 
 ```sh
-ag-patches/build-cli.sh --rev 1
+ag-patches/build-cli.sh --rev 2
 ```
 
 It runs `ag-patches/test.sh`, then cross-compiles `./cmd/multica`
 (`CGO_ENABLED=0 GOOS=darwin GOARCH=arm64`, ldflags `-X main.version=<tag>-ag.<n>`
 and the commit, as in the `Makefile`) with local `go` if present, else in a
 `golang:<version from server/go.mod>` container, to
-`dist/multica-<tag>-ag.<n>-darwin-arm64`. `--skip-tests` skips the guard; `--rev`
-defaults to 1 and is bumped for every rebuild of the same tag.
+`dist/multica-<tag>-ag.<n>-darwin-arm64`. `--skip-tests` skips the guard.
+`AG_FORCE_DOCKER=1` uses the container even when `go` is installed. `--rev`
+defaults to 1 and is shared with `build-web.sh`: both builds of one release use
+the same number, and the script refuses a `--rev` whose `ag/<tag>-ag.<n>` tag
+already marks a different commit.
 
 ### Install
 
@@ -132,7 +136,7 @@ Build and install do not touch the running daemon. Install the binary next to,
 not over, the Homebrew one:
 
 ```sh
-install -m 0755 dist/multica-v0.6.2-ag.1-darwin-arm64 ~/.local/bin/multica-ag
+install -m 0755 dist/multica-v0.6.2-ag.2-darwin-arm64 ~/.local/bin/multica-ag
 ~/.local/bin/multica-ag version
 ```
 
