@@ -682,6 +682,7 @@ type Daemon struct {
 	claimMu        sync.Mutex
 	pauseClaims    bool // when true, the batch poller skips claiming
 	claimsInFlight int  // pollers that have decided to claim but haven't yet handed the task off to handleTask
+	agDrain        agDrainState // AG patch: drain mode, guarded by claimMu (see ag_drain.go)
 
 	activeEnvRootsMu   sync.Mutex
 	activeEnvRootsCond *sync.Cond      // signalled when an in-flight env-root GC mutation finishes
@@ -4969,6 +4970,9 @@ func (d *Daemon) handleUpdate(ctx context.Context, runtimeID string, update *Pen
 			"error":  "another runtime update is already in progress on this machine",
 		})
 		return
+	case serverUpdateDraining: // AG patch: drain
+		d.agDeferServerUpdate(ctx, runtimeID, update)
+		return
 	case serverUpdateRuntimeBusy:
 		d.logger.Info("update deferred: task or claim in progress", "runtime_id", runtimeID, "update_id", update.ID)
 		d.reportUpdateResult(ctx, runtimeID, update.ID, map[string]any{
@@ -5026,6 +5030,9 @@ const (
 // therefore never starve an update; a claim that returns work increments
 // activeTasks before exitClaim, so the final check still defers safely.
 func (d *Daemon) tryBeginServerUpdate(ctx context.Context) serverUpdateAcquireResult {
+	if d.agDraining() { // AG patch: drain
+		return serverUpdateDraining
+	}
 	if !d.updating.CompareAndSwap(false, true) {
 		return serverUpdateAlreadyRunning
 	}
@@ -5044,7 +5051,7 @@ func (d *Daemon) tryBeginServerUpdate(ctx context.Context) serverUpdateAcquireRe
 	for {
 		d.claimMu.Lock()
 		if d.claimsInFlight == 0 {
-			if d.activeTasks.Load() == 0 {
+			if d.activeTasks.Load() == 0 && !d.agDeferRestartLocked() { // AG patch: drain
 				d.claimMu.Unlock()
 				return serverUpdateAcquired
 			}
@@ -5152,7 +5159,7 @@ func (d *Daemon) reportUpdateResultWithRetry(ctx context.Context, runtimeID, upd
 func (d *Daemon) tryEnterClaim() bool {
 	d.claimMu.Lock()
 	defer d.claimMu.Unlock()
-	if d.pauseClaims {
+	if d.pauseClaims || d.agDrainingLocked() { // AG patch: drain
 		return false
 	}
 	d.claimsInFlight++
@@ -5180,7 +5187,7 @@ func (d *Daemon) trySetClaimBarrier() bool {
 	// double-acquires: two holders both believe they own it, and whichever
 	// finishes first releases it out from under the other. tryBeginServerUpdate
 	// makes the same check for the same reason.
-	if d.pauseClaims || d.claimsInFlight > 0 || d.activeTasks.Load() > 0 {
+	if d.agDeferRestartLocked() || d.pauseClaims || d.claimsInFlight > 0 || d.activeTasks.Load() > 0 { // AG patch: drain
 		return false
 	}
 	d.pauseClaims = true
@@ -5296,6 +5303,7 @@ func (d *Daemon) pollLoop(ctx context.Context, taskWakeups <-chan taskWakeup) er
 	defer unsub()
 
 	wakeup := make(chan struct{}, 1)
+	d.agSetPollerWakeup(wakeup) // AG patch: drain resume wakes the poller
 	nudge := func() {
 		signalPollerWakeup(wakeup)
 	}
