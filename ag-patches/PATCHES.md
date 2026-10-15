@@ -38,11 +38,35 @@ Depends on the tree-ordered lanes patch.
   - `packages/views/issues/components/swimlane-view.tsx`
   - `packages/views/issues/components/swimlane-view.test.tsx`
 
+### Daemon drain mode (in progress)
+
+The daemon can be put into drain: it stops claiming new tasks, lets running
+tasks finish, reports `idle` on `/health`, and resumes on request. Held in
+memory only, so any restart comes back claiming; self-reload, auto-update and
+server-triggered update refuse to restart while draining and say so in
+`reload_pending_reason`. This unit is the daemon core (`POST /drain`,
+`POST /resume`, `/health` fields `draining`, `drain_started_at`, `idle`); the
+CLI commands and the web badge follow in later units.
+Overlaps upstream multica-ai/multica#5631 and #6677: drop this patch if either
+merges.
+
+- Test prefix: `TestAGPatch` / `AG patch:` (run by `ag-patches/test.sh` and the
+  `guard` job; the script asserts a minimum number of passing tests)
+- Files:
+  - `server/internal/daemon/ag_drain.go` (new)
+  - `server/internal/daemon/ag_drain_test.go` (new)
+  - `server/internal/daemon/daemon.go` (one-line hooks: `agDrain` field,
+    `tryEnterClaim`, `trySetClaimBarrier`, `tryBeginServerUpdate`,
+    `handleUpdate`, `pollLoop`)
+  - `server/internal/daemon/health.go` (routes and `/health` fields)
+
 ## Tooling (not a patch)
 
 `ag-patches/` and `.github/workflows/ag-patches.yml` exist only on the patch
 branches. They do not touch product code. Landed in
-[#1](https://github.com/alantreadway/multica/pull/1).
+[#1](https://github.com/alantreadway/multica/pull/1). The guard also runs the
+Go `TestAGPatch*` daemon tests (local `go`, else docker `golang:<server/go.mod
+version>`).
 
 ## Builds
 

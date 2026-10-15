@@ -25,5 +25,11 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
       - name: Guard tests
         run: ./ag-patches/test.sh
