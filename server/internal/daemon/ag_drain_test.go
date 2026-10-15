@@ -1,9 +1,7 @@
 package daemon
 
-// AG patch: daemon drain mode tests. Every top-level test is TestAGPatch* with
-// "AG patch: ..." subtests so ag-patches/test.sh can run and count them. They
-// call daemon internals directly: an upstream rename breaks the build here,
-// which is the signal that the patch needs rebasing by hand.
+// AG patch: daemon drain mode tests; TestAGPatch* with "AG patch:" subtests,
+// as counted by ag-patches/test.sh.
 
 import (
 	"context"
@@ -20,14 +18,13 @@ import (
 	"github.com/multica-ai/multica/server/internal/cli"
 )
 
-// agDrainClaimServer counts claims and serves one task (t1) on the first claim
-// after serveTask is set. A non-nil gate holds that claim's response until it
-// is closed; arrived signals that the claim reached the server.
+// agDrainClaimServer counts claims and serves one task (t1) on the first claim.
+// A non-nil gate holds that claim's response until it is closed; arrived
+// signals that the claim reached the server.
 type agDrainClaimServer struct {
 	*httptest.Server
 	claims    atomic.Int64
 	completed atomic.Int64
-	serveTask atomic.Bool
 	served    atomic.Bool
 	gate      chan struct{}
 	arrived   chan struct{}
@@ -44,7 +41,7 @@ func newAGDrainClaimServer(t *testing.T, gated bool) *agDrainClaimServer {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/api/daemon/tasks/claim"):
 			s.claims.Add(1)
-			if (s.serveTask.Load() || s.gate != nil) && s.served.CompareAndSwap(false, true) {
+			if s.served.CompareAndSwap(false, true) {
 				s.arrived <- struct{}{}
 				if s.gate != nil {
 					select {
@@ -110,6 +107,31 @@ func agDrainCompletingRunner(d *Daemon) *atomic.Int64 {
 	return &ran
 }
 
+func newAGDrainHealthDaemon() *Daemon {
+	return &Daemon{
+		cfg:        Config{DaemonID: "daemon-test"},
+		workspaces: map[string]*workspaceState{},
+		logger:     discardLogger(),
+	}
+}
+
+// agDrainBlockingUpdate makes d's runUpdateFn block until finish is closed and
+// runs fn in a goroutine. upgrading closes once the update is running; done
+// closes when fn returns.
+func agDrainBlockingUpdate(d *Daemon, fn func()) (upgrading, finish, done chan struct{}) {
+	upgrading, finish, done = make(chan struct{}), make(chan struct{}), make(chan struct{})
+	d.runUpdateFn = func(string) (string, error) {
+		close(upgrading)
+		<-finish
+		return "ok", nil
+	}
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	return upgrading, finish, done
+}
+
 func agDrainHealthJSON(t *testing.T, d *Daemon) map[string]any {
 	t.Helper()
 	rec := httptest.NewRecorder()
@@ -138,7 +160,6 @@ func TestAGPatchDrainBlocksClaims(t *testing.T) {
 
 	t.Run("AG patch: wake-ups during drain claim nothing; resume claims at once, not after PollInterval", func(t *testing.T) {
 		s := newAGDrainClaimServer(t, false)
-		s.serveTask.Store(true)
 		d := newAGDrainPollDaemon(t, s, time.Hour)
 		ran := agDrainCompletingRunner(d)
 		d.agStartDrain()
@@ -162,7 +183,6 @@ func TestAGPatchDrainBlocksClaims(t *testing.T) {
 func TestAGPatchDrainLetsRunningTasksFinish(t *testing.T) {
 	t.Run("AG patch: a running task is not cancelled and completes after drain starts", func(t *testing.T) {
 		s := newAGDrainClaimServer(t, false)
-		s.serveTask.Store(true)
 		d := newAGDrainPollDaemon(t, s, 10*time.Millisecond)
 
 		started := make(chan struct{})
@@ -227,11 +247,7 @@ func TestAGPatchDrainLetsRunningTasksFinish(t *testing.T) {
 
 func TestAGPatchDrainReportsIdle(t *testing.T) {
 	t.Run("AG patch: /health idle tracks active tasks and in-flight claims", func(t *testing.T) {
-		d := &Daemon{
-			cfg:        Config{DaemonID: "daemon-test"},
-			workspaces: map[string]*workspaceState{},
-			logger:     discardLogger(),
-		}
+		d := newAGDrainHealthDaemon()
 		raw := agDrainHealthJSON(t, d)
 		if raw["draining"] != false || raw["idle"] != false {
 			t.Fatalf("not draining: draining=%v idle=%v, want false/false", raw["draining"], raw["idle"])
@@ -266,11 +282,7 @@ func TestAGPatchDrainReportsIdle(t *testing.T) {
 	})
 
 	t.Run("AG patch: /drain and /resume are routed on the health server and answer with the state", func(t *testing.T) {
-		d := &Daemon{
-			cfg:        Config{DaemonID: "daemon-test"},
-			workspaces: map[string]*workspaceState{},
-			logger:     discardLogger(),
-		}
+		d := newAGDrainHealthDaemon()
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatalf("listen: %v", err)
@@ -434,21 +446,14 @@ func TestAGPatchDrainDefersRestarts(t *testing.T) {
 
 	t.Run("AG patch: a drain that starts during an auto-update upgrade stops the restart", func(t *testing.T) {
 		d, restartCalls := newAutoUpdateTestDaemon(t, "v0.1.13")
-		upgrading, finish := make(chan struct{}), make(chan struct{})
-		d.runUpdateFn = func(string) (string, error) {
-			close(upgrading)
-			<-finish
-			return "ok", nil
-		}
 		withStubRelease(t, &cli.GitHubRelease{TagName: "v0.1.14"}, nil)
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			d.tryAutoUpdate(context.Background())
-		}()
+		upgrading, finish, done := agDrainBlockingUpdate(d, func() { d.tryAutoUpdate(context.Background()) })
 		<-upgrading
 
 		d.agStartDrain()
+		if raw := agDrainHealthJSON(t, d); raw["draining"] != true || raw["idle"] != false {
+			t.Fatalf("draining mid-update: draining=%v idle=%v, want true/false", raw["draining"], raw["idle"])
+		}
 		close(finish)
 		<-done
 
@@ -463,6 +468,11 @@ func TestAGPatchDrainDefersRestarts(t *testing.T) {
 		}
 		if !d.agDraining() {
 			t.Fatal("the update path cleared drain")
+		}
+
+		d.agResume()
+		if got := d.reloadPending(); got != "" {
+			t.Fatalf("reload_pending_reason after resume = %q, want empty", got)
 		}
 	})
 
@@ -501,20 +511,15 @@ func TestAGPatchDrainDefersRestarts(t *testing.T) {
 		})
 		var restartCalls atomic.Int32
 		d.cancelFunc = func() { restartCalls.Add(1) }
-		upgrading, finish := make(chan struct{}), make(chan struct{})
-		d.runUpdateFn = func(string) (string, error) {
-			close(upgrading)
-			<-finish
-			return "ok", nil
-		}
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
+		upgrading, finish, done := agDrainBlockingUpdate(d, func() {
 			d.handleUpdate(context.Background(), "runtime-1", &PendingUpdate{ID: "update-1", TargetVersion: "v0.4.14"})
-		}()
+		})
 		<-upgrading
 
 		d.agStartDrain()
+		if raw := agDrainHealthJSON(t, d); raw["draining"] != true || raw["idle"] != false {
+			t.Fatalf("draining mid-update: draining=%v idle=%v, want true/false", raw["draining"], raw["idle"])
+		}
 		close(finish)
 		<-done
 
