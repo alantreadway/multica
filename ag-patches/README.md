@@ -142,12 +142,16 @@ has no `drain`, `resume` or `--drain`, and a daemon it started answers 404 to
 `ProgramArguments` in its launchd plist to the `multica-ag` path and reload the
 agent (or `~/bin/multica-daemon-reload`). The daemon comes up claiming.
 
-Replacing the binary a running daemon was started from triggers its auto-reload
-(it restarts when the version on disk changes, once idle). Drain first if you
-want that to wait for running tasks to finish, then resume.
+Replacing the binary a running daemon was started from triggers its auto-reload:
+within about 10 minutes the daemon notices the version on disk changed and
+restarts into it, but only at a moment with no task running. While draining, that
+reload is held even once the daemon is idle, and `reload_pending_reason` in
+`daemon status` says so. To swap binaries on your own schedule, drain, replace the
+file, then `multica-ag daemon restart` (or use `restart --drain`, which does the
+drain and the restart in one step).
 
-Self-host defaults auto-update off. Keep it off: a self-update would replace the
-patched binary with a stock release.
+Self-host defaults auto-update off (`MULTICA_DAEMON_AUTO_UPDATE`). Keep it off: a
+self-update would replace the patched binary with a stock release.
 
 ### Rules
 
