@@ -19,7 +19,6 @@ import (
 // being held back by a drain.
 const agDrainDeferredNote = "restart deferred: daemon is draining"
 
-// agDrainDeferredSuffix is how the note is appended to an existing reason.
 const agDrainDeferredSuffix = " (" + agDrainDeferredNote + ")"
 
 // serverUpdateDraining extends the upstream serverUpdateAcquireResult enum
@@ -40,11 +39,11 @@ type agDrainHealth struct {
 	Draining       bool   `json:"draining"`
 	DrainStartedAt string `json:"drain_started_at,omitempty"`
 	// Idle: draining with no active tasks (including ones parked on a
-	// local-directory lock) and no claim in flight.
+	// local-directory lock), no claim in flight and no update installing.
 	Idle bool `json:"idle"`
 }
 
-// agDrainingLocked reports whether the daemon is draining. claimMu must be held.
+// agDrainingLocked: claimMu must be held.
 func (d *Daemon) agDrainingLocked() bool {
 	return d.agDrain.draining
 }
@@ -95,16 +94,24 @@ func (d *Daemon) agResume() {
 }
 
 func (d *Daemon) agDrainHealth() agDrainHealth {
+	h, _ := d.agDrainSnapshot()
+	return h
+}
+
+// agDrainSnapshot reads the drain state and the active task count together, so
+// a /drain response cannot show idle with a non-zero count.
+func (d *Daemon) agDrainSnapshot() (agDrainHealth, int64) {
 	d.claimMu.Lock()
 	defer d.claimMu.Unlock()
+	active := d.activeTasks.Load()
 	if !d.agDrain.draining {
-		return agDrainHealth{}
+		return agDrainHealth{}, active
 	}
 	return agDrainHealth{
 		Draining:       true,
 		DrainStartedAt: d.agDrain.startedAt.Format(time.RFC3339),
-		Idle:           d.claimsInFlight == 0 && d.activeTasks.Load() == 0 && !d.updating.Load(),
-	}
+		Idle:           d.claimsInFlight == 0 && active == 0 && !d.updating.Load(),
+	}, active
 }
 
 // agDeferRestart is triggerRestart's gate. While draining it records why in
@@ -138,7 +145,6 @@ func (d *Daemon) agUpdateOutput(output string) string {
 	return output
 }
 
-// agStripDrainNote removes the drain note, leaving any version-change reason.
 func agStripDrainNote(reason string) string {
 	return strings.TrimSuffix(strings.TrimSuffix(reason, agDrainDeferredSuffix), agDrainDeferredNote)
 }
@@ -177,10 +183,11 @@ func (d *Daemon) agDrainHandler(drain bool) http.HandlerFunc {
 		} else {
 			d.agResume()
 		}
+		h, active := d.agDrainSnapshot()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(struct {
 			agDrainHealth
 			ActiveTaskCount int64 `json:"active_task_count"`
-		}{d.agDrainHealth(), d.activeTasks.Load()})
+		}{h, active})
 	}
 }

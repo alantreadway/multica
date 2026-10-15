@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,7 +28,13 @@ type agDrainClaimServer struct {
 	completed atomic.Int64
 	served    atomic.Bool
 	gate      chan struct{}
+	gateOnce  sync.Once
 	arrived   chan struct{}
+}
+
+// release lets the gated claim return. Safe to call more than once.
+func (s *agDrainClaimServer) release() {
+	s.gateOnce.Do(func() { close(s.gate) })
 }
 
 func newAGDrainClaimServer(t *testing.T, gated bool) *agDrainClaimServer {
@@ -62,6 +69,11 @@ func newAGDrainClaimServer(t *testing.T, gated bool) *agDrainClaimServer {
 		}
 	}))
 	t.Cleanup(s.Close)
+	if gated {
+		// Runs before s.Close, so a failed assertion cannot leave the handler
+		// blocking Close until the test timeout.
+		t.Cleanup(s.release)
+	}
 	return s
 }
 
@@ -234,7 +246,7 @@ func TestAGPatchDrainLetsRunningTasksFinish(t *testing.T) {
 			t.Fatalf("with a claim in flight: draining=%v idle=%v, want true/false", raw["draining"], raw["idle"])
 		}
 
-		close(s.gate) // the claim returns the task it had already committed to
+		s.release() // the claim returns the task it had already committed to
 		waitFor(t, func() bool { return ran.Load() == 1 && s.completed.Load() == 1 }, "in-flight task to run and complete")
 		waitFor(t, func() bool { return agDrainHealthJSON(t, d)["idle"] == true }, "idle after the task finished")
 		before := s.claims.Load()
@@ -398,6 +410,23 @@ func TestAGPatchDrainSurvivesBarrierRelease(t *testing.T) {
 }
 
 func TestAGPatchDrainDefersRestarts(t *testing.T) {
+	t.Run("AG patch: repeated deferrals keep a single drain note", func(t *testing.T) {
+		d := newAGDrainHealthDaemon()
+		d.setReloadPending("version changed")
+		d.agStartDrain()
+
+		for i := 0; i < 3; i++ {
+			if !d.agDeferRestart() {
+				t.Fatal("agDeferRestart returned false while draining")
+			}
+		}
+
+		want := "version changed" + agDrainDeferredSuffix
+		if got := d.reloadPending(); got != want {
+			t.Fatalf("reload_pending_reason = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("AG patch: self-reload does not restart while draining, keeps one note, and restarts after resume", func(t *testing.T) {
 		d, restartCalls := newSelfReloadTestDaemon(t, "0.3.7")
 		stubSelfVersion(t, "0.3.8", nil)
