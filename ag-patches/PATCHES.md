@@ -41,15 +41,16 @@ Depends on the tree-ordered lanes patch.
 ### Daemon drain mode (in progress)
 
 The daemon can be put into drain: it stops claiming new tasks, lets running
-tasks finish, reports `idle` on `/health`, and resumes on request. Held in
-memory only, so any restart comes back claiming; `triggerRestart` refuses while
-draining (self-reload, auto-update and server-triggered update all go through
-it) and says so in `reload_pending_reason`. Auto-update and server-triggered
-update also skip the upgrade itself when draining starts first. This unit is the daemon core (`POST /drain`,
-`POST /resume`, `/health` fields `draining`, `drain_started_at`, `idle`); the
-CLI commands and the web badge follow in later units.
-Overlaps upstream multica-ai/multica#5631 and #6677: drop this patch if either
-merges.
+tasks finish, reports `idle` on `/health` (no active tasks, no claim in flight,
+no update installing), and resumes on request. Held in memory only, so any
+restart comes back claiming; `triggerRestart` refuses while draining
+(self-reload, auto-update and server-triggered update all go through it) and
+says so in `reload_pending_reason`. Auto-update and server-triggered update
+also skip the upgrade itself when draining starts first. This unit is the
+daemon core (`POST /drain`, `POST /resume`, `/health` fields `draining`,
+`drain_started_at`, `idle`); the CLI commands and the web badge follow in later
+units. Overlaps upstream multica-ai/multica#5631 and #6677: drop this patch if
+either merges.
 
 - Test prefix: `TestAGPatch` / `AG patch:` (run by `ag-patches/test.sh` and the
   `guard` job; the script asserts a minimum number of passing tests)

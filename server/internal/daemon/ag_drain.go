@@ -1,7 +1,6 @@
 package daemon
 
-// AG patch: daemon drain mode. The daemon stops claiming new tasks, lets the
-// running ones finish, reports when it is idle, and resumes on request.
+// AG patch: daemon drain mode.
 //
 // Drain is its own flag, not pauseClaims: releaseClaimBarrier and the failure
 // branch of tryBeginServerUpdate clear pauseClaims unconditionally and would
@@ -11,7 +10,6 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -20,6 +18,9 @@ import (
 // agDrainDeferredNote is appended to reload_pending_reason while a restart is
 // being held back by a drain.
 const agDrainDeferredNote = "restart deferred: daemon is draining"
+
+// agDrainDeferredSuffix is how the note is appended to an existing reason.
+const agDrainDeferredSuffix = " (" + agDrainDeferredNote + ")"
 
 // serverUpdateDraining extends the upstream serverUpdateAcquireResult enum
 // without editing it.
@@ -102,13 +103,12 @@ func (d *Daemon) agDrainHealth() agDrainHealth {
 	return agDrainHealth{
 		Draining:       true,
 		DrainStartedAt: d.agDrain.startedAt.Format(time.RFC3339),
-		Idle:           d.claimsInFlight == 0 && d.activeTasks.Load() == 0,
+		Idle:           d.claimsInFlight == 0 && d.activeTasks.Load() == 0 && !d.updating.Load(),
 	}
 }
 
 // agDeferRestart is triggerRestart's gate. While draining it records why in
-// reload_pending_reason and returns true: the restart must not go ahead, since
-// the new process would come back claiming.
+// reload_pending_reason and returns true: the restart must not go ahead.
 func (d *Daemon) agDeferRestart() bool {
 	d.claimMu.Lock()
 	defer d.claimMu.Unlock()
@@ -133,21 +133,21 @@ func (d *Daemon) agDeferServerUpdate(ctx context.Context, runtimeID string, upda
 // is being held back by a drain that started mid-update.
 func (d *Daemon) agUpdateOutput(output string) string {
 	if d.agDraining() {
-		return output + " (" + agDrainDeferredNote + ")"
+		return output + agDrainDeferredSuffix
 	}
 	return output
 }
 
 // agStripDrainNote removes the drain note, leaving any version-change reason.
 func agStripDrainNote(reason string) string {
-	return strings.TrimSuffix(strings.TrimSuffix(reason, " ("+agDrainDeferredNote+")"), agDrainDeferredNote)
+	return strings.TrimSuffix(strings.TrimSuffix(reason, agDrainDeferredSuffix), agDrainDeferredNote)
 }
 
 // The note helpers run under claimMu so a note cannot outlive its drain.
 func (d *Daemon) agAppendDrainNoteLocked() {
 	reason := agDrainDeferredNote
 	if base := agStripDrainNote(d.reloadPending()); base != "" {
-		reason = fmt.Sprintf("%s (%s)", base, agDrainDeferredNote)
+		reason = base + agDrainDeferredSuffix
 	}
 	d.setReloadPending(reason)
 }
