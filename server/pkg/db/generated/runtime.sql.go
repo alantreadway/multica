@@ -244,8 +244,7 @@ WHERE id = $1
   AND (metadata -> 'ag_drain') IS NOT NULL
 `
 
-// AG patch: drain badge. Removes a stored drain report once the daemon
-// reports it is no longer draining. No-op when none is stored.
+// AG patch: drain badge. Rows affected is 0 when no report is stored.
 func (q *Queries) ClearAgentRuntimeAGDrain(ctx context.Context, id pgtype.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, clearAgentRuntimeAGDrain, id)
 	if err != nil {
@@ -1643,11 +1642,7 @@ type SetAgentRuntimeAGDrainParams struct {
 	Drain []byte      `json:"drain"`
 }
 
-// AG patch: drain badge. Merges the daemon's drain report into metadata under
-// "ag_drain", the way offline_reason is merged above: no column, and
-// registration's wholesale metadata overwrite drops it when a runtime comes
-// back. The IS DISTINCT FROM guard makes an unchanged report a no-op, so the
-// rows-affected count doubles as "state changed" for the caller.
+// AG patch: drain badge. Rows affected is 0 when the stored report is unchanged.
 func (q *Queries) SetAgentRuntimeAGDrain(ctx context.Context, arg SetAgentRuntimeAGDrainParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setAgentRuntimeAGDrain, arg.ID, arg.Drain)
 	if err != nil {

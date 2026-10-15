@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// AG patch: drain badge. The drain report is optional on the heartbeat wire
-// format: a stock daemon sends none and the server must read that as "leave
-// metadata alone", and a patched daemon must not send the field when it has
-// nothing to report.
+// The drain report is optional on the heartbeat wire: a stock daemon sends none,
+// which the server reads as "leave metadata alone".
 func TestAGPatchDrainReportWireFormat(t *testing.T) {
 	t.Run("AG patch: a heartbeat without ag_drain decodes to a nil report", func(t *testing.T) {
 		var p DaemonHeartbeatRequestPayload

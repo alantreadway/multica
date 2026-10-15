@@ -1,4 +1,4 @@
-# Shared by build-web.sh, build-cli.sh and test.sh. Source it; do not run it.
+# Shared by build-web.sh, build-backend.sh, build-cli.sh and test.sh. Source it; do not run it.
 
 # ag_prepare <script-name> <artifact> [args...]
 # Parses --rev and --skip-tests into $rev and $skip_tests, moves to the repo
@@ -58,13 +58,13 @@ ag_prepare() {
     exit 1
   fi
 
-  # Web and CLI builds share one counter, so a released ag/<version> tag may
-  # already mark a different build.
+  # Web, backend and CLI builds share one counter, so a released ag/<version>
+  # tag may already mark a different build.
   version="${tag}-ag.${rev}"
   local tagged
   tagged="$(git rev-parse --verify --quiet "refs/tags/ag/${version}^{commit}" || true)"
   if [ -n "$tagged" ] && [ "$tagged" != "$(git rev-parse HEAD)" ]; then
-    echo "error: tag ag/${version} already marks ${tagged}; pick a higher --rev (web and CLI builds share the counter)" >&2
+    echo "error: tag ag/${version} already marks ${tagged}; pick a higher --rev (web, backend and CLI builds share the counter)" >&2
     exit 1
   fi
 }
