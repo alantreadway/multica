@@ -142,8 +142,11 @@ func TestAGPatchStaticTokenClientErrorsAndLimits(t *testing.T) {
 	})
 }
 
-// A token-only client drives the refresh pipeline as installation 0: enqueue
-// accepts the address, the worker pool picks it up and the sweep keys on 0.
+// A token-only client enables the refresh pipeline as installation 0: the
+// manager is on, Enqueue accepts and dedups the address, and the rate-limit
+// pause is keyed per installation. The worker applying a snapshot to a polled
+// row is covered by TestAGPatchTokenPolledPRFiresChecksAndMergedWakeups in
+// internal/service; the sweep is not exercised for installation 0.
 func TestAGPatchTokenClientDrivesRefreshManager(t *testing.T) {
 	t.Setenv("GITHUB_APP_ID", "")
 	t.Setenv("GITHUB_POLL_TOKEN", "ghp_secret")

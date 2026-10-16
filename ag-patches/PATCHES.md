@@ -358,18 +358,22 @@ changes do not touch a PR's `updated_at`: the snapshot's chase backoff, the
 
 - Test prefix: `TestAGPatch` / `AG patch:`. Hermetic ones (`ghpoll`,
   `ghsnapshot`) run in `ag-patches/test.sh`; the DB-backed ones in
-  `server/internal/handler` need Postgres (see README)
+  `server/internal/handler` and `server/internal/service` need Postgres (see
+  README)
 - Files:
   - `server/internal/integrations/ghpoll/` (new: `config.go`, `repos.go`,
-    `poller.go`, `ag_ghpoll_test.go`)
+    `poller.go`, `ag_ghpoll_test.go`, `ag_ghpoll_policy_test.go`)
   - `server/internal/integrations/ghsnapshot/ag_static_token.go` (new),
-    `ag_static_token_test.go` (new), `client.go` (hooks: `staticToken` field,
-    `NewClientFromEnv`, `Enabled`, `installationToken`)
+    `ag_static_token_test.go`, `ag_static_token_policy_test.go` (new),
+    `client.go` (hooks: `staticToken` field, `NewClientFromEnv`, `Enabled`,
+    `installationToken`)
   - `server/internal/handler/ag_ghpoll.go` (new: `AGStartGitHubPoll`, the
-    sink), `ag_ghpoll_test.go` (new)
+    sink), `ag_ghpoll_test.go`, `ag_ghpoll_flow_test.go` (new)
+  - `server/internal/service/ag_ghpoll_wakeup_test.go` (new: DB-backed, the
+    `--until-pr checks` / `merged` wakeups on a polled row)
   - `server/cmd/server/main.go` (one-line hook next to `PRRefresh.Start`)
   - `ag-patches/docker-compose.github-poll.yml` (new, tooling: passes the three
-    variables to the backend), `ag-patches/test.sh` (new packages, minimum 30)
+    variables to the backend), `ag-patches/test.sh` (new packages, minimum 43)
 
 - Upstream:
   - Status: `candidate`. Nothing is proposed; upstream wants a Feature Request

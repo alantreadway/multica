@@ -56,12 +56,12 @@ The script also runs the Go `TestAGPatch*` tests (`server/internal/daemon`,
 matches.
 
 The database-backed tests (`TestAGPatch*` in
-`server/internal/handler`: the drain badge and the PR poller) need Postgres and skip without one, so the guard does
+`server/internal/handler` and `server/internal/service`: the drain badge and the PR poller) need Postgres and skip without one, so the guard does
 not run them. Before a PR that touches that code, run them against a migrated
 test database:
 
 ```sh
-cd server && DATABASE_URL=postgres://... go test ./internal/handler -run '^TestAGPatch' -count=1
+cd server && DATABASE_URL=postgres://... go test ./internal/handler ./internal/service -run '^TestAGPatch' -count=1
 ```
 
 ## Switch the self-host to the patched frontend
@@ -185,8 +185,9 @@ with `installation_id` `0`; they are valid rows and stop updating until polling
 or an App webhook resumes.
 
 The DB-backed `TestAGPatch*` tests for this patch live in
-`server/internal/handler` (`ag_ghpoll_test.go`); run them with the command under
-"Build".
+`server/internal/handler` (`ag_ghpoll_test.go`, `ag_ghpoll_flow_test.go`) and
+`server/internal/service` (`ag_ghpoll_wakeup_test.go`); run them with the command
+under "Build".
 
 ## Roll back
 
