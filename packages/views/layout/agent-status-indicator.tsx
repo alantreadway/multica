@@ -122,7 +122,7 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
         <span
           data-testid="agent-status-summary"
           className={cn(
-            "text-caption leading-snug",
+            "whitespace-normal text-caption leading-snug",
             working.length > 0 && !unknown
               ? "text-sidebar-foreground"
               : "text-muted-foreground",
