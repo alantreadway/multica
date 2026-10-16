@@ -687,6 +687,7 @@ type Daemon struct {
 
 	agSlotDir string                      // AG patch: slot dir override for tests (see ag_slotlock.go)
 	agSlots   atomic.Pointer[agTaskSlots] // AG patch: set by pollLoop (see ag_slotlock.go)
+	agHandoff agHandoffState              // AG patch: handoff / overlap mode (see ag_handoff.go)
 
 	activeEnvRootsMu   sync.Mutex
 	activeEnvRootsCond *sync.Cond      // signalled when an in-flight env-root GC mutation finishes
@@ -1305,7 +1306,7 @@ const reregisterFailureBackoff = 60 * time.Second
 // moment we prune the dead UUID, and if we forwarded that ctx the in-flight
 // register would self-cancel mid-flight.
 func (d *Daemon) handleRuntimeGone(runtimeID string) {
-	if runtimeID == "" {
+	if runtimeID == "" || d.agHandoffActive() { // AG patch: handoff
 		return
 	}
 
@@ -1955,7 +1956,7 @@ func (d *Daemon) reregisterWorkspaceAfterRuntimeGone(ctx context.Context, worksp
 	// also feeds applyRegisterResponseInPlace) deliberately skips this step
 	// because its surviving runtime IDs may still be actively executing
 	// tasks for the user (MUL-3332).
-	for _, rid := range newIDs {
+	for _, rid := range d.agOrphanScope(newIDs) { // AG patch: handoff
 		if err := d.client.RecoverOrphans(ctx, rid); err != nil {
 			d.logger.Warn("recover-orphans after re-register failed",
 				"runtime_id", rid, "error", err)
@@ -2153,6 +2154,7 @@ func (d *Daemon) run(ctx context.Context, healthLn net.Listener) error {
 	defer d.deregisterRuntimes()
 
 	// Start workspace sync loop to discover newly created workspaces.
+	go d.agOverlapLoop(ctx) // AG patch: handoff
 	go d.workspaceSyncLoop(ctx)
 	go d.terminalReportReplayLoop(ctx)
 
@@ -2190,6 +2192,10 @@ func (d *Daemon) RestartBinary() string {
 
 // deregisterRuntimes notifies the server that all runtimes are going offline.
 func (d *Daemon) deregisterRuntimes() {
+	if d.agHandoffActive() { // AG patch: handoff — the successor owns these runtimes
+		d.logger.Info("handoff: leaving runtimes registered for the successor")
+		return
+	}
 	runtimeIDs := d.allRuntimeIDs()
 	if len(runtimeIDs) == 0 {
 		d.logger.Debug("deregister: no runtimes to deregister")
@@ -2905,6 +2911,9 @@ func preserveProvidersFromProbe(unavailable map[string]string, demotable map[str
 // The caller must hold the workspace's register lock (withWorkspaceRegisterLock)
 // for this call, the apply, and the cleanup that follows it.
 func (d *Daemon) registerRuntimesForWorkspaceBatchLocked(ctx context.Context, workspaceID string, builtins []map[string]string) (*RegisterResponse, string, error) {
+	if d.agHandoffActive() { // AG patch: handoff
+		return nil, "", errAGHandoff
+	}
 	d.logger.Debug("registering runtimes for workspace", "workspace_id", workspaceID, "agent_count", len(d.agents()))
 	runtimes := cloneRuntimeEntries(builtins)
 	var failedProfiles []map[string]string
@@ -2973,6 +2982,9 @@ func (d *Daemon) registerRuntimesForWorkspaceBatchLocked(ctx context.Context, wo
 // The caller must hold the workspace's register lock (withWorkspaceRegisterLock)
 // for this call, the merge, and the cleanup that follows it.
 func (d *Daemon) registerBuiltinRuntimesForWorkspaceLocked(ctx context.Context, workspaceID string, builtins []map[string]string) (*RegisterResponse, error) {
+	if d.agHandoffActive() { // AG patch: handoff
+		return nil, errAGHandoff
+	}
 	runtimes := cloneRuntimeEntries(builtins)
 	if len(runtimes) == 0 {
 		return nil, ErrNoRuntimesToRegister
@@ -4181,6 +4193,9 @@ func workspaceSyncBackoff(base time.Duration, consecutiveFailures int) time.Dura
 // pass false and make no runtime-profile requests. Workspaces the user has
 // left are cleaned up.
 func (d *Daemon) syncWorkspacesFromAPI(ctx context.Context, reconcileProfiles bool) error {
+	if d.agHandoffActive() { // AG patch: handoff — the successor registers
+		return nil
+	}
 	d.reloading.Lock()
 	defer d.reloading.Unlock()
 
@@ -4328,7 +4343,7 @@ func (d *Daemon) syncWorkspacesFromAPI(ctx context.Context, reconcileProfiles bo
 		// running on these runtimes. Without this, an issue can stay stuck
 		// at in_progress until the slow heartbeat sweeper or the in-flight
 		// task timeout (2.5h) kicks in.
-		for _, rid := range runtimeIDs {
+		for _, rid := range d.agOrphanScope(runtimeIDs) { // AG patch: handoff
 			if err := d.client.RecoverOrphans(ctx, rid); err != nil {
 				d.logger.Warn("recover-orphans failed", "runtime_id", rid, "error", err)
 			}
@@ -4469,6 +4484,9 @@ func (d *Daemon) runRuntimeHeartbeat(ctx context.Context, rid string) {
 // runHeartbeatTick returns true when the HTTP heartbeat hit a transient
 // failure that should count toward stale idle-connection cleanup.
 func (d *Daemon) runHeartbeatTick(ctx context.Context, rid string) bool {
+	if d.agHandoffActive() { // AG patch: handoff — the successor heartbeats
+		return false
+	}
 	// Skip HTTP heartbeat for runtimes that successfully acked a recent
 	// WebSocket heartbeat. The WS path keeps last_seen_at fresh and delivers
 	// actions, so the HTTP write would be a duplicate DB update. If the WS
@@ -4570,7 +4588,7 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 // that suppression exists to avoid duplicate periodic writes, not to block an
 // explicitly requested pull.
 func (d *Daemon) handlePendingWorkHint(runtimeID, kind string) {
-	if runtimeID == "" {
+	if runtimeID == "" || d.agHandoffActive() { // AG patch: handoff
 		return
 	}
 	if d.findRuntime(runtimeID) == nil {
@@ -5445,6 +5463,7 @@ func (d *Daemon) runBatchPoller(pollerCtx, parentCtx context.Context, sem *agTas
 			d.logger.Info("task received", "task", t.ID, "target", taskTarget)
 			taskWG.Add(1)
 			d.activeTasks.Add(1)
+			d.agTrackTask(t.ID) // AG patch: handoff
 			if cache, ok := d.repoCache.(interface{ CancelMaintenance() }); ok {
 				// A task can reuse an existing worktree and never enter the
 				// checkout path that normally preempts repository maintenance.
@@ -5455,6 +5474,7 @@ func (d *Daemon) runBatchPoller(pollerCtx, parentCtx context.Context, sem *agTas
 			go func(t Task, slot int) {
 				defer taskWG.Done()
 				defer d.activeTasks.Add(-1)
+				defer d.agUntrackTask(t.ID) // AG patch: handoff
 				defer func() {
 					// Release local capacity before waking the poller. The task's
 					// terminal callback and local cleanup have both finished at this
