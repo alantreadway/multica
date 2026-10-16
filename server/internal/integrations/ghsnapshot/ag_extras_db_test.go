@@ -3,6 +3,7 @@ package ghsnapshot
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -133,6 +134,58 @@ func TestAGPatchApplySnapshotStoresExtras(t *testing.T) {
 		got := agReadPR(t, pool, pr.ID)
 		if string(got.LatestReviews) != "[]" || got.ReviewDecision != nil {
 			t.Fatalf("stored = %s / %v", got.LatestReviews, got.ReviewDecision)
+		}
+	})
+}
+
+func TestAGPatchApplySnapshotCapsLatestReviews(t *testing.T) {
+	pool := testDBPool(t)
+	q := db.New(pool)
+	m := NewManager(nil, q, pool, nil)
+	pr := seedPR(t, pool, q, "H1")
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM github_pull_request_check_run WHERE pr_id=$1`, pr.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM github_pull_request WHERE id=$1`, pr.ID)
+	})
+
+	t.Run("AG patch: more than 20 latest reviews store the first 20, in order", func(t *testing.T) {
+		var reviews []AGReview
+		for i := 0; i < 25; i++ {
+			reviews = append(reviews, AGReview{Author: fmt.Sprintf("reviewer-%02d", i), State: "COMMENTED", SubmittedAt: "2026-10-16T10:00:00Z"})
+		}
+		applied, err := m.applySnapshot(context.Background(), pr.ID, &PRSnapshot{
+			HeadSHA: "H1", AG: AGSnapshotExtras{Available: true, LatestReviews: reviews},
+		})
+		if err != nil || !applied {
+			t.Fatalf("applySnapshot = %v, %v", applied, err)
+		}
+		var stored []AGReview
+		if err := json.Unmarshal(agReadPR(t, pool, pr.ID).LatestReviews, &stored); err != nil {
+			t.Fatal(err)
+		}
+		if len(stored) != 20 || stored[0].Author != "reviewer-00" || stored[19].Author != "reviewer-19" {
+			t.Fatalf("stored %d reviews, first %v last %v", len(stored), stored[0], stored[len(stored)-1])
+		}
+	})
+
+	t.Run("AG patch: required-ness of a re-snapshot replaces the old values, including back to null", func(t *testing.T) {
+		tr := true
+		apply := func(required *bool) []*bool {
+			applied, err := m.applySnapshot(context.Background(), pr.ID, &PRSnapshot{
+				HeadSHA: "H1", HasChecks: true,
+				Contexts: []CheckContext{{Name: "backend", Status: "completed", Conclusion: "success", Required: required}},
+				AG:       AGSnapshotExtras{Available: true},
+			})
+			if err != nil || !applied {
+				t.Fatalf("applySnapshot = %v, %v", applied, err)
+			}
+			return agReadRequired(t, pool, pr.ID)
+		}
+		if got := apply(&tr); len(got) != 1 || got[0] == nil || !*got[0] {
+			t.Fatalf("is_required = %v, want [true]", got)
+		}
+		if got := apply(nil); len(got) != 1 || got[0] != nil {
+			t.Fatalf("is_required = %v, want [null] after a snapshot that could not fetch it", got)
 		}
 	})
 }
