@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, screen } from "@testing-library/react";
+import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AgentRuntime } from "@multica/core/types";
 import { SidebarProvider } from "@multica/ui/components/ui/sidebar";
@@ -11,7 +11,8 @@ import { renderWithI18n } from "../test/i18n";
 
 type Presence = { runningCount: number; queuedCount: number };
 
-const { presence } = vi.hoisted(() => ({
+const { presence, runtimeFetch } = vi.hoisted(() => ({
+  runtimeFetch: vi.fn(() => new Promise(() => {})),
   presence: {
     current: { byAgent: new Map(), loading: false } as {
       byAgent: Map<string, { runningCount: number; queuedCount: number }>;
@@ -27,7 +28,7 @@ vi.mock("@multica/core/agents", () => ({
 vi.mock("@multica/core/runtimes/queries", () => ({
   runtimeListOptions: () => ({
     queryKey: ["runtimes"],
-    queryFn: () => new Promise(() => {}),
+    queryFn: runtimeFetch,
   }),
 }));
 
@@ -97,18 +98,23 @@ function renderIndicator(runtimes: AgentRuntime[] = [], wsId: string | null = "w
     hash: "",
     getShareableUrl: (p) => p,
   };
-  return renderWithI18n(
+  // A fresh element per call: rerendering the same element reference is a no-op.
+  const ui = () => (
     <NavigationProvider value={adapter}>
       <QueryClientProvider client={qc}>
         <SidebarProvider>
           <AgentStatusIndicator wsId={wsId ?? undefined} />
         </SidebarProvider>
       </QueryClientProvider>
-    </NavigationProvider>,
+    </NavigationProvider>
   );
+  return { qc, ui, ...renderWithI18n(ui()) };
 }
 
-beforeEach(() => setPresence({}));
+beforeEach(() => {
+  setPresence({});
+  runtimeFetch.mockClear();
+});
 afterEach(cleanup);
 
 describe("AG patch: AgentStatusIndicator", () => {
@@ -223,5 +229,87 @@ describe("AG patch: AgentStatusIndicator", () => {
     renderIndicator();
     await userEvent.hover(screen.getByRole("link"));
     expect(await screen.findByTestId("working-hover")).toHaveTextContent("unresolved");
+  });
+
+  it("AG patch: drained still links to Runtimes", () => {
+    renderIndicator([makeRuntime({ metadata: draining(0, true) })]);
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/acme/runtimes");
+  });
+
+  it("AG patch: queued-only work shows beside the drain marker", () => {
+    setPresence({ a1: { runningCount: 0, queuedCount: 3 } });
+    renderIndicator([makeRuntime({ metadata: draining(0) })]);
+    expect(screen.getByText("No agents running · 3 queued")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-status-drain")).toHaveTextContent("Draining · 0 running");
+  });
+
+  it("AG patch: a drain marker still shows next to the dash while presence loads", () => {
+    setPresence({}, true);
+    renderIndicator([makeRuntime({ metadata: draining(1) })]);
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-status-drain")).toHaveTextContent("Draining · 1 running");
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/acme/runtimes");
+  });
+
+  it("AG patch: no runtimes means no drain marker and no hover runtime list", async () => {
+    setPresence({ a1: { runningCount: 1, queuedCount: 0 } });
+    renderIndicator([makeRuntime({ metadata: {} })]);
+    expect(screen.queryByTestId("agent-status-drain")).not.toBeInTheDocument();
+    await userEvent.hover(screen.getByRole("link"));
+    expect(await screen.findByTestId("working-hover")).toHaveTextContent("a1:1");
+    expect(screen.queryByText("Draining runtimes")).not.toBeInTheDocument();
+  });
+
+  it("AG patch: hover names a draining runtime whose task count is unknown", async () => {
+    renderIndicator([makeRuntime({ name: "mac-mini", metadata: draining(null) })]);
+    await userEvent.hover(screen.getByRole("link"));
+    expect(await screen.findByText("mac-mini · draining")).toBeInTheDocument();
+  });
+
+  it("AG patch: updates when the cached runtime list changes, without refetching", async () => {
+    const { qc } = renderIndicator([]);
+    expect(screen.queryByTestId("agent-status-drain")).not.toBeInTheDocument();
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/acme/agents");
+
+    await act(async () => {
+      qc.setQueryData(["runtimes"], [makeRuntime({ metadata: draining(2) })]);
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("agent-status-drain")).toHaveTextContent("Draining · 2 running"),
+    );
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/acme/runtimes");
+
+    await act(async () => {
+      qc.setQueryData(["runtimes"], [makeRuntime({ metadata: draining(0, true) })]);
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("agent-status-drain")).toHaveTextContent(
+        "Drained · safe to restart",
+      ),
+    );
+
+    await act(async () => {
+      qc.setQueryData(["runtimes"], [makeRuntime({ metadata: {} })]);
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("agent-status-drain")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("link")).toHaveAttribute("href", "/acme/agents");
+    expect(runtimeFetch).not.toHaveBeenCalled();
+  });
+
+  it("AG patch: updates when presence changes from loading to working to empty", () => {
+    setPresence({}, true);
+    const { rerender, ui } = renderIndicator();
+    expect(screen.getByText("—")).toBeInTheDocument();
+
+    setPresence({ a1: { runningCount: 1, queuedCount: 0 } });
+    rerender(ui());
+    expect(screen.getByText("1 agent · 1 running")).toBeInTheDocument();
+
+    setPresence({ a1: { runningCount: 0, queuedCount: 0 } });
+    rerender(ui());
+    expect(screen.getByText("No agents running")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-status-dot")).not.toHaveClass("animate-pulse");
   });
 });
