@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,6 +58,9 @@ func TestAGPatchSlotHelperProcess(t *testing.T) {
 	}
 	fmt.Fprintf(os.Stdout, "%sheld %s\n", agSlotHelperPrefix, strings.Join(parts, ","))
 	_, _ = io.Copy(io.Discard, os.Stdin) // hold until the parent closes stdin or exits
+	// The flocks live in sem's open files; keep it reachable so the GC can't
+	// finalise them and drop the slots early.
+	runtime.KeepAlive(sem)
 }
 
 type agSlotHelper struct {
