@@ -1932,7 +1932,10 @@ function SwimLaneCell({
   }, [status, lane, projectId, onCreateIssue]);
 
   return (
-    <div className={`flex min-h-[120px] flex-col rounded-xl ${cfg?.columnBg ?? "bg-muted/40"} p-2`}>
+    // Opaque underlay: the status tints are translucent, so without it an
+    // odd lane band would show through and tint the cell differently.
+    <div data-swimlane-cell="" className="flex rounded-xl bg-background">
+    <div className={`flex min-h-[120px] min-w-0 flex-1 flex-col rounded-xl ${cfg?.columnBg ?? "bg-muted/40"} p-2`}>
       <div
         ref={setNodeRef}
         className={`flex-1 space-y-2 rounded-sm p-1 transition-colors ${
@@ -1988,6 +1991,7 @@ function SwimLaneCell({
           }
         />
       )}
+    </div>
     </div>
   );
 }
