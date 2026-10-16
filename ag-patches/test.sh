@@ -36,7 +36,7 @@ pnpm --filter @multica/views typecheck
 
 # --- Go: daemon, CLI and drain-badge patch guard ----------------------------
 
-AG_GO_MIN_TESTS=45
+AG_GO_MIN_TESTS=46
 
 go_out="$(mktemp)"
 trap 'rm -f "$go_out"' EXIT
