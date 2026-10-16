@@ -204,11 +204,12 @@ Rollback: switch the web image back to a build without this patch.
     `tree-chart-viewport.ts`, `tree-chart-view.tsx`, `tree-layout-context.tsx`,
     `tree-layout-menu.tsx` (new)
   - `packages/views/issues/components/tree-chart-layout.test.ts`,
-    `tree-chart-viewport.test.ts`, `tree-chart-view.test.tsx`,
-    `issues-header.tree-layout.test.tsx` (new)
-  - `packages/views/issues/surface/tree-chart-mode.test.tsx` (new)
+    `tree-chart-layout.invariants.test.ts`, `tree-chart-viewport.test.ts`,
+    `tree-chart-view.test.tsx`, `issues-header.tree-layout.test.tsx` (new)
+  - `packages/views/issues/surface/tree-chart-mode.test.tsx`,
+    `tree-chart-surface.test.tsx` (new)
   - `packages/core/issues/stores/tree-layout-store.ts`,
-    `tree-layout-store.test.ts` (new)
+    `tree-layout-store.test.ts`, `tree-layout-store.persist.test.ts` (new)
   - Hooks into tree mode's own files: `use-tree-rows.ts` (layout, chart open
     state), `tree-rows.ts` (`flattenTree` accepts an open rule), `tree-view.tsx`
     (shared `TreeToolbar`)
