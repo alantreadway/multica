@@ -38,6 +38,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) |
 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open) |
 | Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open) |
+| Daemon handoff: machine-wide slot cap and single-instance fixes | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -224,6 +225,81 @@ Depends on the daemon drain core patch above.
   - Fit: the metadata-only design is a stopgap that avoids a migration on the
     self-host, not a shape upstream would want next to its own column-backed
     status. Offer nothing; watch the three PRs.
+
+### Daemon handoff: machine-wide slot cap and single-instance fixes (in review)
+
+Makes the daemon safe to run as two processes on one machine, the groundwork for
+a zero-downtime handoff (overlap and handoff modes are the next unit and extend
+this entry). Four changes, no server or DB change:
+
+- **Machine-wide slot cap.** The in-process channel of slot indices is replaced
+  by one lock file per slot, `<config dir>/slots/<k>.lock` for k in
+  `[0, MULTICA_DAEMON_MAX_CONCURRENT_TASKS)`, taken with a non-blocking
+  exclusive flock for the life of the task. The kernel drops the lock when the
+  holder exits, so a crashed daemon strands nothing. Total running agents across
+  daemons stay within the cap and `MULTICA_TASK_SLOT` is unique across the
+  machine. The slot dir is per machine (shared by every profile of one config
+  root). A miss falls into the existing `capacityBackoff`. The slot dir or a
+  lock file that can't be opened fails closed: no claim, one warning per backoff
+  cycle, no in-process fallback.
+- **PID file owner check.** `daemon start --foreground` and `daemon stop` remove
+  `daemon.pid` only while it still holds their PID, so an outgoing daemon can't
+  delete its successor's file.
+- **Cross-process repo cache lock.** Each per-repo `repoLock` also holds a flock
+  on `<bare repo>.multica-lock`, taken inside the in-process lock and released
+  with it, so two daemons never fetch, prune or GC one bare repo at once. The
+  high/low-priority behaviour is unchanged in-process. Fail closed: if the lock
+  file can't be opened the operation returns that error and git doesn't run.
+  Another daemon's maintenance can't be preempted, so a foreground checkout
+  waits for it to finish. The lock files are left in place (unlinking a flock
+  file another daemon may hold is unsafe), so an evicted repo's workspace cache
+  dir keeps them.
+- **Heavy git GC waits for other daemons.** `reflog expire` and `git gc` are
+  skipped while any slot lock is held by another process, as well as while this
+  daemon has active tasks. A probe error counts as busy.
+
+On Windows (no flock) the slot set and repo locks stay in-process, as upstream.
+Needs a CLI built with `ag-patches/build-cli.sh`.
+
+- Test prefix: `TestAGPatch` / `AG patch:` (run by `ag-patches/test.sh`, which
+  now also runs `server/internal/daemon/repocache`). The two-process slot-cap
+  test re-executes the test binary as a helper process that holds slots.
+- Files:
+  - `server/internal/daemon/ag_slotlock.go`, `ag_slotlock_unix.go`,
+    `ag_slotlock_other.go` (new: slot locks, wait loop, GC probe)
+  - `server/internal/daemon/ag_slotlock_test.go` (new)
+  - `server/internal/daemon/daemon.go` (`agSlotDir` and `agSlots` fields,
+    `pollLoop`, `runBatchPoller`; the old channel helpers `newTaskSlotSemaphore`,
+    `waitForTaskSlot`, `drainAvailableSlots` moved to `ag_slotlock.go`)
+  - `server/internal/daemon/gc.go` (two heavy-GC checks call
+    `agOtherDaemonBusy`)
+  - `server/internal/daemon/repocache/ag_repolock.go`, `ag_repolock_unix.go`,
+    `ag_repolock_other.go` (new) and `ag_repolock_test.go` (new)
+  - `server/internal/daemon/repocache/cache.go` (`agFlock` field, hooks in
+    `LockContext`, `Unlock`, `tryLockMaintenance`, `lockForRepo`)
+  - `server/cmd/multica/ag_daemon_pidfile.go`, `ag_daemon_pidfile_test.go` (new)
+  - `server/cmd/multica/cmd_daemon.go` (two PID-file removals call
+    `agRemoveDaemonPIDIfOwned`)
+  - Upstream tests adjusted: `daemon_test.go`, `runtime_isolation_test.go`,
+    `terminal_report_queue_test.go`, `ag_drain_test.go` (slot semaphore API and
+    a temp slot dir for `pollLoop`), `repocache/cache_test.go` (real temp bare
+    paths, since the repo lock now needs a lock file beside the repo),
+    `gc_repo_evict_test.go` (tolerates the lock file)
+  - `ag-patches/test.sh` (`repocache` package added, `AG_GO_MIN_TESTS` 33)
+
+- Upstream:
+  - Status: `fork-only`. It exists to let two daemons overlap during a handoff,
+    which upstream's drain-then-stop work does not do, and the overlap model is
+    not something to offer upstream yet. The single-instance fixes (PID file
+    owner check, repo cache flock) are self-contained and could be offered
+    separately as bug fixes once the handoff units have landed and proven out.
+  - Overlap: [#5631](https://github.com/multica-ai/multica/pull/5631) and
+    [#6677](https://github.com/multica-ai/multica/pull/6677) (drain-then-stop,
+    not overlap). #6677's server-side "draining" runtime status would clash with
+    two processes sharing one runtime row.
+  - Fit: operator tooling for self-hosters (upgrade without a gap in service),
+    in the same spirit as drain. The machine-wide slot cap changes how every
+    daemon bounds concurrency, which upstream would want agreed first.
 
 ## Tooling (not a patch)
 

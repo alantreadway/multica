@@ -662,6 +662,9 @@ type Daemon struct {
 
 	agDrain agDrainState // AG patch: drain mode, guarded by claimMu (see ag_drain.go)
 
+	agSlotDir string                      // AG patch: slot dir override for tests (see ag_slotlock.go)
+	agSlots   atomic.Pointer[agTaskSlots] // AG patch: set by pollLoop (see ag_slotlock.go)
+
 	activeEnvRootsMu   sync.Mutex
 	activeEnvRootsCond *sync.Cond      // signalled when an in-flight env-root GC mutation finishes
 	activeEnvRoots     map[string]int  // env root path -> reference count (handles reuse paths marked twice)
@@ -5292,8 +5295,9 @@ func (d *Daemon) restartTargetBinary() (string, error) {
 // per-request timeout (WS) / the client's timeout (HTTP fallback), and the
 // server-side batch claim is index-backed + short.
 func (d *Daemon) pollLoop(ctx context.Context, taskWakeups <-chan taskWakeup) error {
-	sem := newTaskSlotSemaphore(d.cfg.MaxConcurrentTasks)
-	var taskWG sync.WaitGroup // tracks in-flight handleTask goroutines
+	sem := newTaskSlotSemaphore(d.agSlotDirPath(), d.cfg.MaxConcurrentTasks, d.logger) // AG patch: machine-wide slot cap
+	var taskWG sync.WaitGroup                                                          // tracks in-flight handleTask goroutines
+	d.agSlots.Store(sem)
 
 	runtimeSetCh, unsub := d.runtimeSet.Subscribe()
 	defer unsub()
@@ -5350,10 +5354,10 @@ func (d *Daemon) pollLoop(ctx context.Context, taskWakeups <-chan taskWakeup) er
 // pollerCtx is cancelled on shutdown. parentCtx is the daemon root ctx passed to
 // handleTask so an in-flight task is not killed just because the poll loop is
 // stopping mid-flight.
-func (d *Daemon) runBatchPoller(pollerCtx, parentCtx context.Context, sem chan int, wakeup chan struct{}, taskWG *sync.WaitGroup) {
+func (d *Daemon) runBatchPoller(pollerCtx, parentCtx context.Context, sem *agTaskSlots, wakeup chan struct{}, taskWG *sync.WaitGroup) {
 	releaseSlots := func(slots []int) {
 		for _, sl := range slots {
-			sem <- sl
+			sem.release(sl)
 		}
 	}
 
@@ -5448,7 +5452,7 @@ func (d *Daemon) runBatchPoller(pollerCtx, parentCtx context.Context, sem chan i
 					// point, so a successor that was previously blocked by agent
 					// capacity or per-(issue, agent) serialization can be claimed
 					// immediately instead of waiting for PollInterval.
-					sem <- slot
+					sem.release(slot)
 					signalPollerWakeup(wakeup)
 				}()
 				d.handleTask(parentCtx, t, slot)
@@ -5518,67 +5522,11 @@ func signalPollerWakeup(wakeup chan<- struct{}) {
 	}
 }
 
-// drainAvailableSlots non-blockingly pulls up to max additional slots from the
-// semaphore, returning immediately when none are free.
-func drainAvailableSlots(sem chan int, max int) []int {
-	if max <= 0 {
-		return nil
-	}
-	var slots []int
-	for len(slots) < max {
-		select {
-		case s := <-sem:
-			slots = append(slots, s)
-		default:
-			return slots
-		}
-	}
-	return slots
-}
-
 func capacityBackoff(pollInterval time.Duration) time.Duration {
 	if pollInterval <= 0 || pollInterval > taskSlotCapacityBackoff {
 		return taskSlotCapacityBackoff
 	}
 	return pollInterval
-}
-
-func waitForTaskSlot(ctx context.Context, sem chan int, wakeup <-chan struct{}, wait time.Duration) (slot int, acquired, woke bool, err error) {
-	select {
-	case slot = <-sem:
-		return slot, true, false, nil
-	case <-ctx.Done():
-		return 0, false, false, ctx.Err()
-	default:
-	}
-
-	if wait <= 0 {
-		return 0, false, false, nil
-	}
-
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
-	select {
-	case slot = <-sem:
-		return slot, true, false, nil
-	case <-wakeup:
-		return 0, false, true, nil
-	case <-ctx.Done():
-		return 0, false, false, ctx.Err()
-	case <-timer.C:
-		return 0, false, false, nil
-	}
-}
-
-// newTaskSlotSemaphore returns a buffered channel pre-populated with stable
-// slot indices [0, n). Receive to acquire a slot, send the same slot back to
-// release. Used by pollLoop to expose MULTICA_TASK_SLOT to spawned tasks.
-func newTaskSlotSemaphore(maxConcurrentTasks int) chan int {
-	sem := make(chan int, maxConcurrentTasks)
-	for i := 0; i < maxConcurrentTasks; i++ {
-		sem <- i
-	}
-	return sem
 }
 
 // shouldInterruptAgent decides whether the running agent should be cancelled
