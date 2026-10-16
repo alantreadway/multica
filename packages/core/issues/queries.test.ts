@@ -755,6 +755,38 @@ describe("AG patch: issueAncestryOptions", () => {
     expect(nodes.find((n) => n.id === "a")!.parentId).toBeNull();
   });
 
+  it("keeps each ancestor's own title and status for the tree's hidden-path crumbs", async () => {
+    const all = [
+      makeIssue(1, { id: "epic", identifier: "MUL-1", title: "The epic", status: "in_progress", parent_issue_id: null }),
+      makeIssue(2, { id: "story", identifier: "MUL-2", title: "The story", status: "done", parent_issue_id: "epic" }),
+    ];
+    const listIssues = vi
+      .fn<(params?: ListIssuesParams) => Promise<ListIssuesResponse>>()
+      .mockImplementation(async (params) => {
+        const issues = all.filter((i) => params?.ids?.includes(i.id));
+        return { issues, total: issues.length };
+      });
+    setApiInstance({ listIssues } as unknown as ApiClient);
+
+    const nodes = await qc.fetchQuery(issueAncestryOptions(WS_ID, ["story"]));
+
+    expect(nodes).toHaveLength(2);
+    expect(nodes.find((n) => n.id === "epic")).toEqual({
+      id: "epic",
+      identifier: "MUL-1",
+      parentId: null,
+      title: "The epic",
+      status: "in_progress",
+    });
+    expect(nodes.find((n) => n.id === "story")).toEqual({
+      id: "story",
+      identifier: "MUL-2",
+      parentId: "epic",
+      title: "The story",
+      status: "done",
+    });
+  });
+
   it("chunks a level at the server's 100-id cap", async () => {
     const edges: Record<string, string | null> = {};
     const ids = Array.from(

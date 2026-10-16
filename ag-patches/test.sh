@@ -31,10 +31,16 @@ pnpm --filter @multica/views exec vitest run \
   issues/components/tree-view.test.tsx \
   issues/components/issues-header.tree-mode.test.tsx \
   issues/surface/tree-mode.test.tsx \
+  issues/surface/tree-mode-surfaces.test.tsx \
+  issues/components/save-view-dialog.test.tsx \
+  common/actor-issues-panel.test.tsx \
+  projects/components/project-detail.test.tsx \
+  settings/components/issue-statuses-tab.test.tsx \
   runtimes/components/drain-badge.test.tsx \
   runtimes/components/runtime-list-drain.test.tsx \
   runtimes/components/runtime-detail-drain.test.tsx \
-  locales/ag-drain.test.ts
+  locales/ag-drain.test.ts \
+  locales/ag-tree.test.ts
 
 pnpm --filter @multica/core exec vitest run \
   runtimes/ag-drain.test.ts \
