@@ -39,24 +39,32 @@ func (s agPollSink) Mirror(ctx context.Context, workspaces []pgtype.UUID, pr ghp
 	if err != nil {
 		return err
 	}
+	// A row an App webhook already wrote carries a real installation id. The
+	// upsert would let the poll rewrite it to 0, which strands that PR's
+	// check_suite/check_run refreshes and zeroes its diff stats, so leave
+	// webhook-owned rows to the webhook.
+	var owned []pgtype.UUID
+	for _, ws := range workspaces {
+		if !s.webhookOwned(ctx, ws, pr) {
+			owned = append(owned, ws)
+		}
+	}
+	if len(owned) == 0 {
+		return nil
+	}
 	// The link policy only reads the workspace ids from the installation rows.
-	insts := make([]db.GithubInstallation, len(workspaces))
-	for i, ws := range workspaces {
+	insts := make([]db.GithubInstallation, len(owned))
+	for i, ws := range owned {
 		insts[i].WorkspaceID = ws
 	}
 	policy := s.h.resolvePRLinkPolicy(ctx, insts, p)
 
 	var errs []error
-	for _, ws := range workspaces {
+	for _, ws := range owned {
 		s.h.mirrorPullRequestForWorkspace(ctx, ws, 0, p, policy)
 		// The mirror pass logs and swallows its own failures, so confirm the
 		// row landed: it must now be at least as new as the PR we polled.
-		stored, err := s.h.Queries.GetGitHubPullRequest(ctx, db.GetGitHubPullRequestParams{
-			WorkspaceID: ws,
-			RepoOwner:   pr.Repo.Owner,
-			RepoName:    pr.Repo.Name,
-			PrNumber:    pr.Number,
-		})
+		stored, err := s.getRow(ctx, ws, pr)
 		if err != nil || stored.PrUpdatedAt.Time.Before(pr.UpdatedAt) {
 			errs = append(errs, fmt.Errorf("workspace %s: pull request not stored", uuidToString(ws)))
 		}
@@ -64,8 +72,34 @@ func (s agPollSink) Mirror(ctx context.Context, workspaces []pgtype.UUID, pr ghp
 	return errors.Join(errs...)
 }
 
+func (s agPollSink) getRow(ctx context.Context, ws pgtype.UUID, pr ghpoll.PR) (db.GithubPullRequest, error) {
+	return s.h.Queries.GetGitHubPullRequest(ctx, db.GetGitHubPullRequestParams{
+		WorkspaceID: ws,
+		RepoOwner:   pr.Repo.Owner,
+		RepoName:    pr.Repo.Name,
+		PrNumber:    pr.Number,
+	})
+}
+
+// webhookOwned reports whether ws already stores pr under a real installation.
+func (s agPollSink) webhookOwned(ctx context.Context, ws pgtype.UUID, pr ghpoll.PR) bool {
+	row, err := s.getRow(ctx, ws, pr)
+	return err == nil && row.InstallationID != 0
+}
+
 // Refresh implements ghpoll.Sink.
 func (s agPollSink) Refresh(repo ghpoll.RepoRef, number int32) {
+	// Only rows the poller owns (installation 0) route here; a PR whose rows are
+	// all webhook-owned is refreshed by those webhooks.
+	rows, err := s.h.Queries.ListGitHubPRRowsByAddress(context.Background(), db.ListGitHubPRRowsByAddressParams{
+		InstallationID: 0,
+		RepoOwner:      repo.Owner,
+		RepoName:       repo.Name,
+		PrNumber:       number,
+	})
+	if err != nil || len(rows) == 0 {
+		return
+	}
 	s.h.PRRefresh.Enqueue(0, repo.Owner, repo.Name, number)
 }
 

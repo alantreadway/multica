@@ -371,3 +371,51 @@ func TestAGPatchPollerStartHook(t *testing.T) {
 		})
 	}
 }
+
+// TestAGPatchPollerLeavesWebhookRowsAlone: with the App configured and polling
+// opted in, a PR an App webhook already stored keeps its installation id, diff
+// stats and refresh routing across a poll that is newer than the webhook.
+func TestAGPatchPollerLeavesWebhookRowsAlone(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("handler test fixture not initialized (no DB?)")
+	}
+	ctx := context.Background()
+	const repo = "webhook-owned"
+	created, installationID := setupPRTestIssue(t, ctx, "ag-poll-owned-secret")
+	setWorkspaceReposForTest(t, testWorkspaceID, "https://github.com/acme/"+repo+".git")
+	firePullRequestWebhookWithHead(t, "ag-poll-owned-secret", created.Identifier, installationID, repo, 7, "opened", "abc123", "clean")
+	if _, err := testPool.Exec(ctx,
+		`UPDATE github_pull_request SET additions = 12, deletions = 3, changed_files = 4 WHERE workspace_id = $1 AND repo_name = $2 AND pr_number = 7`,
+		testWorkspaceID, repo); err != nil {
+		t.Fatalf("seed diff stats: %v", err)
+	}
+
+	gh := &fakeGitHubPulls{path: "/repos/acme/" + repo + "/pulls"}
+	srv := httptest.NewServer(gh)
+	defer srv.Close()
+	// A poll one tick after the webhook: newer updated_at, so the upsert would take it.
+	gh.set("[" + pullListItem(repo, 7, "Fix "+created.Identifier+" (reworded)", "open", "", "2026-10-16T10:00:00Z") + "]")
+	poller := ghpoll.New(ghpoll.Config{Token: "ghp_owned", Interval: time.Minute, APIBase: srv.URL}, ghpoll.PGSource{DB: testHandler.DB}, agPollSink{h: testHandler})
+	poller.Tick(ctx)
+
+	var inst int64
+	var adds, dels, files int32
+	var title string
+	if err := testPool.QueryRow(ctx,
+		`SELECT installation_id, additions, deletions, changed_files, title FROM github_pull_request WHERE workspace_id = $1 AND repo_name = $2 AND pr_number = 7`,
+		testWorkspaceID, repo).Scan(&inst, &adds, &dels, &files, &title); err != nil {
+		t.Fatalf("read row: %v", err)
+	}
+	if inst != installationID || adds != 12 || dels != 3 || files != 4 {
+		t.Fatalf("row = installation %d (want %d), stats %d/%d/%d (want 12/3/4)", inst, installationID, adds, dels, files)
+	}
+	if strings.Contains(title, "reworded") {
+		t.Fatalf("poll rewrote a webhook-owned row: title %q", title)
+	}
+	rows, err := testHandler.Queries.ListGitHubPRRowsByAddress(ctx, db.ListGitHubPRRowsByAddressParams{
+		InstallationID: installationID, RepoOwner: "acme", RepoName: repo, PrNumber: 7,
+	})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("check_suite refresh routing: rows for installation %d = %d, err %v; want 1", installationID, len(rows), err)
+	}
+}

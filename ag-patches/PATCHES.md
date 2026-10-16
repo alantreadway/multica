@@ -331,8 +331,12 @@ When it runs:
   written with `0`, as in token mode, and the App client uses the poll token for
   installation `0` only (every real installation still mints App tokens). Chosen
   over looking up each workspace's installation row because a repo can be
-  reachable by the token and not by that installation, and a webhook rewrites the
-  id on the PR's next event anyway.
+  reachable by the token and not by that installation. A PR whose stored row in a
+  workspace already carries a real installation id (an App webhook wrote it) is
+  skipped for that workspace, so the poll never downgrades the id, zeroes the diff
+  stats or strands `check_suite`/`check_run` refreshes. The poller only fills
+  PRs the webhooks have not seen, and the poller refreshes a PR only when it owns a
+  row for it.
 - Neither: nothing runs. An empty or whitespace `GITHUB_POLL_TOKEN` is unset.
 
 Failure policy (never crashes): a GitHub error, timeout or 5xx on a repo logs a
