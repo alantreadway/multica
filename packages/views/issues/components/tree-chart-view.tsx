@@ -47,7 +47,6 @@ import {
   CHART_NODE_HEIGHT,
   CHART_NODE_WIDTH,
   TREE_CHART_NODE_CAP,
-  isChartRootSettled,
   buildChartTree,
   countChartIssues,
   layoutChartTree,
@@ -349,23 +348,55 @@ export function TreeChartView({
     () => setViewport(fitViewport(layout, viewSize)),
     [layout, viewSize],
   );
-  // Fit once per root, when its tree has drawn (not while only the focused
-  // node's placeholder is up). Later expansions keep the user's view.
-  const fittedFor = useRef<string | null>(null);
+  // Fit on every layout or size change for the current root until the user
+  // first adjusts the view (pan, zoom, Fit, expand or collapse); after that the
+  // view is theirs. Re-rooting changes `fitKey`, which starts a new root. This
+  // never asks whether loading has finished: whatever arrives later (children,
+  // a held branch, placeholder rows swapped for real ones) is just a layout
+  // change. Over the node cap there is no view to adjust, so nothing counts.
   const fitKey = `${tree.focusId ?? "top"}|${virtualRoot}`;
-  const rootReady = isChartRootSettled(root);
+  const fittedKey = useRef(fitKey);
+  const adjusted = useRef(false);
+  const overCapRef = useRef(overCap);
+  overCapRef.current = overCap;
+  const markAdjusted = useCallback(() => {
+    if (!overCapRef.current) adjusted.current = true;
+  }, []);
   useEffect(() => {
-    if (!rootReady || overCap || viewSize.width === 0) return;
-    if (fittedFor.current === fitKey) return;
-    fittedFor.current = fitKey;
+    if (fittedKey.current !== fitKey) {
+      fittedKey.current = fitKey;
+      adjusted.current = false;
+    }
+    if (overCap || viewSize.width === 0 || adjusted.current) return;
     fit();
-  }, [fit, fitKey, overCap, rootReady, viewSize.width]);
+  }, [fit, fitKey, overCap, viewSize.width]);
 
   const zoomBy = useCallback(
-    (factor: number) =>
-      setViewport((vp) => zoomAt(vp, factor, viewSize.width / 2, viewSize.height / 2)),
-    [viewSize.height, viewSize.width],
+    (factor: number) => {
+      markAdjusted();
+      setViewport((vp) => zoomAt(vp, factor, viewSize.width / 2, viewSize.height / 2));
+    },
+    [markAdjusted, viewSize.height, viewSize.width],
   );
+  const fitByUser = useCallback(() => {
+    markAdjusted();
+    fit();
+  }, [fit, markAdjusted]);
+  const toggle = useCallback(
+    (issueId: string) => {
+      markAdjusted();
+      tree.toggle(issueId);
+    },
+    [markAdjusted, tree.toggle],
+  );
+  const expandAll = useCallback(() => {
+    markAdjusted();
+    tree.expandAll();
+  }, [markAdjusted, tree.expandAll]);
+  const collapseAll = useCallback(() => {
+    markAdjusted();
+    tree.collapseAll();
+  }, [markAdjusted, tree.collapseAll]);
 
   // React registers wheel listeners as passive, which cannot stop the page
   // scrolling; ctrl / meta + wheel (and a trackpad pinch) zoom, plain wheel pans.
@@ -374,6 +405,7 @@ export function TreeChartView({
     if (!el) return;
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
+      markAdjusted();
       if (event.ctrlKey || event.metaKey) {
         const rect = el.getBoundingClientRect();
         const factor = Math.exp(-event.deltaY * 0.01);
@@ -386,7 +418,7 @@ export function TreeChartView({
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [overCap]);
+  }, [markAdjusted, overCap]);
 
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const suppressClick = useRef(false);
@@ -404,6 +436,7 @@ export function TreeChartView({
     const dy = event.clientY - state.y;
     if (!state.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
     state.moved = true;
+    markAdjusted();
     state.x = event.clientX;
     state.y = event.clientY;
     setViewport((vp) => panBy(vp, dx, dy));
@@ -415,6 +448,10 @@ export function TreeChartView({
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget) return;
+    const pan = (dx: number, dy: number) => {
+      markAdjusted();
+      setViewport((vp) => panBy(vp, dx, dy));
+    };
     switch (event.key) {
       case "+":
       case "=":
@@ -422,15 +459,15 @@ export function TreeChartView({
       case "-":
         return zoomBy(1 / CHART_ZOOM_STEP);
       case "0":
-        return fit();
+        return fitByUser();
       case "ArrowLeft":
-        return setViewport((vp) => panBy(vp, PAN_KEY_STEP_PX, 0));
+        return pan(PAN_KEY_STEP_PX, 0);
       case "ArrowRight":
-        return setViewport((vp) => panBy(vp, -PAN_KEY_STEP_PX, 0));
+        return pan(-PAN_KEY_STEP_PX, 0);
       case "ArrowUp":
-        return setViewport((vp) => panBy(vp, 0, PAN_KEY_STEP_PX));
+        return pan(0, PAN_KEY_STEP_PX);
       case "ArrowDown":
-        return setViewport((vp) => panBy(vp, 0, -PAN_KEY_STEP_PX));
+        return pan(0, -PAN_KEY_STEP_PX);
     }
   };
 
@@ -440,7 +477,7 @@ export function TreeChartView({
         <Button
           variant="ghost"
           size="xs"
-          onClick={tree.expandAll}
+          onClick={expandAll}
           disabled={overCap}
           className="text-muted-foreground"
         >
@@ -450,7 +487,7 @@ export function TreeChartView({
         <Button
           variant="ghost"
           size="xs"
-          onClick={tree.collapseAll}
+          onClick={collapseAll}
           className="text-muted-foreground"
         >
           <ChevronsDownUp className="size-3.5" />
@@ -532,7 +569,7 @@ export function TreeChartView({
                       row={row}
                       placed={placed}
                       childProgress={childProgressMap.get(row.issue.id)}
-                      onToggle={tree.toggle}
+                      onToggle={toggle}
                       onFocus={tree.focus}
                     />
                   );
@@ -573,7 +610,7 @@ export function TreeChartView({
               size="icon-xs"
               aria-label={t(($) => $.tree.chart_fit)}
               title={t(($) => $.tree.chart_fit)}
-              onClick={fit}
+              onClick={fitByUser}
             >
               <Maximize className="size-3.5" />
             </Button>

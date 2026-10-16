@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -91,7 +91,7 @@ const peek: IssuePeekActions = {
 function issue(id: string, extra: Partial<Issue> = {}): Issue {
   return {
     id,
-    identifier: `MAG-${id}`,
+    identifier: `ISS-${id}`,
     title: `Title ${id}`,
     status: "todo",
     priority: "none",
@@ -192,7 +192,7 @@ describe("AG patch: TreeChartView", () => {
       ]),
     );
     const [first, second, third] = nodes();
-    expect(within(first!).getByText("MAG-1")).toBeInTheDocument();
+    expect(within(first!).getByText("ISS-1")).toBeInTheDocument();
     expect(within(first!).getByText("Title 1")).toBeInTheDocument();
     expect(within(first!).getByText("1/3")).toBeInTheDocument();
     expect(within(first!).getByTestId("avatar-user-1")).toBeInTheDocument();
@@ -543,6 +543,60 @@ describe("AG patch: TreeChartView", () => {
       const roots = Array.from({ length: 12 }, (_, i) => row(`r${i}`, 0));
       rerender(chartElement(qc, state(roots, project), "p1"));
       expect(scale(container)).toBeLessThan(1);
+    });
+  });
+
+  describe("auto-fit on resize", () => {
+    const observers: Array<() => void> = [];
+    let width = 600;
+    beforeEach(() => {
+      width = 600;
+      observers.length = 0;
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width);
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(400);
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          constructor(cb: () => void) {
+            observers.push(cb);
+          }
+          observe() {}
+          disconnect() {}
+        },
+      );
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    });
+    const scaleOf = (container: HTMLElement) => {
+      const canvas = container.querySelector('[data-slot="tree-chart-canvas"]') as HTMLElement;
+      return Number(/scale\(([\d.]+)\)/.exec(canvas.style.transform)![1]);
+    };
+    const resizeTo = (next: number) => {
+      width = next;
+      act(() => observers.forEach((cb) => cb()));
+    };
+    const wide = () =>
+      state(Array.from({ length: 6 }, (_, i) => row(`r${i}`, 0)), {
+        focusId: null,
+        chartAvailability: "project",
+        chartDepthOffset: 1,
+      });
+
+    it("re-fits when the view is resized until the user has adjusted it", () => {
+      const { container } = renderChart(wide(), "p1");
+      const roomy = scaleOf(container);
+      resizeTo(300);
+      expect(scaleOf(container)).toBeLessThan(roomy);
+    });
+
+    it("leaves the view alone on resize once the user has zoomed", () => {
+      const { container } = renderChart(wide(), "p1");
+      fireEvent.click(screen.getByRole("button", { name: "tree.chart_zoom_out" }));
+      const zoomed = scaleOf(container);
+      resizeTo(300);
+      expect(scaleOf(container)).toBe(zoomed);
     });
   });
 
