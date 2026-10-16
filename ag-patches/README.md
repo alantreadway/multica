@@ -283,12 +283,18 @@ One-time setup, by hand:
    <array>
      <string>/bin/sh</string>
      <string>-c</string>
-     <string>if [ -n "$(find "$HOME/.multica/overlap-next" -mmin -10 2>/dev/null)" ]; then exec "$HOME/.local/bin/multica-ag" daemon start --foreground --overlap; fi; exec "$HOME/.local/bin/multica-ag" daemon start --foreground</string>
+     <string>export MULTICA_DAEMON_MAX_CONCURRENT_TASKS=5; if [ -n "$(find "$HOME/.multica/overlap-next" -mmin -10 2>/dev/null)" ]; then exec "$HOME/.local/bin/multica-ag" daemon start --foreground --overlap; fi; exec "$HOME/.local/bin/multica-ag" daemon start --foreground</string>
    </array>
    ```
 
+   The `export MULTICA_DAEMON_MAX_CONCURRENT_TASKS=N` must stay in the command
+   line: the script reads the cap from it (and `--cap` rewrites it).
+
    A launchd restart after a crash, with no fresh marker, starts normally and
-   recovers orphans, as it should.
+   recovers orphans, as it should, unless a handed-off daemon is still draining:
+   a handoff daemon leaves `daemon.handoff.json` (its PID and port) in the
+   profile directory, and a normal start beside a live one exits non-zero rather
+   than fail that daemon's tasks.
 3. Do not set `KeepAlive` to restart on a clean exit: a handed-off daemon exits 0
    and must stay down. `<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>`
    restarts crashes only.

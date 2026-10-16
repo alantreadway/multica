@@ -10,6 +10,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -176,11 +177,74 @@ func agHandoffLogPath(profile string, pid int) string {
 	return filepath.Join(daemonDirForProfile(profile), fmt.Sprintf("daemon.handoff.%d.log", pid))
 }
 
+// agHandoffRecord names a daemon that has handed off and is still draining.
+type agHandoffRecord struct {
+	PID  int `json:"pid"`
+	Port int `json:"port"`
+}
+
+// agHandoffRecordPath is read by every start, independent of daemon.port, which
+// the successor overwrites with its own port.
+func agHandoffRecordPath(profile string) string {
+	return filepath.Join(daemonDirForProfile(profile), "daemon.handoff.json")
+}
+
+func agWriteHandoffRecord(profile string, rec agHandoffRecord) {
+	data, err := json.Marshal(rec)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(agHandoffRecordPath(profile), data, 0o644)
+}
+
+// agRemoveHandoffRecordIfOwned removes the record only while it names pid.
+func agRemoveHandoffRecordIfOwned(profile string, pid int) {
+	if rec, ok := agReadHandoffRecord(profile); ok && rec.PID == pid {
+		_ = os.Remove(agHandoffRecordPath(profile))
+	}
+}
+
+func agReadHandoffRecord(profile string) (agHandoffRecord, bool) {
+	var rec agHandoffRecord
+	data, err := os.ReadFile(agHandoffRecordPath(profile))
+	if err != nil || json.Unmarshal(data, &rec) != nil || rec.PID < 1 {
+		return rec, false
+	}
+	return rec, true
+}
+
+// agRefuseWhileHandoffDraining stops a normal start from running the startup
+// RecoverOrphans, which would fail the tasks of a handoff daemon that is still
+// draining. Only an overlap start may run beside it. A record whose process is
+// gone, or whose port is answered by some other process, is stale and removed.
+func agRefuseWhileHandoffDraining(profile string) error {
+	rec, ok := agReadHandoffRecord(profile)
+	if !ok || rec.PID == os.Getpid() {
+		return nil
+	}
+	if alive, known := daemon.AGPIDAlive(rec.PID); known && !alive {
+		_ = os.Remove(agHandoffRecordPath(profile))
+		return nil
+	}
+	if health := agHealth(rec.Port); daemonAlive(health) {
+		if got, _ := agIntField(health, "pid"); got != int64(rec.PID) {
+			_ = os.Remove(agHandoffRecordPath(profile))
+			return nil
+		}
+	}
+	return fmt.Errorf("%s (pid %d) has handed off and is still draining its tasks; a normal start would fail them. "+
+		"Wait for it to exit, or start beside it with 'daemon start --overlap'. "+
+		"If pid %d is not a daemon, delete %s",
+		agDaemonLabel(profile), rec.PID, rec.PID, agHandoffRecordPath(profile))
+}
+
 // agInstallHandoffHook tells the daemon what handoff means for this process:
-// move logging off daemon.log (when it logs there), then release the profile
-// lock so the successor can take it. sw and lock may be nil.
-func agInstallHandoffHook(d *daemon.Daemon, profile string, sw *agLogSwitch, lock *os.File) {
+// leave a record of it for later starts, move logging off daemon.log (when it
+// logs there), then release the profile lock so the successor can take it. sw
+// and lock may be nil.
+func agInstallHandoffHook(d *daemon.Daemon, profile string, port int, sw *agLogSwitch, lock *os.File) {
 	d.AGSetHandoffHook(func() {
+		agWriteHandoffRecord(profile, agHandoffRecord{PID: os.Getpid(), Port: port})
 		if sw != nil {
 			sw.SwitchTo(newDaemonLogRotator(agHandoffLogPath(profile, os.Getpid())))
 		}

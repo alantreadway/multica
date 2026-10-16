@@ -1120,6 +1120,11 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	}
 	defer lock.Close()
 	_ = os.Unsetenv("MULTICA_DAEMON_HANDOFF")
+	if !overlap { // AG patch: handoff
+		if err := agRefuseWhileHandoffDraining(profile); err != nil {
+			return err
+		}
+	}
 	// An older daemon has no profile lock. A direct --foreground start must
 	// still refuse to launch a second daemon for that same profile.
 	port := resolveHealthPort(profile)
@@ -1144,7 +1149,8 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	defer stop()
 
 	d := daemon.New(cfg, logger)
-	agInstallHandoffHook(d, profile, logSwitch, lock) // AG patch: handoff
+	agInstallHandoffHook(d, profile, actualPort, logSwitch, lock) // AG patch: handoff
+	defer agRemoveHandoffRecordIfOwned(profile, os.Getpid())      // AG patch: handoff
 	if overlap {
 		d.AGEnableOverlap(pred) // AG patch: overlap
 	}
