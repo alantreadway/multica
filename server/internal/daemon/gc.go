@@ -84,8 +84,8 @@ type gcStats struct {
 
 // runGC performs a single GC scan across all workspace directories.
 func (d *Daemon) runGC(ctx context.Context) {
-	if d.agOverlapActive() { // AG patch: handoff — the predecessor's task dirs look orphaned to us
-		d.logger.Debug("gc: skipped while the predecessor daemon is still running")
+	if d.agGCSkipped() { // AG patch: handoff — the other daemon's task dirs look orphaned to this one
+		d.logger.Debug("gc: skipped while another daemon shares the workspaces root")
 		return
 	}
 	root := d.cfg.WorkspacesRoot

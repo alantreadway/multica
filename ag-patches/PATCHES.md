@@ -400,6 +400,11 @@ Second, the handoff and overlap modes on top.
   `agHandoffMinHold` (30s) so an idle daemon doesn't vanish before the successor
   reads its `/health`. It keeps reporting for its own tasks and keeps serving its
   health port. One-way: `/resume` answers 409 and `daemon resume` prints why.
+  It also skips GC cycles for the whole drain (the successor's task dirs would
+  look orphaned to it), answers `/handoff` only after claims already in flight
+  have become tracked tasks (bounded at 3s, so the successor's first `/health`
+  read lists them), and refuses `/handoff` with 409 while it is itself still
+  overlapping its own predecessor.
   Upstream's `MULTICA_DAEMON_HANDOFF` env var and self-spawn restart path (binary
   update handoff) are untouched.
 - **Overlap on the new daemon** (`daemon start --overlap`). Before writing its
@@ -488,8 +493,8 @@ Needs a CLI built with `ag-patches/build-cli.sh`.
       `server/internal/daemon/ag_handoff_run_test.go` (new: an overlap daemon
       driven through `Run`),
       `server/cmd/multica/ag_daemon_handoff_test.go` (new: handoff and overlap
-      behaviour, predecessor discovery and death, GC step preemption, the CLI
-      flags),
+      behaviour, predecessor discovery, the CLI flags; predecessor death and GC
+      step preemption are in `server/internal/daemon/ag_handoff_test.go`),
       `server/cmd/multica/ag_daemon_handoff_run_test.go` (new: the handoff hook
       and the plain-start guard driven through `runDaemonForeground`) and `server/cmd/multica/ag_reload_script_test.go` (new: runs
       `multica-daemon-reload` against stub `launchctl`, `plutil` and `multica`;
