@@ -8,6 +8,7 @@ import { useScrollFade } from "@multica/ui/hooks/use-scroll-fade";
 import { AppLink, useNavigation } from "../navigation";
 import { HelpLauncher } from "./help-launcher";
 import { JoinDiscordCard } from "./join-discord-card";
+import { AgentStatusIndicator } from "./agent-status-indicator";
 import {
   DndContext,
   PointerSensor,
@@ -909,6 +910,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
         </SidebarContent>
 
         <SidebarFooter className="p-2">
+          <AgentStatusIndicator wsId={wsId} />
           <SidebarMenu className="gap-0.5">
             {utilityNav.map((item) => {
               const href = p[item.key]();

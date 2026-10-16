@@ -511,6 +511,36 @@ changes do not touch a PR's `updated_at`: the snapshot's chase backoff, the
   - Fit: removes a stated adoption blocker for self-hosters without an App, and
     adds no dependency. Add our design to #8111 only if alan says so.
 
+### Sidebar agent and drain status (web)
+
+One compact row at the top of the sidebar footer, above Analytics: "3 agents ·
+4 running · 2 queued" with a pulsing brand dot while anything runs ("No agents
+running" when idle, a muted dash while loading, never 0). While any runtime is
+draining, a second line adds "Draining · N running", or "Drained · safe to
+restart" once every draining runtime is idle; the counts always stay. Hover lists
+the working agents (`WorkingAgentsHoverContent`) and each draining runtime;
+click goes to Agents, or to Runtimes while draining. It reads the presence map
+and runtime list that `useWorkspacePresencePrefetch` already keeps warm over
+WebSocket, so it adds no request and no polling. The drain half needs the
+daemon patch running (`multica-ag`); without it the row shows agent counts only.
+Frontend only: rollback is switching the web image back.
+
+- Test prefix: `AG patch:` (`layout/agent-status-indicator.test.tsx`, in `ag-patches/test.sh`)
+- Files:
+  - `packages/views/layout/agent-status-indicator.tsx` (new),
+    `agent-status-indicator.test.tsx` (new)
+  - `packages/views/layout/app-sidebar.tsx` (one import, one JSX line),
+    `app-sidebar.test.tsx` (mocks the indicator)
+  - `packages/views/locales/*/layout.json` (`agent_status` group)
+
+- Upstream:
+  - Status: `fork-only`. The drain half depends on the drain patches above, which
+    are fork-only; the agent-count half reads existing presence data.
+  - Overlap: no open upstream PR or issue found for a sidebar agent or running
+    status row (searched `multica-ai/multica` PRs, October 2026).
+  - Fit: the agent-count half could go upstream alone, as a small sidebar
+    addition with no new request. The drain marker would come out first.
+
 ## Tooling (not a patch)
 
 `ag-patches/` (including `build-web.sh`, `build-backend.sh`, `build-cli.sh` and
