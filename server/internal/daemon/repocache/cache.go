@@ -201,6 +201,7 @@ type repoLock struct {
 	maintenanceCancel context.CancelCauseFunc
 	foregroundWaiters int
 	changed           chan struct{}
+	agFlock           agRepoFlock // AG patch: cross-process lock (see ag_repolock.go)
 }
 
 // ErrMaintenancePreempted is the cancellation cause delivered to a running
@@ -229,7 +230,7 @@ func (l *repoLock) LockContext(ctx context.Context) error {
 			l.maintenance = false
 			l.foregroundWaiters--
 			l.mu.Unlock()
-			return nil
+			return l.agLockFlock(ctx) // AG patch: cross-process lock
 		}
 		changed := l.changed
 		l.mu.Unlock()
@@ -246,6 +247,7 @@ func (l *repoLock) Lock() {
 }
 
 func (l *repoLock) Unlock() {
+	l.agFlock.unlock() // AG patch: drop the cross-process lock first
 	l.mu.Lock()
 	if !l.held {
 		l.mu.Unlock()
@@ -265,6 +267,9 @@ func (l *repoLock) tryLockMaintenance(parent context.Context) (context.Context, 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if parent.Err() != nil || l.held || l.foregroundWaiters > 0 {
+		return nil, false
+	}
+	if !l.agTryFlock() { // AG patch: another daemon holds the repo
 		return nil, false
 	}
 	ctx, cancel := context.WithCancelCause(parent)
@@ -311,6 +316,7 @@ func (c *Cache) lockForRepo(barePath string) *repoLock {
 		return l.(*repoLock)
 	}
 	newLock := newRepoLock()
+	newLock.agFlock.path = agRepoFlockPath(barePath) // AG patch: cross-process lock
 	actual, _ := c.repoLocks.LoadOrStore(barePath, newLock)
 	return actual.(*repoLock)
 }

@@ -172,7 +172,7 @@ func TestRepoMaintenanceYieldsToForeground(t *testing.T) {
 	t.Parallel()
 
 	cache := New(t.TempDir(), testLogger())
-	const barePath = "/cache/repo.git"
+	barePath := filepath.Join(t.TempDir(), "repo.git") // a real dir: the repo lock also flocks a file beside it
 	entered := make(chan struct{})
 	maintenanceDone := make(chan error, 1)
 	go func() {
@@ -214,7 +214,7 @@ func TestCancelMaintenanceStopsMaintenanceWithoutARepoCheckout(t *testing.T) {
 	t.Parallel()
 
 	cache := New(t.TempDir(), testLogger())
-	const barePath = "/cache/reused-worktree.git"
+	barePath := filepath.Join(t.TempDir(), "reused-worktree.git")
 	entered := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
@@ -249,7 +249,7 @@ func TestCancelMaintenanceWaitsForCleanupBarrier(t *testing.T) {
 	t.Parallel()
 
 	cache := New(t.TempDir(), testLogger())
-	const barePath = "/cache/cleanup-barrier.git"
+	barePath := filepath.Join(t.TempDir(), "cleanup-barrier.git")
 	entered := make(chan struct{})
 	cancelled := make(chan struct{})
 	releaseCleanup := make(chan struct{})

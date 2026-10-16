@@ -1139,7 +1139,7 @@ func runDaemonForeground(cmd *cobra.Command) error {
 		os.MkdirAll(dir, 0o755)
 		os.WriteFile(daemonPIDPathForProfile(profile), []byte(strconv.Itoa(os.Getpid())), 0o644)
 	}
-	defer os.Remove(daemonPIDPathForProfile(profile))
+	defer agRemoveDaemonPIDIfOwned(profile, os.Getpid()) // AG patch: only if still ours
 
 	if err := d.RunWithHealthListener(ctx, healthLn); err != nil && !errors.Is(err, context.Canceled) {
 		return err
@@ -1411,7 +1411,7 @@ func runDaemonStop(cmd *cobra.Command, _ []string) error {
 		h := checkDaemonHealthOnPort(ctx2, healthPort)
 		cancel2()
 		if !daemonAlive(h) {
-			os.Remove(daemonPIDPathForProfile(profile))
+			agRemoveDaemonPIDIfOwned(profile, int(pid)) // AG patch: only if it holds the PID we stopped
 			fmt.Fprintln(os.Stderr, "Daemon stopped.")
 			return nil
 		}

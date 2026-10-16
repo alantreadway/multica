@@ -1593,7 +1593,7 @@ func (d *Daemon) pruneWorktreeLocked(ctx context.Context, barePath string) {
 	// in-process repository gate. Do not start heavy maintenance while any task
 	// is active; a new task or checkout that arrives after this check preempts
 	// through the maintenance context below.
-	if d.activeTasks.Load() > 0 {
+	if d.activeTasks.Load() > 0 || d.agOtherDaemonBusy() { // AG patch: another daemon's slots count too
 		d.logger.Debug("gc: heavy repo maintenance deferred while tasks are active", "repo", barePath)
 		return
 	}
@@ -1611,7 +1611,7 @@ func (d *Daemon) pruneWorktreeLocked(ctx context.Context, barePath string) {
 	}
 	completed := true
 	for _, step := range maintenance {
-		if ctx.Err() != nil || d.activeTasks.Load() > 0 {
+		if ctx.Err() != nil || d.activeTasks.Load() > 0 || d.agOtherDaemonBusy() { // AG patch
 			return
 		}
 		before := snapshotRepoMaintenanceLocks(barePath)
