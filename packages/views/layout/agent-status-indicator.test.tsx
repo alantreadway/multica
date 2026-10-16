@@ -164,6 +164,14 @@ describe("AG patch: AgentStatusIndicator", () => {
     expect(screen.getByTestId("agent-status-summary")).toHaveClass("text-muted-foreground");
   });
 
+  it("AG patch: lets the summary wrap instead of inheriting the button's nowrap truncation", () => {
+    setPresence({ a1: { runningCount: 4, queuedCount: 2 } });
+    renderIndicator();
+    // SidebarMenuButton sets nowrap on its last child span; the summary must opt back in
+    // itself, because that selector outranks a whitespace utility on the wrapper.
+    expect(screen.getByTestId("agent-status-summary")).toHaveClass("whitespace-normal");
+  });
+
   it("AG patch: shows queued work when nothing is running yet", () => {
     setPresence({ a1: { runningCount: 0, queuedCount: 2 } });
     renderIndicator();
