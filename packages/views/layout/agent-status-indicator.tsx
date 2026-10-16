@@ -107,17 +107,14 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
     <SidebarMenuButton
       render={<AppLink href={isDraining ? p.runtimes() : p.agents()} />}
       aria-label={unknown ? t(($) => $.agent_status.unknown) : undefined}
-      className={cn(
-        "h-auto py-1.5 text-muted-foreground hover:bg-sidebar-accent/70",
-        (unknown || (!isRunning && !isDraining)) && "opacity-70",
-      )}
+      className="h-auto py-1.5 text-muted-foreground hover:bg-sidebar-accent/70"
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
         <span
           data-testid="agent-status-dot"
           className={cn(
             "size-2 rounded-full",
-            isRunning ? "animate-pulse bg-brand" : "bg-muted-foreground/40",
+            isRunning ? "animate-pulse bg-brand" : "bg-faint-foreground",
           )}
         />
       </span>
