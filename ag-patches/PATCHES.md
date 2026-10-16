@@ -137,7 +137,11 @@ first mode. Rollback: switch the web image back to a build without this patch.
   - `packages/views/issues/components/tree-rows.ts` (new)
   - `packages/views/issues/components/tree-rows.test.ts`,
     `tree-view.test.tsx`, `issues-header.tree-mode.test.tsx` (new)
-  - `packages/views/issues/surface/tree-mode.test.tsx` (new)
+  - `packages/views/issues/surface/tree-mode.test.tsx`,
+    `tree-mode-surfaces.test.tsx`, `packages/views/locales/ag-tree.test.ts` (new)
+  - Tree cases added to the existing `save-view-dialog.test.tsx`,
+    `actor-issues-panel.test.tsx`, `project-detail.test.tsx` and
+    `issue-statuses-tab.test.tsx`
   - `packages/core/issues/stores/tree-view-store.ts`,
     `tree-view-store.test.ts` (new)
   - `packages/core/issues/stores/view-store.ts` (`ViewMode`, card options)

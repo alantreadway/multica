@@ -36,8 +36,8 @@ vi.mock("../../navigation", () => ({
   ),
 }));
 vi.mock("../../issues/surface/issue-surface", () => ({
-  IssueSurfaceWithStore: ({ store, scope }: { store: { getState: () => { statusFilters: string[] } }; scope: { actorKind: string } }) =>
-    <div data-testid="inspection-list">{scope.actorKind}:{store.getState().statusFilters.join(",")}</div>,
+  IssueSurfaceWithStore: ({ store, scope, modes }: { store: { getState: () => { statusFilters: string[] } }; scope: { actorKind: string }; modes: string[] }) =>
+    <div data-testid="inspection-list" data-modes={modes.join(",")}>{scope.actorKind}:{store.getState().statusFilters.join(",")}</div>,
 }));
 let catalog: IssueStatusEntry[] = [];
 let role: string = "owner";
@@ -217,6 +217,8 @@ describe("IssueStatusesTab", () => {
     expect(within(dialog).queryByRole("button", { name: en.issue_statuses.archive_dialog.confirm })).toBeNull();
     await userEvent.click(within(dialog).getByRole("button", { name: en.issue_statuses.archive_dialog.view_issues }));
     expect(screen.getByTestId("inspection-list")).toHaveTextContent("all:shipped");
+    // AG patch: the status inspection list never offers the Tree layout.
+    expect(screen.getByTestId("inspection-list")).toHaveAttribute("data-modes", "list");
     expect(navigatePush).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
   });

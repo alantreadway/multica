@@ -253,6 +253,14 @@ describe("AG patch: TreeView", () => {
     expect(within(nav).getByText("MAG-9")).toBeInTheDocument();
   });
 
+  it("virtualises: a long list mounts a window of rows, not all of them", () => {
+    const rows: TreeRow[] = Array.from({ length: 2000 }, (_, i) => root(String(i + 1)));
+    renderTree(state(rows));
+    const mounted = screen.getAllByRole("treeitem").length;
+    expect(mounted).toBeGreaterThan(0);
+    expect(mounted).toBeLessThan(200);
+  });
+
   it("has no breadcrumb when nothing is focused", () => {
     renderTree(state([root("1")]));
     expect(screen.queryByRole("navigation")).toBeNull();
