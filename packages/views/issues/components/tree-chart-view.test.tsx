@@ -12,6 +12,7 @@ import {
 } from "../surface/peek-context";
 import { TREE_CHART_NODE_CAP } from "./tree-chart-layout";
 import { TreeChartView } from "./tree-chart-view";
+import { fitViewport } from "./tree-chart-viewport";
 import type { TreeIssueRow, TreeRow } from "./tree-rows";
 import type { TreeRowsState } from "./use-tree-rows";
 
@@ -58,6 +59,10 @@ function keyPath(first: string): unknown {
   const proxy: object = new Proxy({}, handler);
   return proxy;
 }
+vi.mock("./tree-chart-viewport", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./tree-chart-viewport")>();
+  return { ...actual, fitViewport: vi.fn(actual.fitViewport) };
+});
 vi.mock("../actions", () => ({
   IssueActionsContextMenu: ({ children }: { children: ReactNode }) => children,
 }));
@@ -543,6 +548,142 @@ describe("AG patch: TreeChartView", () => {
       const roots = Array.from({ length: 12 }, (_, i) => row(`r${i}`, 0));
       rerender(chartElement(qc, state(roots, project), "p1"));
       expect(scale(container)).toBeLessThan(1);
+    });
+  });
+
+  describe("once the user has adjusted the view", () => {
+    // A focused root whose children are still loading, fitted at scale 1. Each
+    // case adjusts the view one way, then lets twelve children arrive: the
+    // chart must stay exactly where the user left it.
+    const loadingRow = (): TreeRow => ({
+      kind: "status",
+      key: "status:1",
+      parentId: "1",
+      depth: 1,
+      guides: [],
+      branchKey: "1",
+      state: "loading",
+    });
+    const root = row("1", 0, { expanded: true });
+    const loading = () => state([root, loadingRow()], { focusId: "1" });
+    const arrived = () =>
+      state(
+        [{ ...root, childCount: 12 }, ...Array.from({ length: 12 }, (_, i) => row(`c${i}`, 1))],
+        { focusId: "1" },
+      );
+    const setup = () => {
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(600);
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(400);
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const view = render(chartElement(qc, loading()));
+      const surface = view.container.querySelector('[data-slot="tree-chart"]') as HTMLElement;
+      const canvas = view.container.querySelector('[data-slot="tree-chart-canvas"]') as HTMLElement;
+      const scale = () => Number(/scale\(([\d.]+)\)/.exec(canvas.style.transform)![1]);
+      expect(scale()).toBe(1);
+      const fitted = canvas.style.transform;
+      const branchLands = () => view.rerender(chartElement(qc, arrived()));
+      return { surface, canvas, scale, fitted, branchLands };
+    };
+    afterEach(() => vi.restoreAllMocks());
+
+    it("keeps a wheel pan when a branch lands", () => {
+      const { surface, canvas, fitted, branchLands } = setup();
+      fireEvent.wheel(surface, { deltaX: 0, deltaY: 40 });
+      const panned = canvas.style.transform;
+      expect(panned).not.toBe(fitted);
+      branchLands();
+      expect(canvas.style.transform).toBe(panned);
+    });
+
+    it("keeps a ctrl + wheel zoom when a branch lands", () => {
+      const { surface, canvas, scale, branchLands } = setup();
+      fireEvent.wheel(surface, { deltaY: -100, ctrlKey: true });
+      const zoomed = canvas.style.transform;
+      expect(scale()).toBeGreaterThan(1);
+      branchLands();
+      expect(canvas.style.transform).toBe(zoomed);
+    });
+
+    it("keeps a drag pan when a branch lands", () => {
+      const { surface, canvas, fitted, branchLands } = setup();
+      fireEvent.pointerDown(surface, { button: 0, clientX: 100, clientY: 100, pointerId: 1 });
+      fireEvent.pointerMove(surface, { clientX: 130, clientY: 90, pointerId: 1 });
+      fireEvent.pointerUp(surface, { pointerId: 1 });
+      const panned = canvas.style.transform;
+      expect(panned).not.toBe(fitted);
+      branchLands();
+      expect(canvas.style.transform).toBe(panned);
+    });
+
+    it("does not count a press that never moves past the drag threshold", () => {
+      const { surface, scale, branchLands } = setup();
+      fireEvent.pointerDown(surface, { button: 0, clientX: 100, clientY: 100, pointerId: 1 });
+      fireEvent.pointerMove(surface, { clientX: 101, clientY: 100, pointerId: 1 });
+      fireEvent.pointerUp(surface, { pointerId: 1 });
+      branchLands();
+      expect(scale()).toBeLessThan(1);
+    });
+
+    // The toolbar buttons only call the rows hook (mocked here), so the view
+    // does not change by itself: the layout stays put until the branch lands.
+    it("keeps the view when Show next level was pressed before a branch lands", () => {
+      const { canvas, scale, branchLands } = setup();
+      fireEvent.click(screen.getByRole("button", { name: /tree\.chart_expand_level/ }));
+      const before = canvas.style.transform;
+      branchLands();
+      expect(canvas.style.transform).toBe(before);
+      expect(scale()).toBe(1);
+    });
+
+    it("keeps the view when toolbar Collapse all was pressed before a branch lands", () => {
+      const { canvas, scale, branchLands } = setup();
+      fireEvent.click(screen.getByRole("button", { name: /tree\.collapse_all/ }));
+      const before = canvas.style.transform;
+      branchLands();
+      expect(canvas.style.transform).toBe(before);
+      expect(scale()).toBe(1);
+    });
+  });
+
+  describe("auto-fit over the node cap", () => {
+    const issues = (n: number) => Array.from({ length: n }, (_, i) => row(`c${i}`, 1));
+    const root = row("1", 0, { expanded: true });
+    const overCap = () => state([root, ...issues(TREE_CHART_NODE_CAP)], { focusId: "1" });
+    const narrow = () => state([root, row("c0", 1)], { focusId: "1" });
+    const wide = () =>
+      state([{ ...root, childCount: 12 }, ...issues(12)], { focusId: "1" });
+    beforeEach(() => {
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(600);
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(400);
+      vi.mocked(fitViewport).mockClear();
+    });
+    afterEach(() => vi.restoreAllMocks());
+    const scale = (container: HTMLElement) => {
+      const canvas = container.querySelector('[data-slot="tree-chart-canvas"]') as HTMLElement;
+      return Number(/scale\(([\d.]+)\)/.exec(canvas.style.transform)![1]);
+    };
+
+    it("does not count Collapse all pressed on the cap screen as an adjustment, so the chart still fits once it is under the cap", () => {
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { container, rerender } = render(chartElement(qc, narrow()));
+      expect(scale(container)).toBe(1);
+
+      rerender(chartElement(qc, overCap()));
+      expect(container.querySelector('[data-slot="tree-chart-too-many"]')).toBeInTheDocument();
+      fireEvent.click(screen.getAllByRole("button", { name: /tree\.collapse_all/ })[0]!);
+
+      rerender(chartElement(qc, narrow()));
+      rerender(chartElement(qc, wide()));
+      expect(scale(container)).toBeLessThan(1);
+    });
+
+    it("does not fit while over the cap", () => {
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { rerender } = render(chartElement(qc, narrow()));
+      vi.mocked(fitViewport).mockClear();
+
+      rerender(chartElement(qc, overCap()));
+      expect(fitViewport).not.toHaveBeenCalled();
     });
   });
 
