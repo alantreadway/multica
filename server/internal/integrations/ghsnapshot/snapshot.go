@@ -16,14 +16,16 @@ import (
 //     "Ready to merge" is derived ONLY from CLEAN;
 //   - statusCheckRollup: the overall CI verdict plus every check/status context.
 //
+// The %s verbs take the AG fragments (prSnapshotQuery in ag_extras.go).
+//
 // $cursor paginates statusCheckRollup.contexts; the caller loops until
 // hasNextPage is false (acceptance criterion 2 — never assume <100 contexts).
-const prSnapshotQuery = `query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
+const prSnapshotQueryTemplate = `query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
   repository(owner:$owner,name:$repo){
     pullRequest(number:$number){
       headRefOid
       mergeable
-      mergeStateStatus
+      mergeStateStatus%s
       commits(last:1){nodes{commit{
         statusCheckRollup{
           state
@@ -31,8 +33,8 @@ const prSnapshotQuery = `query($owner:String!,$repo:String!,$number:Int!,$cursor
             pageInfo{hasNextPage endCursor}
             nodes{
               __typename
-              ... on CheckRun{name status conclusion detailsUrl}
-              ... on StatusContext{context state targetUrl}
+              ... on CheckRun{name status conclusion detailsUrl%s}
+              ... on StatusContext{context state targetUrl%s}
             }
           }
         }
@@ -55,6 +57,8 @@ type CheckContext struct {
 	Conclusion      string
 	DetailsURL      string
 	IsStatusContext bool
+	// Required is isRequired(pullRequestNumber:), nil when GitHub did not say.
+	Required *bool
 }
 
 // PRSnapshot is the atomic unit written per fetch. It mirrors exactly what the
@@ -71,6 +75,7 @@ type PRSnapshot struct {
 	// as passed (acceptance criterion 5).
 	HasChecks bool
 	Contexts  []CheckContext
+	AG        AGSnapshotExtras
 }
 
 // Decided reports whether the snapshot has settled: no check is still running
@@ -109,7 +114,8 @@ type graphqlPullRequest struct {
 	HeadRefOid       string `json:"headRefOid"`
 	Mergeable        string `json:"mergeable"`
 	MergeStateStatus string `json:"mergeStateStatus"`
-	Commits          struct {
+	agPRExtras
+	Commits struct {
 		Nodes []struct {
 			Commit struct {
 				StatusCheckRollup *graphqlRollup `json:"statusCheckRollup"`
@@ -142,6 +148,7 @@ func FetchPRSnapshot(ctx context.Context, c *Client, installationID int64, owner
 	}
 	snap := &PRSnapshot{}
 	cursor := ""
+	extras := true
 	// Guard against a pathological cursor loop; 100 pages = 10k contexts, far
 	// beyond any real PR.
 	for page := 0; page < maxSnapshotContextPages; page++ {
@@ -151,7 +158,7 @@ func FetchPRSnapshot(ctx context.Context, c *Client, installationID int64, owner
 		} else {
 			vars["cursor"] = nil
 		}
-		data, err := c.graphQL(ctx, installationID, prSnapshotQuery, vars)
+		data, err := c.agGraphQL(ctx, installationID, &extras, page, vars)
 		if err != nil {
 			return nil, err
 		}
@@ -167,6 +174,7 @@ func FetchPRSnapshot(ctx context.Context, c *Client, installationID int64, owner
 			snap.HeadSHA = pr.HeadRefOid
 			snap.Mergeable = pr.Mergeable
 			snap.MergeStateStatus = pr.MergeStateStatus
+			snap.AG = pr.snapshotExtras(extras)
 		} else if pr.HeadRefOid != snap.HeadSHA {
 			// Every page re-reads the PR's latest commit. If a synchronize
 			// event advances the head while pagination is in progress, mixing
@@ -226,6 +234,7 @@ func normalizeNode(raw json.RawMessage) (CheckContext, bool) {
 			Status     string `json:"status"`
 			Conclusion string `json:"conclusion"`
 			DetailsURL string `json:"detailsUrl"`
+			IsRequired *bool  `json:"isRequired"`
 		}
 		if err := json.Unmarshal(raw, &n); err != nil {
 			return CheckContext{}, false
@@ -235,12 +244,14 @@ func normalizeNode(raw json.RawMessage) (CheckContext, bool) {
 			Status:     normalizeRunStatus(n.Status),
 			Conclusion: strings.ToLower(n.Conclusion),
 			DetailsURL: n.DetailsURL,
+			Required:   n.IsRequired,
 		}, true
 	case "StatusContext":
 		var n struct {
-			Context   string `json:"context"`
-			State     string `json:"state"`
-			TargetURL string `json:"targetUrl"`
+			Context    string `json:"context"`
+			State      string `json:"state"`
+			TargetURL  string `json:"targetUrl"`
+			IsRequired *bool  `json:"isRequired"`
 		}
 		if err := json.Unmarshal(raw, &n); err != nil {
 			return CheckContext{}, false
@@ -252,6 +263,7 @@ func normalizeNode(raw json.RawMessage) (CheckContext, bool) {
 			Conclusion:      conclusion,
 			DetailsURL:      n.TargetURL,
 			IsStatusContext: true,
+			Required:        n.IsRequired,
 		}, true
 	default:
 		return CheckContext{}, false
