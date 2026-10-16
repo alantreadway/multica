@@ -63,6 +63,7 @@ type agSlotHelper struct {
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
 	slots []int
+	once  sync.Once
 }
 
 // startAGSlotHelper re-executes the test binary as a separate process that
@@ -117,12 +118,10 @@ func startAGSlotHelper(t *testing.T, dir string, total, hold int) *agSlotHelper 
 
 // stop makes the helper exit, which is what releases its flocks. Safe to call twice.
 func (h *agSlotHelper) stop() {
-	if h.cmd == nil {
-		return
-	}
-	h.stdin.Close()
-	_ = h.cmd.Wait()
-	h.cmd = nil
+	h.once.Do(func() {
+		h.stdin.Close()
+		_ = h.cmd.Wait()
+	})
 }
 
 func acquireAll(t *testing.T, sem *agTaskSlots) []int {
