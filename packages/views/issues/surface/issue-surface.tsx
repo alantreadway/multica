@@ -37,6 +37,7 @@ import { IssuesHeader } from "../components/issues-header";
 import { ListView } from "../components/list-view";
 import { SwimLaneView } from "../components/swimlane-view";
 import { TableView } from "../components/table-view";
+import { TreeView } from "../components/tree-view";
 import { useT } from "../../i18n";
 import { IssueContextMenuProvider } from "../actions";
 import { IssueSurfaceActionsProvider } from "./actions-context";
@@ -268,6 +269,7 @@ function IssueSurfaceContent({
             scopedIssues={controller.surfaceIssues}
             workingAgents={controller.workingAgents}
             allowGantt={controller.allowGantt}
+            allowTree={controller.allowTree}
             isRefreshing={controller.isRefreshing}
             facetCountsExact={
               controller.facetCountsExact
@@ -369,6 +371,12 @@ function IssueSurfaceContent({
                 resolveExportLookups={controller.resolveTableExportLookups}
               />
             )}
+            {controller.viewMode === "tree" && (
+              <TreeView
+                tree={controller.tree}
+                childProgressMap={controller.childProgressMap}
+              />
+            )}
             {controller.viewMode === "gantt" && (
               <GanttView issues={controller.filteredGanttIssues} />
             )}
@@ -463,7 +471,7 @@ function FilteredEmptyState() {
 // any data is — a surface-level stand-in would replace all of that with bars
 // of a different shape and then jump when the rows arrived.
 function IssueSurfaceSkeleton({ mode }: { mode: string }) {
-  if (mode === "list") {
+  if (mode === "list" || mode === "tree") {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2">
         {Array.from({ length: 4 }).map((_, i) => (
