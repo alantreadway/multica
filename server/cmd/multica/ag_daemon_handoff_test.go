@@ -585,7 +585,7 @@ func TestAGPatchOverlapDiscoversPredecessor(t *testing.T) {
 			name: "a different PID answering on the port",
 			setup: func(t *testing.T) {
 				mkProfiles(t, profile)
-				writeAGHandoffPID(t, profile, os.Getpid()+1)
+				writeAGHandoffPID(t, profile, os.Getppid()) // alive, and not the fake's pid
 				startAGHandoffFake(t, profile, &agHandoffFake{handoff: true, maxCap: intp(2), taskIDs: []string{"t1"}, goneAfterPolls: -1})
 			},
 			cap:     2,
