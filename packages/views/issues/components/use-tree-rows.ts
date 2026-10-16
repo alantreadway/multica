@@ -18,6 +18,11 @@ import {
   selectTreeExpanded,
   useTreeViewStore,
 } from "@multica/core/issues/stores/tree-view-store";
+import {
+  selectTreeLayout,
+  useTreeLayoutStore,
+  type TreeLayout,
+} from "@multica/core/issues/stores/tree-layout-store";
 import type {
   Issue,
   IssueTableQuerySpec,
@@ -33,8 +38,14 @@ import {
   treeBranchKey,
   type TreeAncestor,
   type TreeBranch,
+  type TreeExpandRule,
   type TreeRow,
 } from "./tree-rows";
+import {
+  TREE_CHART_DEFAULT_OPEN_DEPTH,
+  TREE_CHART_DEFAULT_OPEN_PER_BRANCH,
+  TREE_CHART_MAX_OPEN_DEPTH,
+} from "./tree-chart-layout";
 
 // AG patch: data + state behind the outline tree view. It sits beside the
 // surface controller (not inside TreeView) so the focus and expand state
@@ -66,6 +77,30 @@ interface BranchTarget {
   cursor: string | null;
 }
 
+/** Where the org chart can be drawn: from a focused node, or from a project's
+ *  virtual top node. `null` where it cannot (workspace-wide, nothing focused). */
+export type TreeChartAvailability = "focus" | "project" | null;
+
+/** The chart's own open state: explicit toggles win over the depth rule. */
+interface ChartOpenState {
+  scope: string;
+  open: ReadonlySet<string>;
+  closed: ReadonlySet<string>;
+  /** Nodes shallower than this start open. */
+  depth: number;
+}
+
+const EMPTY_SET: ReadonlySet<string> = new Set();
+
+function freshChartState(scope: string): ChartOpenState {
+  return {
+    scope,
+    open: EMPTY_SET,
+    closed: EMPTY_SET,
+    depth: TREE_CHART_DEFAULT_OPEN_DEPTH,
+  };
+}
+
 export interface TreeRowsState {
   /** Visible rows in display order. */
   rows: TreeRow[];
@@ -81,10 +116,22 @@ export interface TreeRowsState {
   focusPath: TreeAncestor[];
   focus: (issueId: string) => void;
   clearFocus: () => void;
+  /** The outline's open nodes (the chart keeps its own). */
   expandedIds: ReadonlySet<string>;
   toggle: (issueId: string) => void;
+  /** Outline: open to depth 2. Chart: show one more level. */
   expandAll: () => void;
+  /** Outline: close everything. Chart: back to the focused node's children. */
   collapseAll: () => void;
+  /** Layout actually drawn: the chosen one, or the outline where the chart
+   *  is unavailable. */
+  layout: TreeLayout;
+  chartAvailability: TreeChartAvailability;
+  setLayout: (layout: TreeLayout) => void;
+  /** Chart only: forget toggles and return to the default depth. */
+  resetChart: () => void;
+  /** Chart depth of the first row: 1 under a project's virtual top node. */
+  chartDepthOffset: number;
   loadMore: (branchKey: string) => void;
   retry: (branchKey: string) => void;
 }
@@ -99,12 +146,15 @@ export function useTreeRows({
   surfaceKey,
   query,
   enabled,
+  projectRoot = false,
 }: {
   wsId: string;
   /** Persistence key for expand state, one per surface. */
   surfaceKey: string;
   query: IssueTableQuerySpec;
   enabled: boolean;
+  /** The surface is one project: its chart may start from a virtual top node. */
+  projectRoot?: boolean;
 }): TreeRowsState {
   const queryClient = useQueryClient();
   const expandedList = useTreeViewStore(selectTreeExpanded(surfaceKey));
@@ -127,6 +177,45 @@ export function useTreeRows({
   const clearFocus = useCallback(
     () => setFocusState({ surfaceKey, id: null }),
     [surfaceKey],
+  );
+
+  const layoutChoice = useTreeLayoutStore(selectTreeLayout(surfaceKey));
+  const storeLayout = useTreeLayoutStore((s) => s.setLayout);
+  const chartAvailability: TreeChartAvailability =
+    focusId !== null ? "focus" : projectRoot ? "project" : null;
+  const layout: TreeLayout =
+    layoutChoice === "chart" && chartAvailability !== null ? "chart" : "outline";
+  const setLayout = useCallback(
+    (next: TreeLayout) => {
+      if (next === "chart" && chartAvailability === null) return;
+      storeLayout(surfaceKey, next);
+    },
+    [chartAvailability, storeLayout, surfaceKey],
+  );
+
+  // Chart open state is scoped to the surface and the root: a new root starts
+  // from the default depth again. It lives here, not in the view, so it
+  // survives a trip through the outline.
+  const chartScope = `${surfaceKey}|${focusId ?? ""}`;
+  const [chartStored, setChartStored] = useState<ChartOpenState>(() =>
+    freshChartState(chartScope),
+  );
+  const chartState = useMemo(
+    () =>
+      chartStored.scope === chartScope ? chartStored : freshChartState(chartScope),
+    [chartScope, chartStored],
+  );
+  const chartDepthOffset = focusId === null && projectRoot ? 1 : 0;
+  const chartRule = useMemo<TreeExpandRule>(
+    () => (issueId, depth, siblingIndex) => {
+      if (chartState.closed.has(issueId)) return false;
+      if (chartState.open.has(issueId)) return true;
+      return (
+        depth + chartDepthOffset < chartState.depth &&
+        siblingIndex < TREE_CHART_DEFAULT_OPEN_PER_BRANCH
+      );
+    },
+    [chartDepthOffset, chartState.closed, chartState.depth, chartState.open],
   );
 
   // While a node is focused its subtree is fetched without the view filters,
@@ -377,8 +466,22 @@ export function useTreeRows({
         },
       ];
     }
-    return flattenTree({ focusIssue, branches, expanded: expandedIds, ancestry });
-  }, [ancestry, branches, enabled, expandedIds, focusId, focusIssue]);
+    return flattenTree({
+      focusIssue,
+      branches,
+      expanded: layout === "chart" ? chartRule : expandedIds,
+      ancestry,
+    });
+  }, [
+    ancestry,
+    branches,
+    chartRule,
+    enabled,
+    expandedIds,
+    focusId,
+    focusIssue,
+    layout,
+  ]);
 
   // Fetch exactly the open rows. Restored open state and fresh toggles both
   // show up here, so nothing outside the visible tree keeps refetching.
@@ -402,12 +505,34 @@ export function useTreeRows({
     [rows],
   );
 
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
   const toggle = useCallback(
     (issueId: string) => {
+      if (layout === "chart") {
+        const isOpen = rowsRef.current.some(
+          (row) => row.kind === "issue" && row.issue.id === issueId && row.expanded,
+        );
+        if (!isOpen) addActiveParents([issueId]);
+        setChartStored((prev) => {
+          const base = prev.scope === chartScope ? prev : freshChartState(chartScope);
+          const open = new Set(base.open);
+          const closed = new Set(base.closed);
+          if (isOpen) {
+            open.delete(issueId);
+            closed.add(issueId);
+          } else {
+            closed.delete(issueId);
+            open.add(issueId);
+          }
+          return { ...base, open, closed };
+        });
+        return;
+      }
       if (!expandedIds.has(issueId)) addActiveParents([issueId]);
       toggleExpanded(surfaceKey, issueId);
     },
-    [addActiveParents, expandedIds, surfaceKey, toggleExpanded],
+    [addActiveParents, chartScope, expandedIds, layout, surfaceKey, toggleExpanded],
   );
 
   // Expand-all opens level by level: each pass opens what is loaded, then the
@@ -437,14 +562,38 @@ export function useTreeRows({
     setExpanded,
     surfaceKey,
   ]);
-  const expandAll = useCallback(() => {
+  const outlineExpandAll = useCallback(() => {
     expandedByAll.current = 0;
     setExpandingAll(true);
   }, []);
-  const collapseAll = useCallback(() => {
+  const outlineCollapseAll = useCallback(() => {
     setExpandingAll(false);
     setExpanded(surfaceKey, EMPTY_IDS);
   }, [setExpanded, surfaceKey]);
+  const setChartDepth = useCallback(
+    (depth: (current: number) => number, keepToggles: boolean) =>
+      setChartStored((prev) => {
+        const base = prev.scope === chartScope ? prev : freshChartState(chartScope);
+        return {
+          ...base,
+          open: keepToggles ? base.open : EMPTY_SET,
+          closed: keepToggles ? base.closed : EMPTY_SET,
+          depth: depth(base.depth),
+        };
+      }),
+    [chartScope],
+  );
+  const chartExpandLevel = useCallback(
+    () => setChartDepth((d) => Math.min(TREE_CHART_MAX_OPEN_DEPTH, d + 1), true),
+    [setChartDepth],
+  );
+  const chartCollapseAll = useCallback(() => setChartDepth(() => 1, false), [setChartDepth]);
+  const resetChart = useCallback(
+    () => setChartDepth(() => TREE_CHART_DEFAULT_OPEN_DEPTH, false),
+    [setChartDepth],
+  );
+  const expandAll = layout === "chart" ? chartExpandLevel : outlineExpandAll;
+  const collapseAll = layout === "chart" ? chartCollapseAll : outlineCollapseAll;
 
   const loadMore = useCallback(
     (branchKey: string) => {
@@ -515,6 +664,11 @@ export function useTreeRows({
     toggle,
     expandAll,
     collapseAll,
+    layout,
+    chartAvailability,
+    setLayout,
+    resetChart,
+    chartDepthOffset,
     loadMore,
     retry,
   };

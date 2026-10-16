@@ -347,7 +347,20 @@
     "hidden_ancestors": "Tickets parents masqués par les filtres actuels",
     "filters_paused": "Les filtres sont suspendus pendant le focus",
     "clear_focus": "Quitter le focus",
-    "sub_issue_progress": "{{done}} sous-tickets terminés sur {{total}}"
+    "sub_issue_progress": "{{done}} sous-tickets terminés sur {{total}}",
+    "layout_section": "Disposition",
+    "layout_outline": "Plan",
+    "layout_chart": "Organigramme",
+    "chart_hint": "Sélectionnez un ticket pour l'afficher en organigramme.",
+    "chart_aria_label": "Organigramme des tickets",
+    "chart_zoom_in": "Zoom avant",
+    "chart_zoom_out": "Zoom arrière",
+    "chart_fit": "Ajuster à la vue",
+    "chart_reset": "Réinitialiser",
+    "chart_expand_level": "Afficher le niveau suivant",
+    "chart_use_outline": "Passer au plan",
+    "chart_too_many_title": "Trop de tickets à afficher",
+    "chart_too_many_body": "{{count}} tickets sont ouverts, soit plus que les {{max}} que l'organigramme peut afficher. Réduisez des branches ou ciblez un sous-arbre plus petit."
   },
   "actor_issues": {
     "scope": {

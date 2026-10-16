@@ -37,6 +37,8 @@ import { IssuesHeader } from "../components/issues-header";
 import { ListView } from "../components/list-view";
 import { SwimLaneView } from "../components/swimlane-view";
 import { TableView } from "../components/table-view";
+import { TreeChartView } from "../components/tree-chart-view";
+import { TreeLayoutContext } from "../components/tree-layout-context";
 import { TreeView } from "../components/tree-view";
 import { useT } from "../../i18n";
 import { IssueContextMenuProvider } from "../actions";
@@ -234,6 +236,12 @@ function IssueSurfaceContent({
         : controller.swimlaneIssues,
     [clientFilter, controller.swimlaneIssues],
   );
+  const { layout: treeLayout, chartAvailability, setLayout } = controller.tree;
+  const treeLayoutControl = useMemo(
+    () =>
+      controller.allowTree ? { layout: treeLayout, chartAvailability, setLayout } : null,
+    [chartAvailability, controller.allowTree, setLayout, treeLayout],
+  );
   const renderContext = useMemo(
     () => ({ controller, issues }),
     [controller, issues],
@@ -256,6 +264,7 @@ function IssueSurfaceContent({
 
   return (
     <IssueSurfaceActionsProvider actions={controller.actions}>
+    <TreeLayoutContext.Provider value={treeLayoutControl}>
       {/* One shared right-click menu for every card/row this surface renders
           — see IssueContextMenuProvider. Inside the actions provider so the
           singleton's useIssueActions routes updates through surface
@@ -371,12 +380,19 @@ function IssueSurfaceContent({
                 resolveExportLookups={controller.resolveTableExportLookups}
               />
             )}
-            {controller.viewMode === "tree" && (
-              <TreeView
-                tree={controller.tree}
-                childProgressMap={controller.childProgressMap}
-              />
-            )}
+            {controller.viewMode === "tree" &&
+              (controller.tree.layout === "chart" ? (
+                <TreeChartView
+                  tree={controller.tree}
+                  childProgressMap={controller.childProgressMap}
+                  projectId={controller.projectId}
+                />
+              ) : (
+                <TreeView
+                  tree={controller.tree}
+                  childProgressMap={controller.childProgressMap}
+                />
+              ))}
             {controller.viewMode === "gantt" && (
               <GanttView issues={controller.filteredGanttIssues} />
             )}
@@ -407,6 +423,7 @@ function IssueSurfaceContent({
         )}
       </IssueSurfaceSelectionProvider>
       </IssueContextMenuProvider>
+    </TreeLayoutContext.Provider>
     </IssueSurfaceActionsProvider>
   );
 }
