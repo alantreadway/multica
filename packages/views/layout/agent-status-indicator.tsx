@@ -107,7 +107,7 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
     <SidebarMenuButton
       render={<AppLink href={isDraining ? p.runtimes() : p.agents()} />}
       aria-label={unknown ? t(($) => $.agent_status.unknown) : undefined}
-      className="h-auto py-1.5 text-muted-foreground hover:bg-sidebar-accent/70"
+      className="h-auto py-1.5 hover:bg-sidebar-accent/70"
     >
       <span className="flex size-4 shrink-0 items-center justify-center">
         <span
@@ -119,7 +119,17 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
         />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-caption leading-snug">{summary}</span>
+        <span
+          data-testid="agent-status-summary"
+          className={cn(
+            "text-caption leading-snug",
+            working.length > 0 && !unknown
+              ? "text-sidebar-foreground"
+              : "text-muted-foreground",
+          )}
+        >
+          {summary}
+        </span>
         {drainLabel && (
           <span
             data-testid="agent-status-drain"

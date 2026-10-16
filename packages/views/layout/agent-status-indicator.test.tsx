@@ -145,6 +145,25 @@ describe("AG patch: AgentStatusIndicator", () => {
     expect(screen.getByTestId("agent-status-dot")).not.toHaveClass("animate-pulse");
   });
 
+  it("AG patch: tones the summary muted unless agents are working", () => {
+    setPresence({ a1: { runningCount: 1, queuedCount: 0 } });
+    const { unmount } = renderIndicator();
+    const working = screen.getByTestId("agent-status-summary");
+    expect(working).toHaveClass("text-sidebar-foreground");
+    expect(working).not.toHaveClass("text-muted-foreground");
+    unmount();
+
+    setPresence({ a1: { runningCount: 0, queuedCount: 0 } });
+    const empty = renderIndicator();
+    expect(screen.getByTestId("agent-status-summary")).toHaveClass("text-muted-foreground");
+    expect(screen.getByTestId("agent-status-summary")).not.toHaveClass("text-sidebar-foreground");
+    empty.unmount();
+
+    setPresence({}, true);
+    renderIndicator();
+    expect(screen.getByTestId("agent-status-summary")).toHaveClass("text-muted-foreground");
+  });
+
   it("AG patch: shows queued work when nothing is running yet", () => {
     setPresence({ a1: { runningCount: 0, queuedCount: 2 } });
     renderIndicator();
