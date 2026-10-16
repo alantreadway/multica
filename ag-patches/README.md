@@ -1,24 +1,27 @@
 # AG patches for Multica
 
 A small patch set on top of a pinned upstream Multica tag, plus the tooling to
-build a patched web image and a patched CLI/daemon binary and to rebase the set
-onto a new upstream tag. The web patches are frontend-only. The daemon/CLI patch
-(drain mode) changes the `multica` binary that runs the local daemon, but not the
-Multica backend or database. Each half has its own rollback: for the web image,
-removing one env var ([Roll back](#roll-back)); for the CLI, pointing the daemon
-back at the stock binary ([Daemon/CLI patch](#daemoncli-patch)).
+build a patched web image, a patched backend image and a patched CLI/daemon
+binary and to rebase the set onto a new upstream tag. The web patches are
+frontend-only. The daemon/CLI patch (drain mode) changes the `multica` binary that
+runs the local daemon. The drain badge also patches the backend (no migration):
+see [Backend image](#backend-image). Each part has its own rollback: for the web
+image, removing one env var ([Roll back](#roll-back)); for the CLI, pointing the
+daemon back at the stock binary ([Daemon/CLI patch](#daemoncli-patch)); for the
+backend, switching the image back to stock.
 
 - Patch branch: `ag/<tag>` (for example `ag/v0.6.2`), based on upstream tag `<tag>`.
 - Web image: `multica-web-ag:<tag>-ag.<n>`, also tagged `multica-web-ag:<tag>`.
+- Backend image: `multica-backend-ag:<tag>-ag.<n>`, also tagged `multica-backend-ag:<tag>`.
 - CLI binary: `dist/multica-<tag>-ag.<n>-darwin-arm64`.
 - Inventory of patches and their files: [`PATCHES.md`](./PATCHES.md).
 
 ## What is patched
 
-See [`PATCHES.md`](./PATCHES.md). Web UI (`packages/views`, a small append to
-`packages/core`) and the local daemon and CLI (`server/internal/daemon`,
-`server/cmd/multica`). Patch tests are named with an `AG patch:` prefix (Go:
-`TestAGPatch*` with `AG patch:` subtests).
+See [`PATCHES.md`](./PATCHES.md). Web UI (`packages/views`, small additions to
+`packages/core`), the local daemon and CLI (`server/internal/daemon`,
+`server/cmd/multica`), and the drain badge's heartbeat handling in the backend.
+Patch tests are named with an `AG patch:` prefix (Go: `TestAGPatch*`).
 
 ## Build
 
@@ -43,11 +46,21 @@ rebuild of the same base tag.
 Run the guard tests alone with `ag-patches/test.sh`. CI runs the same script on
 PRs into `ag/**` (`.github/workflows/ag-patches.yml`).
 
-The script also runs the Go `TestAGPatch*` tests (`server/internal/daemon` and
-`server/cmd/multica`) from `server/`: it uses local `go` if present, else
+The script also runs the Go `TestAGPatch*` tests (`server/internal/daemon`,
+`server/cmd/multica`, `server/internal/daemonws`, `server/internal/agdrain` and
+`server/pkg/protocol`) from `server/`: it uses local `go` if present, else
 `docker run golang:<version from server/go.mod>`. It fails if fewer than
 `AG_GO_MIN_TESTS` of them pass, since `go test -run` exits 0 when nothing
 matches.
+
+The drain badge's database-backed tests (`TestAGPatch*` in
+`server/internal/handler`) need Postgres and skip without one, so the guard does
+not run them. Before a PR that touches that code, run them against a migrated
+test database:
+
+```sh
+cd server && DATABASE_URL=postgres://... go test ./internal/handler -run '^TestAGPatch' -count=1
+```
 
 ## Switch the self-host to the patched frontend
 
@@ -74,17 +87,58 @@ Rules while switched:
 - The web image's base tag must equal the running backend tag. Never run a
   patched `v0.6.2` web image against a different backend version.
 - Don't run a bare `docker compose pull`: it would fail on the local-only
-  image. Use `docker compose ... pull backend`.
+  image. Name the stock services you still need (`pull backend` while only the
+  web image is switched; with the patched backend image too, `pull` only
+  services such as `postgres` that are still stock).
 - To pin a particular build, re-tag it: `docker tag multica-web-ag:<tag>-ag.<n> multica-web-ag:<tag>`.
   The compose file resolves `multica-web-ag:<MULTICA_IMAGE_TAG>`, so that tag is
   the one that runs.
+
+## Backend image
+
+Only the drain badge needs it: without it the daemon's drain report is ignored
+and the badge never shows. Build from the patch branch, same rules as the web
+build:
+
+```sh
+ag-patches/build-backend.sh --rev 1
+```
+
+It refuses a dirty tree, checks the tag is an ancestor of `HEAD`, runs
+`ag-patches/test.sh`, then builds upstream's `Dockerfile` with
+`VERSION=<tag>-ag.<n>` and tags `multica-backend-ag:<tag>-ag.<n>` and
+`multica-backend-ag:<tag>`. The image is the whole backend (server, migrations,
+CLI), so the self-host must already be on `<tag>`: this patch is written against
+`v0.6.2`, not the `v0.6.0` the self-host runs today.
+
+Switch (the compose file resolves `${MULTICA_BACKEND_IMAGE}:${MULTICA_IMAGE_TAG}`):
+
+```sh
+MULTICA_BACKEND_IMAGE=multica-backend-ag   # in .env
+docker compose -f docker-compose.selfhost.yml -f docker-compose.isolated.yml up -d backend
+```
+
+Roll back: remove that line and run the same `up -d backend`. Nothing in the
+schema changes. The stock backend ignores the `ag_drain` key in
+`agent_runtime.metadata` and never clears it. Registration overwrites `metadata`
+wholesale, so a runtime that re-registers loses the key. Until then, a runtime
+that was draining at rollback keeps it, and a patched web image keeps showing
+"Draining · N running" for it, because the runtime stays `online`. Either roll
+the web image back too (see "Roll back" below), or clear the key:
+
+```sql
+UPDATE agent_runtime SET metadata = metadata - 'ag_drain' WHERE metadata ? 'ag_drain';
+```
+
+Heartbeats from stock or Homebrew daemons carry no drain field and leave
+metadata alone, so mixed daemons on one backend are fine.
 
 ## Roll back
 
 Remove the `MULTICA_WEB_IMAGE` line from `.env` and run
 `docker compose -f docker-compose.selfhost.yml -f docker-compose.isolated.yml up -d frontend`
 again. The frontend returns to the stock `ghcr.io/multica-ai/multica-web` image.
-No backend or database change is involved.
+This is the web image only; for the backend image see "Backend image" above.
 
 ## Daemon/CLI patch
 
@@ -194,9 +248,13 @@ For a new upstream tag `vX`, from the current patch branch `ag/v0.6.2`:
    daemon patch hooks into `daemon.go`, `health.go`, `auto_update.go` and
    `cmd_daemon.go`, so expect conflicts there.
 5. Run `ag-patches/test.sh`.
-6. Build: `ag-patches/build-web.sh --rev 1` and `ag-patches/build-cli.sh --rev 1`.
-7. Upgrade the backend to stock `vX`, then switch the frontend to the new image
-   and the daemon to the new CLI binary.
+6. Build: `ag-patches/build-web.sh --rev 1`, `ag-patches/build-cli.sh --rev 1` and
+   `ag-patches/build-backend.sh --rev 1`.
+7. Upgrade the self-host to `vX`, then switch to the new images: the patched
+   backend image from step 6 first, then the web image and the daemon's new CLI
+   binary. A patched web image on a stock backend freezes the drain badge (see
+   "Backend image"), so if the backend image wasn't built, leave the web image
+   stock too.
 8. Update `PATCHES.md` (base tag and commit, files per patch).
 9. Tag the built commit and push the branch and the tag:
    `git tag ag/vX-ag.1`, `git push origin ag/vX`,

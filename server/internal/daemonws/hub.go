@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/multica-ai/multica/server/internal/agdrain"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
@@ -51,6 +52,9 @@ type RuntimeLease struct {
 	status          string
 	lastSeenAt      time.Time
 	lastSeenAtValid bool
+
+	// agDrain is the AG patch's memo of the drain state stored in metadata.
+	agDrain agdrain.Memo
 }
 
 // RuntimeLeaseState is an atomic snapshot used by the heartbeat handler.
@@ -82,6 +86,25 @@ func (l *RuntimeLease) Snapshot() RuntimeLeaseState {
 		LastSeenAt:      l.lastSeenAt,
 		LastSeenAtValid: l.lastSeenAtValid,
 	}
+}
+
+// AGDrain and SetAGDrain hold the AG patch's drain memo (see package agdrain).
+func (l *RuntimeLease) AGDrain() agdrain.Memo {
+	if l == nil {
+		return agdrain.Memo{}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.agDrain
+}
+
+func (l *RuntimeLease) SetAGDrain(m agdrain.Memo) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	l.agDrain = m
+	l.mu.Unlock()
 }
 
 // MarkDBWriteScheduled advances the connection's DB-flush watermark after a
@@ -1105,7 +1128,7 @@ func (c *client) handleHeartbeatFrame(raw json.RawMessage) {
 	// that keeps the HTTP heartbeat from putting a per-call timeout on
 	// PopPending. The natural bound is the read pump's lifetime (the conn
 	// closes if the daemon goes away) plus Redis's own server-side limits.
-	ack, err := handler(context.Background(), c.identity, payload.RuntimeID, payload.SupportsBatchImport)
+	ack, err := handler(agdrain.WithReport(context.Background(), payload.AGDrain), c.identity, payload.RuntimeID, payload.SupportsBatchImport)
 	if err != nil {
 		slog.Warn("daemon websocket heartbeat handler failed",
 			"error", err,

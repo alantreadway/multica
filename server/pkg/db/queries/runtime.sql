@@ -246,6 +246,22 @@ SET status = 'offline',
     updated_at = now()
 WHERE id = $1;
 
+-- name: SetAgentRuntimeAGDrain :execrows
+-- AG patch: drain badge. Rows affected is 0 when the stored report is unchanged.
+UPDATE agent_runtime
+SET metadata = metadata || jsonb_build_object('ag_drain', @drain::jsonb),
+    updated_at = now()
+WHERE id = $1
+  AND (metadata -> 'ag_drain') IS DISTINCT FROM @drain::jsonb;
+
+-- name: ClearAgentRuntimeAGDrain :execrows
+-- AG patch: drain badge. Rows affected is 0 when no report is stored.
+UPDATE agent_runtime
+SET metadata = metadata - 'ag_drain',
+    updated_at = now()
+WHERE id = $1
+  AND (metadata -> 'ag_drain') IS NOT NULL;
+
 -- name: SelectStaleOnlineRuntimes :many
 -- Lists online runtimes whose last_seen_at exceeds the stale window. The
 -- sweeper uses this as a candidate set, then optionally filters via the

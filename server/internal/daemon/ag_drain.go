@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
 // agDrainDeferredNote is appended to reload_pending_reason while a restart is
@@ -112,6 +114,13 @@ func (d *Daemon) agDrainSnapshot() (agDrainHealth, int64) {
 		DrainStartedAt: d.agDrain.startedAt.Format(time.RFC3339),
 		Idle:           d.claimsInFlight == 0 && active == 0 && !d.updating.Load(),
 	}, active
+}
+
+// agDrainReport is attached to every heartbeat. Always non-nil: a
+// not-draining report is what clears the stored one.
+func (d *Daemon) agDrainReport() *protocol.DaemonDrainReport {
+	h, active := d.agDrainSnapshot()
+	return &protocol.DaemonDrainReport{Draining: h.Draining, Idle: h.Idle, ActiveTasks: active}
 }
 
 // agDeferRestart is triggerRestart's gate. While draining it records why in
