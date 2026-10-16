@@ -61,5 +61,20 @@
       "title": "Discord に参加",
       "dismiss": "閉じる"
     }
+  },
+  "agent_status": {
+    "agents_other": "{{count}} 件のエージェント",
+    "running": "{{count}} 件実行中",
+    "queued": "{{count}} 件待機中",
+    "none": "実行中のエージェントはありません",
+    "none_queued": "実行中のエージェントはありません · {{count}} 件待機中",
+    "unknown": "エージェントの状態を読み込んでいません",
+    "draining": "ドレイン中 · {{running}} 件実行中",
+    "draining_unknown": "ドレイン中",
+    "drained": "ドレイン済み · 再起動しても安全",
+    "hover_runtimes_header": "ドレイン中のランタイム",
+    "hover_runtime_draining": "{{name}} · {{running}} 件実行中",
+    "hover_runtime_draining_unknown": "{{name}} · ドレイン中",
+    "hover_runtime_drained": "{{name}} · ドレイン済み"
   }
 }

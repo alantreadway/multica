@@ -61,5 +61,21 @@
       "title": "Join our Discord",
       "dismiss": "Dismiss"
     }
+  },
+  "agent_status": {
+    "agents_one": "{{count}} agent",
+    "agents_other": "{{count}} agents",
+    "running": "{{count}} running",
+    "queued": "{{count}} queued",
+    "none": "No agents running",
+    "none_queued": "No agents running · {{count}} queued",
+    "unknown": "Agent status not loaded",
+    "draining": "Draining · {{running}} running",
+    "draining_unknown": "Draining",
+    "drained": "Drained · safe to restart",
+    "hover_runtimes_header": "Draining runtimes",
+    "hover_runtime_draining": "{{name}} · {{running}} running",
+    "hover_runtime_draining_unknown": "{{name}} · draining",
+    "hover_runtime_drained": "{{name}} · drained"
   }
 }

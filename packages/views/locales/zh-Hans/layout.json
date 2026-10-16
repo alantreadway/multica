@@ -61,5 +61,20 @@
       "title": "加入 Discord",
       "dismiss": "关闭"
     }
+  },
+  "agent_status": {
+    "agents_other": "{{count}} 个智能体",
+    "running": "{{count}} 个运行中",
+    "queued": "{{count}} 个排队中",
+    "none": "没有运行中的智能体",
+    "none_queued": "没有运行中的智能体 · {{count}} 个排队中",
+    "unknown": "智能体状态尚未加载",
+    "draining": "排空中 · {{running}} 个运行中",
+    "draining_unknown": "排空中",
+    "drained": "已排空 · 可安全重启",
+    "hover_runtimes_header": "排空中的运行时",
+    "hover_runtime_draining": "{{name}} · {{running}} 个运行中",
+    "hover_runtime_draining_unknown": "{{name}} · 排空中",
+    "hover_runtime_drained": "{{name}} · 已排空"
   }
 }
