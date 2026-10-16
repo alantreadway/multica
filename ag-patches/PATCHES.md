@@ -8,6 +8,42 @@ lands, is dropped or is reworked during a rebase.
 - Tag: `v0.6.2`
 - Commit: `7ab92d7622ecd81d179a8d83ae2dea74835a5069`
 
+## Upstream status
+
+Where each patch stands against `multica-ai/multica`, so we can decide which to
+offer upstream. Every patch entry below ends with an **Upstream** line:
+
+- **Status:**
+  - `fork-only`: not worth offering (or upstream is already building the same
+    thing and we won't race it).
+  - `candidate`: worth offering. Nothing is proposed yet; upstream's
+    `CONTRIBUTING.md` and our contribution routing want a Feature Request
+    agreed before a feature PR.
+  - `proposed <link>`: an upstream issue or PR is open for it.
+  - `merged upstream in <tag>`: drop the patch at the next rebase.
+  - `superseded by <link>`: upstream shipped something that replaces it; drop it
+    at the next rebase.
+- **Overlap:** related upstream PRs and issues, with their state when last checked.
+- **Fit:** how it sits with upstream's `VISION.md` and roadmap, or why it doesn't.
+
+Last checked 2026-10-16 against upstream `main` (release `v0.6.3` was cut that
+day), using the preflight from the `multica-upstream-contribution` skill: live
+`VISION.md` and `CONTRIBUTING.md`, plus issue and PR searches, open and closed.
+Read-only: nothing has been opened, filed or commented on upstream. Re-check on
+every rebase (README, "Rebase onto a new upstream tag").
+
+| Patch | Status | Overlapping upstream |
+| --- | --- | --- |
+| Tree-ordered parent lanes | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open, adjacent) |
+| Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) |
+| Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open) |
+| Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open) |
+
+`VISION.md` is a statement of direction (humans and agents as one team, work and
+decisions kept visible), not a feature list. None of the patches conflicts with
+it and none advances it directly; the fit lines below stay modest because
+upstream closes PRs it reads as out of scope.
+
 ## Patches
 
 Test names for every patch start with `AG patch:` so they are easy to find and
@@ -27,6 +63,17 @@ lanes sit under their parent lane. Status: landed in
   - `packages/views/issues/components/swimlane-view.test.tsx`
   - `packages/core/issues/queries.ts` (append only)
 
+- Upstream:
+  - Status: `candidate`.
+  - Overlap: the swimlane view and its parent grouping are upstream
+    ([#3149](https://github.com/multica-ai/multica/pull/3149) merged; request [#2951](https://github.com/multica-ai/multica/issues/2951) closed).
+    Upstream `main` has no tree ordering of parent lanes. Open [#2966](https://github.com/multica-ai/multica/pull/2966)
+    (hierarchy views, last touched 2026-07-07) adds a separate tree view and
+    parent context instead of ordering lanes, so it is adjacent, not a duplicate.
+  - Fit: a small improvement to a shipped view, no new surface or dependency.
+    `VISION.md` says nothing about views. It is feature work, so it goes through
+    a Feature Request first, after reading #2966 so we don't race it.
+
 ### Lane drag rules and jump-to-lane chip (landed)
 
 Drag rules between swimlanes and a chip that jumps to the related lane.
@@ -37,6 +84,16 @@ Depends on the tree-ordered lanes patch.
 - Files:
   - `packages/views/issues/components/swimlane-view.tsx`
   - `packages/views/issues/components/swimlane-view.test.tsx`
+
+- Upstream:
+  - Status: `candidate`, bundled with tree lanes. The drag rules only make sense
+    once lanes are a tree, so it follows that proposal.
+  - Overlap: no duplicate. Open [#6704](https://github.com/multica-ai/multica/pull/6704) and [#7904](https://github.com/multica-ai/multica/pull/7904)
+    both edit `swimlane-view.tsx` (conflict risk at rebase, no behavioural
+    overlap); [#4416](https://github.com/multica-ai/multica/pull/4416) (drag settle-lock) is merged and already in
+    the base.
+  - Fit: as for tree lanes. The jump chip is the more subjective part; offer the
+    drag rules first.
 
 ### Daemon drain mode (landed)
 
@@ -77,6 +134,21 @@ multica-ai/multica#5631 and #6677: drop this patch if either merges.
   - `ag-patches/build-cli.sh` (new, tooling: builds the CLI binary) and
     `ag-patches/lib.sh` (new, tooling: preamble and Go runner shared with
     `build-web.sh` and `test.sh`)
+
+- Upstream:
+  - Status: `fork-only`. Upstream has open PRs for the same feature and we won't
+    race them. Drop this patch if [#5631](https://github.com/multica-ai/multica/pull/5631) or
+    [#6677](https://github.com/multica-ai/multica/pull/6677) merges; re-evaluate what is left (the in-memory-only
+    design, the `daemon stop|restart --drain` wrapper) once they land.
+  - Overlap: [#5631](https://github.com/multica-ai/multica/pull/5631) (CLI `daemon restart --drain`, open since
+    2026-07-19, changes requested then addressed, awaiting re-review; closes
+    issue [#5630](https://github.com/multica-ai/multica/issues/5630)); [#6677](https://github.com/multica-ai/multica/pull/6677) (daemon-core drain
+    with a `/drain` endpoint, three-state `/health`, persistence in
+    `drain.json`, open since 2026-08-10). Ours holds drain in memory only and
+    uses `/drain` and `/resume`, so the APIs differ.
+  - Fit: operator tooling for self-hosters (maintenance without failing
+    in-flight agent work), which upstream's own reviewer judged right for the
+    product on #5631. The obstacle is the open PRs, not the vision.
 
 ### Drain badge (backend + web)
 
@@ -126,6 +198,19 @@ Depends on the daemon drain core patch above.
     `runtime-detail.tsx`, `runtime-detail-drain.test.tsx` (new)
   - `packages/views/locales/*/runtimes.json` (`drain` group), `packages/views/locales/ag-drain.test.ts` (new)
   - `ag-patches/build-backend.sh` (new), `ag-patches/lib.sh` (new, release gate shared with `build-web.sh`)
+
+- Upstream:
+  - Status: `fork-only`. Upstream is building the same feature in the open
+    [#6679](https://github.com/multica-ai/multica/pull/6679) (server: runtime draining status, heartbeat
+    keep-alive, `runtime_drained` attribution) and [#6678](https://github.com/multica-ai/multica/pull/6678)
+    (desktop daemon draining UI), on top of [#6677](https://github.com/multica-ai/multica/pull/6677). Their server
+    side adds a migration; ours merges an `ag_drain` key into
+    `agent_runtime.metadata` and needs none.
+  - Overlap: #6679, #6678, #6677 above, all open and last touched in August.
+    Drop this patch once the drain state is shown upstream.
+  - Fit: the metadata-only design is a stopgap that avoids a migration on the
+    self-host, not a shape upstream would want next to its own column-backed
+    status. Offer nothing; watch the three PRs.
 
 ## Tooling (not a patch)
 
