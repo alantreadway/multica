@@ -136,6 +136,17 @@ describe("AG patch: flattenTree", () => {
     expect(rows[1]).toMatchObject({ kind: "more", branchKey: TREE_ROOT_KEY, loading: false });
   });
 
+  it("flags the load-more row when a page of its branch failed", () => {
+    const rows = flattenTree({
+      focusIssue: null,
+      branches: {
+        [TREE_ROOT_KEY]: branch([[issue("1"), 0]], { nextCursor: "c1", error: true }),
+      },
+      expanded: new Set(),
+    });
+    expect(rows[1]).toMatchObject({ kind: "more", error: true });
+  });
+
   it("makes the focused issue the single open root", () => {
     const focus = issue("9", "1");
     const rows = flattenTree({

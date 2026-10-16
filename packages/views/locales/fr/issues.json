@@ -345,6 +345,8 @@
     "retry": "Réessayer",
     "empty": "Aucun ticket à afficher",
     "hidden_ancestors": "Tickets parents masqués par les filtres actuels",
+    "filters_paused": "Les filtres sont suspendus pendant le focus",
+    "clear_focus": "Quitter le focus",
     "sub_issue_progress": "{{done}} sous-tickets terminés sur {{total}}"
   },
   "actor_issues": {

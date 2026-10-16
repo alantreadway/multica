@@ -68,6 +68,8 @@ export interface TreeMoreRow extends TreeRowBase {
   kind: "more";
   branchKey: string;
   loading: boolean;
+  /** A page of this branch failed; the row offers a retry, not another page. */
+  error: boolean;
 }
 
 export interface TreeStatusRow extends TreeRowBase {
@@ -195,6 +197,7 @@ export function flattenTree({
         guides,
         branchKey: key,
         loading: branch.loadingMore,
+        error: branch.error,
       });
     }
   };

@@ -43,6 +43,22 @@ import {
 
 const EMPTY_IDS: string[] = [];
 const EMPTY_CURSORS: Record<string, string[]> = {};
+const EMPTY_PARENTS: ReadonlySet<string> = new Set();
+
+/** A branch plus what the hook needs to keep its cursor pages honest. */
+interface HookBranch extends TreeBranch {
+  /** `dataUpdatedAt` of the first page; changes when the head is refreshed. */
+  headUpdatedAt: number;
+  headFetching: boolean;
+  /** Rows are the previous query's, shown while the new one loads. */
+  placeholder: boolean;
+}
+
+function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
+}
 
 interface BranchTarget {
   parentId: string | null;
@@ -113,14 +129,49 @@ export function useTreeRows({
     [surfaceKey],
   );
 
-  // Parents whose children are being fetched. Grows when a node opens or a
-  // loaded row turns out to be open already (restored state).
-  const [activeParents, setActiveParents] = useState<ReadonlySet<string>>(
-    () => new Set(),
+  // While a node is focused its subtree is fetched without the view filters,
+  // search and surface scope (sort is kept, sub-issues stay on). The server
+  // only returns a branch whose parent passes the filters, so a hidden
+  // ancestor, or a node under a filtered-out parent, would come back empty.
+  const activeQuery = useMemo<IssueTableQuerySpec>(
+    () =>
+      focusId === null
+        ? query
+        : {
+            scope: { kind: "workspace" },
+            filters: { include_sub_issues: true },
+            sort: query.sort,
+          },
+    [focusId, query],
+  );
+
+  // Parents whose children are fetched: exactly the open rows on screen, so a
+  // collapsed branch stops refetching. Owned by one surface and focus, so a
+  // focus change never fetches the old tree's branches with the new query.
+  const parentsScope = `${surfaceKey}|${focusId ?? ""}`;
+  const [activeState, setActiveState] = useState<{
+    scope: string;
+    ids: ReadonlySet<string>;
+  }>({ scope: parentsScope, ids: EMPTY_PARENTS });
+  const activeParents =
+    activeState.scope === parentsScope ? activeState.ids : EMPTY_PARENTS;
+  const addActiveParents = useCallback(
+    (ids: readonly string[]) =>
+      setActiveState((prev) => ({
+        scope: parentsScope,
+        ids: new Set([
+          ...(prev.scope === parentsScope ? prev.ids : EMPTY_PARENTS),
+          ...ids,
+        ]),
+      })),
+    [parentsScope],
   );
 
   // Cursors belong to one query; a changed filter or focus starts over.
-  const identity = useMemo(() => hashKey([query, focusId]), [query, focusId]);
+  const identity = useMemo(
+    () => hashKey([activeQuery, focusId]),
+    [activeQuery, focusId],
+  );
   const [cursorState, setCursorState] = useState<{
     identity: string;
     byKey: Record<string, string[]>;
@@ -151,44 +202,73 @@ export function useTreeRows({
     });
   }, [activeParents, cursorsByKey, focusId]);
 
+  // QueriesObserver replaces observers by query hash, so keepPreviousData
+  // cannot bridge a changed filter, sort or search inside useQueries. Keep the
+  // last settled head of each branch and hand it back as placeholder data, so
+  // the old tree stays painted (and scrolled) until the new one arrives.
+  const placeholderRef = useRef(new Map<string, IssueTableRowsResponse>());
   const queries = useMemo(
     () =>
-      targets.map((target) => ({
-        ...issueTableRowPageOptions(wsId, {
-          query,
-          group: { kind: "none" },
-          group_key: null,
-          hierarchy: { enabled: true },
-          parent_id: target.parentId,
-          page: { limit: TREE_PAGE_SIZE, cursor: target.cursor },
-        }),
-        enabled,
-      })),
-    [enabled, query, targets, wsId],
+      targets.map((target) => {
+        const placeholder =
+          target.cursor === null
+            ? placeholderRef.current.get(`${wsId}:${target.key}`)
+            : undefined;
+        return {
+          ...issueTableRowPageOptions(wsId, {
+            query: activeQuery,
+            group: { kind: "none" },
+            group_key: null,
+            hierarchy: { enabled: true },
+            parent_id: target.parentId,
+            page: { limit: TREE_PAGE_SIZE, cursor: target.cursor },
+          }),
+          // A value, not a closure: the observer only reuses its placeholder
+          // result while this compares equal by reference between renders.
+          ...(placeholder ? { placeholderData: placeholder } : {}),
+          enabled,
+        };
+      }),
+    [activeQuery, enabled, targets, wsId],
   );
   const combine = useCallback(
     (results: Array<UseQueryResult<IssueTableRowsResponse, Error>>) => {
-      const byKey: Record<string, TreeBranch> = {};
+      const byKey: Record<string, HookBranch> = {};
+      const seen = new Map<string, Set<string>>();
       targets.forEach((target, index) => {
         const result = results[index];
         if (!result) return;
-        const branch: TreeBranch = byKey[target.key] ?? {
+        const branch: HookBranch = byKey[target.key] ?? {
           rows: [],
           nextCursor: null,
           loading: false,
           loadingMore: false,
           error: false,
+          headUpdatedAt: 0,
+          headFetching: false,
+          placeholder: false,
         };
+        const ids = seen.get(target.key) ?? new Set<string>();
+        seen.set(target.key, ids);
         const page = result.data;
         if (page) {
-          branch.rows = [...branch.rows, ...page.rows];
+          // Pages fetched at different moments can overlap when rows move
+          // between them; a duplicate id would be a duplicate React key.
+          const fresh = page.rows.filter((row) => !ids.has(row.issue.id));
+          for (const row of fresh) ids.add(row.issue.id);
+          branch.rows = [...branch.rows, ...fresh];
           branch.nextCursor = page.next_cursor;
         } else if (target.cursor === null) {
           branch.loading = result.isPending;
         } else {
           branch.loadingMore = result.isPending;
         }
+        if (target.cursor === null) {
+          branch.headUpdatedAt = result.dataUpdatedAt;
+          branch.headFetching = result.isFetching;
+        }
         branch.error ||= result.isError;
+        branch.placeholder ||= result.isPlaceholderData;
         byKey[target.key] = branch;
       });
       return byKey;
@@ -197,27 +277,60 @@ export function useTreeRows({
   );
   const branches = useQueries({ queries, combine });
 
-  // A restored-open row needs its children without a click.
   useEffect(() => {
-    if (!enabled) return;
-    const missing: string[] = [];
-    for (const branch of Object.values(branches)) {
-      for (const row of branch.rows) {
-        const id = row.issue.id;
-        if (
-          row.direct_child_count > 0 &&
-          expandedIds.has(id) &&
-          id !== focusId &&
-          !activeParents.has(id)
-        ) {
-          missing.push(id);
-        }
+    const next = new Map<string, IssueTableRowsResponse>();
+    for (const target of targets) {
+      const key = `${wsId}:${target.key}`;
+      const branch = branches[target.key];
+      if (!branch || branch.placeholder || branch.loading || branch.error) {
+        const previous = placeholderRef.current.get(key);
+        if (previous) next.set(key, previous);
+        continue;
+      }
+      next.set(key, {
+        query_fingerprint: "__tree_placeholder__",
+        group_key: null,
+        parent_id: target.parentId,
+        total: branch.rows.length,
+        rows: [...branch.rows],
+        branch_total: branch.rows.length,
+        next_cursor: null,
+      });
+    }
+    // Bounded to the branches on screen, so a long session cannot accumulate.
+    placeholderRef.current = next;
+  }, [branches, targets, wsId]);
+
+  // A broad invalidation (any realtime event) refetches every active page.
+  // Once a head is refreshing, the cursors after it are obsolete: drop them
+  // before their responses can duplicate or skip a row. The revision check is
+  // the second line of defence for a head restored without a fetching frame.
+  const headRevisionRef = useRef<Record<string, number>>({});
+  useEffect(() => {
+    const previous = headRevisionRef.current;
+    const nextRevisions: Record<string, number> = {};
+    const stale: string[] = [];
+    for (const [key, branch] of Object.entries(branches)) {
+      if (branch.headUpdatedAt === 0) continue;
+      nextRevisions[key] = branch.headUpdatedAt;
+      const seenRevision = previous[key];
+      if (
+        (cursorsByKey[key]?.length ?? 0) > 0 &&
+        (branch.headFetching ||
+          (seenRevision !== undefined && seenRevision !== branch.headUpdatedAt))
+      ) {
+        stale.push(key);
       }
     }
-    if (missing.length > 0) {
-      setActiveParents((prev) => new Set([...prev, ...missing]));
-    }
-  }, [activeParents, branches, enabled, expandedIds, focusId]);
+    headRevisionRef.current = nextRevisions;
+    if (stale.length === 0) return;
+    setCursorState((prev) => {
+      if (prev.identity !== identity) return prev;
+      const byKey = { ...prev.byKey };
+      for (const key of stale) delete byKey[key];
+      return { identity, byKey };
+    });
+  }, [branches, cursorsByKey, identity]);
 
   const rootBranch = branches[treeBranchKey(focusId)];
   const rootIssues = useMemo(
@@ -251,9 +364,38 @@ export function useTreeRows({
 
   const rows = useMemo<TreeRow[]>(() => {
     if (!enabled) return [];
-    if (focusId !== null && !focusIssue) return [];
+    if (focusId !== null && !focusIssue) {
+      return [
+        {
+          kind: "status",
+          key: "status:focus",
+          parentId: null,
+          depth: 0,
+          guides: [],
+          branchKey: treeBranchKey(focusId),
+          state: "loading",
+        },
+      ];
+    }
     return flattenTree({ focusIssue, branches, expanded: expandedIds, ancestry });
   }, [ancestry, branches, enabled, expandedIds, focusId, focusIssue]);
+
+  // Fetch exactly the open rows. Restored open state and fresh toggles both
+  // show up here, so nothing outside the visible tree keeps refetching.
+  useEffect(() => {
+    if (!enabled) return;
+    const open = new Set<string>();
+    for (const row of rows) {
+      if (row.kind === "issue" && row.expanded && row.issue.id !== focusId) {
+        open.add(row.issue.id);
+      }
+    }
+    setActiveState((prev) =>
+      prev.scope === parentsScope && sameSet(prev.ids, open)
+        ? prev
+        : { scope: parentsScope, ids: open },
+    );
+  }, [enabled, focusId, parentsScope, rows]);
 
   const issueIds = useMemo(
     () => rows.flatMap((row) => (row.kind === "issue" ? [row.issue.id] : [])),
@@ -262,12 +404,10 @@ export function useTreeRows({
 
   const toggle = useCallback(
     (issueId: string) => {
-      if (!expandedIds.has(issueId)) {
-        setActiveParents((prev) => new Set(prev).add(issueId));
-      }
+      if (!expandedIds.has(issueId)) addActiveParents([issueId]);
       toggleExpanded(surfaceKey, issueId);
     },
-    [expandedIds, surfaceKey, toggleExpanded],
+    [addActiveParents, expandedIds, surfaceKey, toggleExpanded],
   );
 
   // Expand-all opens level by level: each pass opens what is loaded, then the
@@ -283,12 +423,20 @@ export function useTreeRows({
       room > 0 ? expandAllTargets(rows, expandedIds).slice(0, room) : [];
     if (targetIds.length > 0) {
       expandedByAll.current += targetIds.length;
-      setActiveParents((prev) => new Set([...prev, ...targetIds]));
+      addActiveParents(targetIds);
       setExpanded(surfaceKey, [...expandedIds, ...targetIds]);
       return;
     }
     if (!anyBranchLoading) setExpandingAll(false);
-  }, [anyBranchLoading, expandedIds, expandingAll, rows, setExpanded, surfaceKey]);
+  }, [
+    addActiveParents,
+    anyBranchLoading,
+    expandedIds,
+    expandingAll,
+    rows,
+    setExpanded,
+    surfaceKey,
+  ]);
   const expandAll = useCallback(() => {
     expandedByAll.current = 0;
     setExpandingAll(true);
@@ -315,10 +463,13 @@ export function useTreeRows({
 
   const retry = useCallback(
     (branchKey: string) => {
+      // Only the failed pages: refetching a healthy head would make the hook
+      // drop the cursors that follow it.
       void queryClient.refetchQueries({
+        predicate: (q) => q.state.status === "error",
         queryKey: issueKeys.tableRows(
           wsId,
-          query,
+          activeQuery,
           { kind: "none" },
           null,
           true,
@@ -326,7 +477,7 @@ export function useTreeRows({
         ),
       });
     },
-    [query, queryClient, wsId],
+    [activeQuery, queryClient, wsId],
   );
 
   const focusPath = useMemo(
@@ -335,14 +486,20 @@ export function useTreeRows({
   );
 
   const rootSettled = rootBranch !== undefined && !rootBranch.loading;
+  // Only the first load is "loading" to the surface: it swaps the whole view
+  // for a skeleton, which would unmount the tree (scroll, breadcrumb) on every
+  // later filter, search or focus change. Those show placeholders and in-tree
+  // loading rows instead.
+  const firstLoadDone = useRef<string | null>(null);
+  const loadKey = `${wsId}|${surfaceKey}`;
+  if (enabled && focusId === null && rootSettled) firstLoadDone.current = loadKey;
   return {
     rows,
     issueIds,
     isLoading:
       enabled &&
-      (focusId !== null
-        ? !focusIssue
-        : rootBranch === undefined || rootBranch.loading),
+      firstLoadDone.current !== loadKey &&
+      (focusId !== null ? !focusIssue : !rootSettled),
     isEmpty:
       enabled &&
       focusId === null &&
