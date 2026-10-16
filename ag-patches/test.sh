@@ -29,6 +29,7 @@ pnpm --filter @multica/views exec vitest run \
   issues/components/tree-rows.test.ts \
   issues/components/tree-view.test.tsx \
   issues/components/tree-chart-layout.test.ts \
+  issues/components/tree-chart-layout.invariants.test.ts \
   issues/components/tree-chart-viewport.test.ts \
   issues/components/tree-chart-view.test.tsx \
   issues/components/issues-header.tree-layout.test.tsx \
@@ -51,6 +52,7 @@ pnpm --filter @multica/core exec vitest run \
   runtimes/ag-drain.test.ts \
   issues/stores/tree-view-store.test.ts \
   issues/stores/tree-layout-store.test.ts \
+  issues/stores/tree-layout-store.persist.test.ts \
   issues/queries.test.ts
 
 pnpm --filter @multica/views typecheck

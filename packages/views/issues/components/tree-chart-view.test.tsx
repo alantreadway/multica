@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Issue } from "@multica/core/types";
+import { useIssueOpeningStore } from "@multica/core/issues/stores/issue-opening-store";
 import { NavigationProvider, type NavigationAdapter } from "../../navigation";
 import {
   IssuePeekActionsContext,
@@ -352,5 +353,90 @@ describe("AG patch: TreeChartView", () => {
     renderChart(state([row("1", 0)], { focusId: "1", focusIssue: issue("1") }));
     expect(screen.getByRole("navigation")).toHaveTextContent("tree.focus_root");
     expect(document.querySelector('[data-slot="tree-filters-paused"]')).toBeInTheDocument();
+  });
+
+  describe("opening a node", () => {
+    afterEach(() => useIssueOpeningStore.setState({ openMode: "page" }));
+
+    it("peeks the issue on a plain click when issues open in a peek, as in the outline", () => {
+      useIssueOpeningStore.setState({ openMode: "peek" });
+      renderChart(state([row("1", 0, { childCount: 1, expanded: true }), row("2", 1)]));
+      fireEvent.click(within(nodes()[1]!).getByRole("link"));
+      expect(peek.open).toHaveBeenCalledWith("2");
+      expect(peek.toggle).not.toHaveBeenCalled();
+    });
+
+    it("opens the full page on a shift-click when issues open in a peek", () => {
+      useIssueOpeningStore.setState({ openMode: "peek" });
+      renderChart(state([row("1", 0)]));
+      fireEvent.click(within(nodes()[0]!).getByRole("link"), { shiftKey: true });
+      expect(navigation.push).toHaveBeenCalledWith("/acme/issues/1");
+      expect(peek.open).not.toHaveBeenCalled();
+    });
+
+    it("previews on a shift-click and leaves a plain click to the page when issues open as pages", () => {
+      useIssueOpeningStore.setState({ openMode: "page" });
+      renderChart(state([row("1", 0)]));
+      const link = within(nodes()[0]!).getByRole("link");
+      fireEvent.click(link);
+      expect(peek.open).not.toHaveBeenCalled();
+      expect(peek.toggle).not.toHaveBeenCalled();
+      fireEvent.click(link, { shiftKey: true });
+      expect(peek.toggle).toHaveBeenCalledWith("1");
+    });
+
+    it("does not open the issue when the click ends a pan", () => {
+      useIssueOpeningStore.setState({ openMode: "peek" });
+      const { container } = renderChart(state([row("1", 0)]));
+      const surface = container.querySelector('[data-slot="tree-chart"]') as HTMLElement;
+      const link = within(nodes()[0]!).getByRole("link");
+      fireEvent.pointerDown(surface, { button: 0, clientX: 10, clientY: 10, pointerId: 1 });
+      fireEvent.pointerMove(surface, { clientX: 90, clientY: 60, pointerId: 1 });
+      fireEvent.pointerUp(surface, { pointerId: 1 });
+      fireEvent.click(link);
+      expect(peek.open).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("node cap", () => {
+    const issues = (n: number, depth: number) =>
+      Array.from({ length: n }, (_, i) => row(`c${i}`, depth));
+
+    it("counts issues only: the project's top node and load-more placeholders do not tip it over", () => {
+      const rows: TreeRow[] = [
+        ...issues(TREE_CHART_NODE_CAP, 0),
+        { kind: "more", key: "more:root", parentId: null, depth: 0, guides: [], branchKey: "__root__", loading: false, error: false },
+      ];
+      const { container } = renderChart(
+        state(rows, { chartAvailability: "project", chartDepthOffset: 1 }),
+        "p1",
+      );
+      expect(container.querySelector('[data-slot="tree-chart-too-many"]')).toBeNull();
+      expect(nodes()).toHaveLength(TREE_CHART_NODE_CAP);
+    });
+
+    it("asks to narrow a project chart one issue over the cap and draws nothing", () => {
+      const { container } = renderChart(
+        state(issues(TREE_CHART_NODE_CAP + 1, 0), { chartAvailability: "project", chartDepthOffset: 1 }),
+        "p1",
+      );
+      expect(container.querySelector('[data-slot="tree-chart-too-many"]')).toHaveTextContent(
+        `"count":${TREE_CHART_NODE_CAP + 1}`,
+      );
+      expect(nodes()).toHaveLength(0);
+      expect(container.querySelector('[data-slot="tree-chart-edges"]')).toBeNull();
+    });
+
+    it("keeps the toolbar and breadcrumb usable while asking to narrow down", () => {
+      const children = issues(TREE_CHART_NODE_CAP, 1);
+      const tree = state([row("1", 0, { childCount: children.length, expanded: true }), ...children], {
+        focusId: "1",
+        focusIssue: issue("1"),
+      });
+      renderChart(tree);
+      expect(screen.getByRole("navigation")).toHaveTextContent("tree.focus_root");
+      fireEvent.click(screen.getAllByRole("button", { name: /tree\.collapse_all/ })[0]!);
+      expect(tree.collapseAll).toHaveBeenCalled();
+    });
   });
 });
