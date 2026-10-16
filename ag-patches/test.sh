@@ -31,6 +31,7 @@ pnpm --filter @multica/views exec vitest run \
   issues/components/issues-header.tree-mode.test.tsx \
   issues/surface/tree-mode.test.tsx \
   issues/surface/tree-mode-surfaces.test.tsx \
+  issues/surface/issue-surface.test.tsx \
   issues/components/save-view-dialog.test.tsx \
   common/actor-issues-panel.test.tsx \
   projects/components/project-detail.test.tsx \

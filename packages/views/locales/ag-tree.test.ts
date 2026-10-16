@@ -20,6 +20,8 @@ const TREE_KEYS = [
   "retry",
   "empty",
   "hidden_ancestors",
+  "filters_paused",
+  "clear_focus",
   "sub_issue_progress",
 ] as const;
 

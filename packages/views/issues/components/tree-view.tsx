@@ -230,7 +230,7 @@ const IssueTreeRow = memo(function IssueTreeRow({
           aria-label={t(($) => $.tree.focus)}
           title={t(($) => $.tree.focus)}
           onClick={() => onFocus(issue.id)}
-          className="hidden size-5 shrink-0 items-center justify-center rounded-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:flex group-hover/row:flex"
+          className="flex size-5 shrink-0 items-center justify-center rounded-xs text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100 group-focus-within/row:opacity-100 [@media(hover:none)]:opacity-100"
         >
           <Crosshair className="size-3.5" />
         </button>
@@ -250,9 +250,11 @@ const IssueTreeRow = memo(function IssueTreeRow({
 function MoreTreeRow({
   row,
   onLoadMore,
+  onRetry,
 }: {
   row: TreeMoreRow;
   onLoadMore: (branchKey: string) => void;
+  onRetry: (branchKey: string) => void;
 }) {
   const { t } = useT("issues");
   return (
@@ -263,16 +265,27 @@ function MoreTreeRow({
         isLast
         withElbow
       />
-      <Button
-        variant="ghost"
-        size="xs"
-        disabled={row.loading}
-        onClick={() => onLoadMore(row.branchKey)}
-        className="text-muted-foreground"
-      >
-        {row.loading && <Loader2 className="size-3 animate-spin" />}
-        {t(($) => $.tree.load_more)}
-      </Button>
+      {row.error ? (
+        // The failed page's cursor is already requested, so "Load more" would
+        // do nothing; offer the retry that refetches it.
+        <span className="flex items-center gap-1 text-caption text-muted-foreground">
+          <span role="alert">{t(($) => $.tree.load_error)}</span>
+          <Button variant="ghost" size="xs" onClick={() => onRetry(row.branchKey)}>
+            {t(($) => $.tree.retry)}
+          </Button>
+        </span>
+      ) : (
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={row.loading}
+          onClick={() => onLoadMore(row.branchKey)}
+          className="text-muted-foreground"
+        >
+          {row.loading && <Loader2 className="size-3 animate-spin" />}
+          {t(($) => $.tree.load_more)}
+        </Button>
+      )}
     </div>
   );
 }
@@ -389,7 +402,11 @@ export function TreeView({
           );
         }
         if (row.kind === "more") {
-          return <MoreTreeRow row={row} onLoadMore={tree.loadMore} />;
+          return <MoreTreeRow
+              row={row}
+              onLoadMore={tree.loadMore}
+              onRetry={tree.retry}
+            />;
         }
         return <StatusTreeRow row={row} onRetry={tree.retry} />;
       },
@@ -402,6 +419,22 @@ export function TreeView({
         <div className="min-w-0 flex-1">
           <FocusBreadcrumb tree={tree} />
         </div>
+        {tree.focusId && (
+          <span
+            data-slot="tree-filters-paused"
+            className="flex shrink-0 items-center gap-1 text-caption text-muted-foreground"
+          >
+            {t(($) => $.tree.filters_paused)}
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={tree.clearFocus}
+              className="text-foreground"
+            >
+              {t(($) => $.tree.clear_focus)}
+            </Button>
+          </span>
+        )}
         <Button
           variant="ghost"
           size="xs"

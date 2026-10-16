@@ -345,6 +345,8 @@
     "retry": "Retry",
     "empty": "No issues to show",
     "hidden_ancestors": "Parent issues hidden by the current filters",
+    "filters_paused": "Filters are paused while focused",
+    "clear_focus": "Clear focus",
     "sub_issue_progress": "{{done}} of {{total}} sub-issues done"
   },
   "actor_issues": {
