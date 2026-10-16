@@ -2285,7 +2285,7 @@ describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
     expect(laneOf("Issue C").className).toContain("-mx-2");
   });
 
-  it("AG patch: the band wraps the header row and the cells row, and no cell carries a band", async () => {
+  it("AG patch: the band tints the header row and gaps, and every cell sits on an opaque underlay", async () => {
     const { container } = renderServer([null, B, A, X], [C, B, Y, A, X]);
 
     await waitFor(() => expect(laneOf("Issue X")?.dataset.laneBand).toBe("odd"));
@@ -2293,14 +2293,18 @@ describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
     // Header row, then the cells grid, both inside the band element.
     expect(lane.children).toHaveLength(2);
     expect(lane.children[0]!.querySelector("button")).not.toBeNull();
-    // The band attribute and tint live on the lane element only.
+    // The band attribute lives on lane elements only.
     expect(container.querySelectorAll("[data-lane-band]")).toHaveLength(
       laneElements(container).filter((el) => el.dataset.laneBand).length,
     );
+    // The status tints are translucent, so the band would show through them.
+    // Each cell therefore sits on an opaque underlay that hides the band.
     const cells = lane.children[1]!.children;
     expect(cells.length).toBeGreaterThan(0);
     for (const cell of Array.from(cells)) {
       expect(cell.hasAttribute("data-lane-band")).toBe(false);
+      expect(cell.hasAttribute("data-swimlane-cell")).toBe(true);
+      expect(cell.className).toMatch(/(^|\s)bg-background(\s|$)/);
       expect(cell.className).not.toContain("bg-muted/60");
     }
     // The band is inside the gap wrapper, so bands of different roots never touch.
