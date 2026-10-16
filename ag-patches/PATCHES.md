@@ -331,12 +331,13 @@ When it runs:
   written with `0`, as in token mode, and the App client uses the poll token for
   installation `0` only (every real installation still mints App tokens). Chosen
   over looking up each workspace's installation row because a repo can be
-  reachable by the token and not by that installation. A PR whose stored row in a
-  workspace already carries a real installation id (an App webhook wrote it) is
-  skipped for that workspace, so the poll never downgrades the id, zeroes the diff
-  stats or strands `check_suite`/`check_run` refreshes. The poller only fills
-  PRs the webhooks have not seen, and the poller refreshes a PR only when it owns a
-  row for it.
+  reachable by the token and not by that installation. In this opt-in mode only, a PR
+  whose stored row in a workspace already carries a real installation id (an App
+  webhook wrote it) is skipped for that workspace, so the poll never downgrades the
+  id, zeroes the diff stats or strands `check_suite`/`check_run` refreshes. The
+  poller only fills PRs the webhooks have not seen, and refreshes a PR only when it
+  owns a row for it. In token mode no webhook arrives, so the poll takes such rows
+  over (rewrites them to installation `0`) and refreshes them.
 - Neither: nothing runs. An empty or whitespace `GITHUB_POLL_TOKEN` is unset.
 
 Failure policy (never crashes): a GitHub error, timeout or 5xx on a repo logs a
@@ -368,7 +369,7 @@ changes do not touch a PR's `updated_at`: the snapshot's chase backoff, the
     `client.go` (hooks: `staticToken` field, `NewClientFromEnv`, `Enabled`,
     `installationToken`)
   - `server/internal/handler/ag_ghpoll.go` (new: `AGStartGitHubPoll`, the
-    sink), `ag_ghpoll_test.go`, `ag_ghpoll_flow_test.go` (new)
+    sink), `ag_ghpoll_test.go`, `ag_ghpoll_flow_test.go`, `ag_ghpoll_refresh_test.go` (new)
   - `server/internal/service/ag_ghpoll_wakeup_test.go` (new: DB-backed, the
     `--until-pr checks` / `merged` wakeups on a polled row)
   - `server/cmd/server/main.go` (one-line hook next to `PRRefresh.Start`)

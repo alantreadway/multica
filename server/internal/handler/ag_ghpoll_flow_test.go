@@ -395,7 +395,7 @@ func TestAGPatchPollerLeavesWebhookRowsAlone(t *testing.T) {
 	defer srv.Close()
 	// A poll one tick after the webhook: newer updated_at, so the upsert would take it.
 	gh.set("[" + pullListItem(repo, 7, "Fix "+created.Identifier+" (reworded)", "open", "", "2026-10-16T10:00:00Z") + "]")
-	poller := ghpoll.New(ghpoll.Config{Token: "ghp_owned", Interval: time.Minute, APIBase: srv.URL}, ghpoll.PGSource{DB: testHandler.DB}, agPollSink{h: testHandler})
+	poller := ghpoll.New(ghpoll.Config{Token: "ghp_owned", Interval: time.Minute, APIBase: srv.URL}, ghpoll.PGSource{DB: testHandler.DB}, agPollSink{h: testHandler, appOptIn: true})
 	poller.Tick(ctx)
 
 	var inst int64
@@ -417,5 +417,41 @@ func TestAGPatchPollerLeavesWebhookRowsAlone(t *testing.T) {
 	})
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("check_suite refresh routing: rows for installation %d = %d, err %v; want 1", installationID, len(rows), err)
+	}
+}
+
+// TestAGPatchTokenModePollTakesOverInstallationRows: a deployment that ran the
+// App and then dropped it keeps rows under the old installation id, and no
+// webhook will update them again. In token mode the poll rewrites such a row to
+// installation 0, so its refreshes and merge handling work.
+func TestAGPatchTokenModePollTakesOverInstallationRows(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("handler test fixture not initialized (no DB?)")
+	}
+	ctx := context.Background()
+	const repo = "token-takeover"
+	created, installationID := setupPRTestIssue(t, ctx, "ag-poll-takeover-secret")
+	if installationID == 0 {
+		t.Fatal("fixture installation id is 0; the takeover case needs a real one")
+	}
+	setWorkspaceReposForTest(t, testWorkspaceID, "https://github.com/acme/"+repo+".git")
+	firePullRequestWebhookWithHead(t, "ag-poll-takeover-secret", created.Identifier, installationID, repo, 8, "opened", "abc123", "clean")
+
+	gh := &fakeGitHubPulls{path: "/repos/acme/" + repo + "/pulls"}
+	srv := httptest.NewServer(gh)
+	defer srv.Close()
+	gh.set("[" + pullListItem(repo, 8, "Fix "+created.Identifier+" (reworded)", "closed", "2026-10-16T10:00:00Z", "2026-10-16T10:00:00Z") + "]")
+	poller := ghpoll.New(ghpoll.Config{Token: "ghp_takeover", Interval: time.Minute, APIBase: srv.URL}, ghpoll.PGSource{DB: testHandler.DB}, agPollSink{h: testHandler})
+	poller.Tick(ctx)
+
+	state, title, inst, ok := storedPollRow(t, testWorkspaceID, repo, 8)
+	if !ok || inst != 0 || state != "merged" || !strings.Contains(title, "reworded") {
+		t.Fatalf("row = found %v, installation %d, state %q, title %q; want the poll's merged update under installation 0", ok, inst, state, title)
+	}
+	rows, err := testHandler.Queries.ListGitHubPRRowsByAddress(ctx, db.ListGitHubPRRowsByAddressParams{
+		InstallationID: 0, RepoOwner: "acme", RepoName: repo, PrNumber: 8,
+	})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("refresh routing: installation-0 rows = %d, err %v; want 1", len(rows), err)
 	}
 }
