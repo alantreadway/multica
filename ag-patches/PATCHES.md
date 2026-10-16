@@ -42,6 +42,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Daemon handoff: machine-wide slot cap and single-instance fixes | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) |
 | GitHub PR polling (token mode) | `candidate` | [#8111](https://github.com/multica-ai/multica/issues/8111) (open feature request, same need) |
 | Daemon handoff (overlap mode) | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) |
+| PR snapshot fields and `pull-requests link` | `fork-only` | [#8145](https://github.com/multica-ai/multica/pull/8145) (open, same CLI commands, different design) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -631,6 +632,88 @@ Frontend only: rollback is switching the web image back.
     status row (searched `multica-ai/multica` PRs, October 2026).
   - Fit: the agent-count half could go upstream alone, as a small sidebar
     addition with no new request. The drain marker would come out first.
+
+### PR snapshot fields and `pull-requests link` (backend + CLI)
+
+`GET /api/issues/{id}/pull-requests`, and so `multica issue pull-requests <id>
+--output json`, gains what a merge gate needs beyond the existing CI rollup. Per
+PR: `review_decision` (`approved` | `changes_requested` | `review_required` |
+null), `latest_reviews` (`[{author, state, submitted_at}]`, one per reviewer),
+`base_ref_name`, and `checks` (`[{name, status, conclusion, details_url,
+required}]`) with a derived `required_checks_state`: `success` when every
+required check passed (also when no check is required), `failure` when any
+failed, `pending` otherwise, and null when the snapshot has no checks or any
+check lacks required-ness, so missing data never reads as success. All of them
+are null for a PR without a current-head snapshot, which is the existing
+`snapshot_available` rule. Existing fields are unchanged and enums are
+lowercased like the others.
+
+The snapshot GraphQL query asks for `isRequired(pullRequestNumber:)` on both
+`CheckRun` and `StatusContext`, plus `reviewDecision`, `latestReviews(first:20)`
+and `baseRefName`. If GitHub rejects the extended query with a GraphQL error
+(for example a token that cannot see `isRequired`), the fetch retries the
+original query for that PR, stores the extras as null and keeps the snapshot;
+rate limits and transport errors are not retried that way. Migration `573`
+adds nullable `review_decision`, `latest_reviews` (JSONB) and `base_ref_name`
+to `github_pull_request` and `is_required` to `github_pull_request_check_run`:
+additive, no index, no foreign key. The stock backend never reads or writes
+them, so switching the backend image back works against the migrated database.
+`latest_reviews` is capped at 20 entries.
+
+`multica issue pull-requests link <issue> <pr-url>` POSTs to the existing
+`/api/issues/{id}/pull-requests` and prints the issue's PRs;
+`unlink <issue> <pr-url|pr-id>` resolves a URL through the listing, then
+DELETEs. The server only links PRs the workspace already mirrors, so an
+unmirrored PR gets a "has not been mirrored yet" error carrying the server's
+message; other 4xx responses print the server's message. `pull-requests <id>`
+without a subcommand lists as before. No new environment variable: the extras
+ride on whichever GitHub credentials the snapshot pipeline already uses. Needs
+a backend image from `ag-patches/build-backend.sh` and a CLI from
+`ag-patches/build-cli.sh`; see README "GitHub PR snapshot fields and
+`pull-requests link`".
+
+- Test prefix: `TestAGPatch` / `AG patch:`. The hermetic ones (query shape,
+  fixtures for required true/false/null, each `reviewDecision`, pagination with
+  required checks across pages, the GraphQL-error fallback, the rollup, the CLI
+  commands) run in `ag-patches/test.sh`; the DB-backed ones (snapshot write in
+  `server/internal/integrations/ghsnapshot`, list response in
+  `server/internal/handler`) need Postgres (see test.sh header)
+- Files:
+  - `server/migrations/573_ag_github_pr_snapshot_extras.up.sql`, `.down.sql` (new)
+  - `server/pkg/db/queries/ag_github_snapshot.sql` (new) and
+    `server/pkg/db/generated/ag_github_snapshot.sql.go` (new); `models.go`,
+    `github.sql.go`, `github_snapshot.sql.go` regenerated with sqlc for the new
+    columns
+  - `server/internal/integrations/ghsnapshot/ag_extras.go` (new: query
+    fragments, `agGraphQL` fallback, `agApplySnapshotExtras`,
+    `AGRequiredChecksState`), `ag_extras_test.go`, `ag_extras_db_test.go` (new)
+  - `server/internal/integrations/ghsnapshot/snapshot.go` (query is now a
+    template, `Required`, `AG` field, embedded `agPRExtras`, `isRequired` in
+    `normalizeNode`), `refresh.go` (one call in `applySnapshot`), `client.go`
+    (query-level errors are a `*GraphQLError`, same message)
+  - `server/internal/handler/ag_pr_snapshot.go` (new: response fields,
+    `agEnrichPullRequests`), `ag_pr_snapshot_test.go` (new)
+  - `server/internal/handler/github.go` (embedded `AGPRSnapshotFields`, one call
+    in `ListPullRequestsForIssue`)
+  - `server/cmd/multica/ag_issue_pull_requests.go` (new: `link`, `unlink`),
+    `ag_issue_pull_requests_test.go` (new)
+  - `ag-patches/test.sh` (adds the ghsnapshot package, `AG_GO_MIN_TESTS=29`)
+
+- Upstream:
+  - Status: `fork-only`. The CLI half is already proposed upstream in a
+    different shape, and the snapshot half is a self-host merge-gate need.
+  - Overlap: [#8145](https://github.com/multica-ai/multica/pull/8145) (open since
+    2026-09-08, last touched 2026-09-09) adds `pull-requests link|unlink` too, but
+    fetches the PR from GitHub and mirrors it on demand (and has `--close-on-merge`);
+    ours only links an already-mirrored PR through the endpoint that exists.
+    Drop our CLI half if #8145 merges and re-check the rest. No upstream issue
+    or PR was found for required-check, review-decision or base-ref fields on
+    the snapshot (searched 2026-10-16); [#9279](https://github.com/multica-ai/multica/issues/9279)
+    (open) is about the Cloud GitHub App's permissions for the same snapshot
+    pipeline.
+  - Fit: the extra fields are small and additive, but upstream's snapshot
+    is a card feature, not an API for gates, and an unmotivated migration is
+    hard to land. Offer nothing; watch #8145 and #9279.
 
 ## Tooling (not a patch)
 
