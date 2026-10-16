@@ -243,20 +243,28 @@ For a new upstream tag `vX`, from the current patch branch `ag/v0.6.2`:
 
 1. Fetch upstream tags: `git fetch upstream --tags`.
 2. Create the new branch: `git switch -c ag/vX ag/v0.6.2`.
-3. Replay the patches: `git rebase --onto vX v0.6.2`.
-4. Resolve conflicts. The web patches concentrate in `swimlane-view.tsx`, and the
+3. Re-check upstream before replaying anything. For each patch in
+   [`PATCHES.md`](./PATCHES.md) (see "Upstream status" there), look at its
+   overlapping PRs and issues on `multica-ai/multica` (read-only; open nothing
+   there) and search for newer duplicates. If upstream merged it in `vX` or
+   earlier, or replaced it, drop the patch from the replay (`git rebase
+   --onto vX v0.6.2` with the patch's commits excluded, or `git rebase -i`) and
+   delete its entry. Otherwise refresh its **Upstream** line and the
+   "Last checked" date.
+4. Replay the patches: `git rebase --onto vX v0.6.2`.
+5. Resolve conflicts. The web patches concentrate in `swimlane-view.tsx`, and the
    daemon patch hooks into `daemon.go`, `health.go`, `auto_update.go` and
    `cmd_daemon.go`, so expect conflicts there.
-5. Run `ag-patches/test.sh`.
-6. Build: `ag-patches/build-web.sh --rev 1`, `ag-patches/build-cli.sh --rev 1` and
+6. Run `ag-patches/test.sh`.
+7. Build: `ag-patches/build-web.sh --rev 1`, `ag-patches/build-cli.sh --rev 1` and
    `ag-patches/build-backend.sh --rev 1`.
-7. Upgrade the self-host to `vX`, then switch to the new images: the patched
-   backend image from step 6 first, then the web image and the daemon's new CLI
+8. Upgrade the self-host to `vX`, then switch to the new images: the patched
+   backend image from step 7 first, then the web image and the daemon's new CLI
    binary. A patched web image on a stock backend freezes the drain badge (see
    "Backend image"), so if the backend image wasn't built, leave the web image
    stock too.
-8. Update `PATCHES.md` (base tag and commit, files per patch).
-9. Tag the built commit and push the branch and the tag:
+9. Update `PATCHES.md` (base tag and commit, files per patch, upstream status).
+10. Tag the built commit and push the branch and the tag:
    `git tag ag/vX-ag.1`, `git push origin ag/vX`,
    `git push origin refs/tags/ag/vX-ag.1`.
 
