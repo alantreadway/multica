@@ -43,6 +43,9 @@ var (
 	agHandoffMinHold = 30 * time.Second
 	// agHandoffExitPoll is how often a handoff daemon re-checks for idle.
 	agHandoffExitPoll = time.Second
+	// agHandoffClaimSettleTimeout bounds how long /handoff waits for claims in
+	// flight; it stays under the CLI's request timeout.
+	agHandoffClaimSettleTimeout = 3 * time.Second
 	// agOverlapPollInterval is how often the successor checks the predecessor.
 	agOverlapPollInterval = 2 * time.Second
 	// agOverlapHealthTimeout bounds one /health read of the predecessor.
@@ -207,7 +210,14 @@ func (d *Daemon) agHandoffHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if d.agOverlapActive() {
+			// Its predecessor's leftovers are only watched while this daemon
+			// lives; a second handoff would leave them unwatched.
+			http.Error(w, fmt.Sprintf("daemon is still overlapping its predecessor (pid %d); retry the handoff once that process has exited", d.agPredecessorPID()), http.StatusConflict)
+			return
+		}
 		d.agStartHandoff()
+		d.agWaitClaimsSettled(r.Context())
 		h, active := d.agDrainSnapshot()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(struct {
@@ -215,6 +225,37 @@ func (d *Daemon) agHandoffHandler() http.HandlerFunc {
 			agHandoffHealth
 			ActiveTaskCount int64 `json:"active_task_count"`
 		}{h, d.agHandoffHealth(), active})
+	}
+}
+
+// agGCSkipped is true on both sides of a handoff: the successor sees the
+// predecessor's task dirs and the handoff daemon the successor's, and neither
+// can tell them from orphans.
+func (d *Daemon) agGCSkipped() bool { return d.agOverlapActive() || d.agHandoffActive() }
+
+func (d *Daemon) agPredecessorPID() int {
+	d.agHandoff.mu.Lock()
+	defer d.agHandoff.mu.Unlock()
+	return d.agHandoff.pred.PID
+}
+
+// agWaitClaimsSettled waits, bounded, for claims that were already in flight
+// when drain began to become tracked tasks, so the successor's first read of
+// /health lists them.
+func (d *Daemon) agWaitClaimsSettled(ctx context.Context) {
+	deadline := time.Now().Add(agHandoffClaimSettleTimeout)
+	for time.Now().Before(deadline) {
+		d.claimMu.Lock()
+		n := d.claimsInFlight
+		d.claimMu.Unlock()
+		if n == 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 }
 
@@ -233,7 +274,7 @@ func (d *Daemon) agRefuseResume(w http.ResponseWriter) bool {
 // runtime, including the predecessor's.
 func (d *Daemon) agOrphanScope(runtimeIDs []string) []string {
 	if d.agOverlapActive() {
-		d.logger.Info("overlap: predecessor still running; skipping recover-orphans", "predecessor_pid", d.agHandoff.pred.PID)
+		d.logger.Info("overlap: predecessor still running; skipping recover-orphans", "predecessor_pid", d.agPredecessorPID())
 		return nil
 	}
 	return runtimeIDs
