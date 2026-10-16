@@ -38,7 +38,7 @@ Depends on the tree-ordered lanes patch.
   - `packages/views/issues/components/swimlane-view.tsx`
   - `packages/views/issues/components/swimlane-view.test.tsx`
 
-### Daemon drain mode (in progress)
+### Daemon drain mode (landed)
 
 The daemon can be put into drain: it stops claiming new tasks, lets running
 tasks finish, reports `idle` on `/health` (no active tasks, no claim in flight,
@@ -50,7 +50,7 @@ also skip the upgrade itself when draining starts first. The daemon core
 (`POST /drain`, `POST /resume`, `/health` fields `draining`, `drain_started_at`,
 `idle`) and the CLI commands (`daemon drain [--wait] [--timeout]`, `daemon
 resume`, `daemon stop|restart --drain [--timeout]`, extra `daemon status` lines)
-are in; the web badge follows in a later unit. Needs a CLI built with
+are in; the web badge is the next patch. Needs a CLI built with
 `ag-patches/build-cli.sh`: see README "Daemon/CLI patch". Overlaps upstream
 multica-ai/multica#5631 and #6677: drop this patch if either merges.
 
@@ -141,9 +141,13 @@ branches. They do not touch product code. Landed in
 | Git tag | Commit | Web image | Backend image | CLI | Built |
 | --- | --- | --- | --- | --- | --- |
 | `ag/v0.6.2-ag.1` | `c59bdb71d0713897e19371e4d11d4c316c56c71b` | `multica-web-ag:v0.6.2-ag.1` | none (stock backend) | none (stock) | 2026-10-14 |
+| `ag/v0.6.2-ag.2` | `0ae4d6edc3c9651e1cfb5d2c711d062469828ab7` | `multica-web-ag:v0.6.2-ag.2` | `multica-backend-ag:v0.6.2-ag.2` | `dist/multica-v0.6.2-ag.2-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-16 |
 
 The CLI column is the `dist/multica-<tag>-ag.<n>-darwin-arm64` binary from
 `ag-patches/build-cli.sh`; `none (stock)` means the daemon runs the upstream
-`multica`. Backend images are built with `ag-patches/build-backend.sh`. The first
-build that includes the drain patch and the drain badge gets a row with its CLI
-and backend image filled in.
+`multica`. Backend images are built with `ag-patches/build-backend.sh`.
+
+`ag.2` is the first build with the drain patch and the drain badge. The self-host
+backend and web run it (upgraded from stock v0.6.0 to v0.6.2 on 2026-10-16). The
+launchd daemon still runs Homebrew `multica` until its plist is pointed at
+`multica-ag`, so the Runtimes page shows no drain badge until then.
