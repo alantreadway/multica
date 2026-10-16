@@ -139,6 +139,7 @@ type GitHubPullRequestResponse struct {
 	Additions    int32 `json:"additions"`
 	Deletions    int32 `json:"deletions"`
 	ChangedFiles int32 `json:"changed_files"`
+	AGPRSnapshotFields
 }
 
 type GitHubConnectResponse struct {
@@ -996,6 +997,10 @@ func (h *Handler) ListPullRequestsForIssue(w http.ResponseWriter, r *http.Reques
 				row.SnapshotHeadSha != "" &&
 				row.SnapshotHeadSha == row.HeadSha,
 		)
+	}
+	if err := h.agEnrichPullRequests(r.Context(), issue.ID, out); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list pull requests")
+		return
 	}
 	// PRs from token-based providers (Forgejo / Gitea / GitLab) share the same
 	// card list. They live in their own provider-tagged tables, so they merge
