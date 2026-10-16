@@ -88,6 +88,19 @@ export function countChartIssues(root: ChartNode | null): number {
   return count;
 }
 
+/**
+ * The chart has something to fit once the root's own branch has settled: no
+ * loading placeholder directly under it. A focused issue is cached before its
+ * children arrive, and a project's virtual root has no data of its own, so the
+ * root node alone says nothing.
+ */
+export function isChartRootSettled(root: ChartNode | null): boolean {
+  if (!root) return false;
+  return !root.children.some(
+    (child) => child.row?.kind === "status" && child.row.state === "loading",
+  );
+}
+
 export interface ChartPlacedNode {
   id: string;
   node: ChartNode;

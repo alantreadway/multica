@@ -276,6 +276,34 @@ describe("AG patch: tree chart layout", () => {
     });
   });
 
+  describe("fetch bound above the node cap", () => {
+    it("opens no further branch once the loaded chart is over its cap", async () => {
+      // 10 roots with 20 children each: 210 issues on screen at the default
+      // depth, every child with a grandchild waiting a level down.
+      for (let r = 0; r < 10; r += 1) {
+        graph.set(`r${r}`, makeIssue(`r${r}`));
+        for (let c = 0; c < 20; c += 1) {
+          graph.set(`c${r}-${c}`, makeIssue(`c${r}-${c}`, `r${r}`));
+          graph.set(`g${r}-${c}`, makeIssue(`g${r}-${c}`, `c${r}-${c}`));
+        }
+      }
+      const { result } = mount(projectScope, "project:p1");
+      await waitFor(() => expect(result.current.tree.isLoading).toBe(false));
+      act(() => result.current.tree.setLayout("chart"));
+      await waitFor(() => expect(issueRows(result)).toHaveLength(210));
+
+      // "Show next level" would open every child; over the cap it fetches none.
+      act(() => result.current.tree.expandAll());
+      act(() => result.current.tree.expandAll());
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const asked = listIssueTableRows.mock.calls.map(
+        (call) => (call[0] as IssueTableRowsRequest).parent_id,
+      );
+      expect(asked.filter((id) => id?.startsWith("c"))).toEqual([]);
+      expect(issueRows(result)).toHaveLength(210);
+    });
+  });
+
   describe("outline state", () => {
     it("keeps focus and the outline's expanded nodes across a trip through the chart", async () => {
       chain();

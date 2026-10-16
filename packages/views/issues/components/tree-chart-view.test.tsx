@@ -144,9 +144,13 @@ const row = (id: string, depth: number, over: Partial<TreeIssueRow> = {}): TreeI
   ...over,
 });
 
-function renderChart(tree: TreeRowsState, projectId?: string, peekedId: string | null = null) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+function chartElement(
+  qc: QueryClient,
+  tree: TreeRowsState,
+  projectId?: string,
+  peekedId: string | null = null,
+) {
+  return (
     <QueryClientProvider client={qc}>
       <NavigationProvider value={navigation}>
         <IssuePeekActionsContext.Provider value={peek}>
@@ -159,8 +163,13 @@ function renderChart(tree: TreeRowsState, projectId?: string, peekedId: string |
           </IssuePeekIdContext.Provider>
         </IssuePeekActionsContext.Provider>
       </NavigationProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+}
+
+function renderChart(tree: TreeRowsState, projectId?: string, peekedId: string | null = null) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(chartElement(qc, tree, projectId, peekedId));
 }
 
 const nodes = () =>
@@ -398,6 +407,67 @@ describe("AG patch: TreeChartView", () => {
     });
   });
 
+  describe("auto-fit", () => {
+    // jsdom has no layout: give the view a size so the fit can run.
+    const viewSize = (width: number, height: number) => {
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(width);
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(height);
+    };
+    afterEach(() => vi.restoreAllMocks());
+    const scale = (container: HTMLElement) => {
+      const canvas = container.querySelector('[data-slot="tree-chart-canvas"]') as HTMLElement;
+      return Number(/scale\(([\d.]+)\)/.exec(canvas.style.transform)![1]);
+    };
+    const loadingRow = (): TreeRow => ({
+      kind: "status",
+      key: "status:1",
+      parentId: "1",
+      depth: 1,
+      guides: [],
+      branchKey: "1",
+      state: "loading",
+    });
+
+    it("fits a focused root once its children have arrived, not on the loading placeholder", () => {
+      viewSize(600, 400);
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const root = row("1", 0, { expanded: true });
+      const { container, rerender } = render(
+        chartElement(qc, state([root, loadingRow()], { focusId: "1" })),
+      );
+      expect(scale(container)).toBe(1);
+
+      // Twelve children are far wider than the 600px view: the fit must still
+      // happen, and must shrink the chart to show them all.
+      const children = Array.from({ length: 12 }, (_, i) => row(`c${i}`, 1));
+      rerender(
+        chartElement(
+          qc,
+          state([{ ...root, childCount: 12 }, ...children], { focusId: "1" }),
+        ),
+      );
+      expect(scale(container)).toBeLessThan(1);
+    });
+
+    it("fits a project chart once the project's root issues have arrived", () => {
+      viewSize(600, 400);
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const project = { focusId: null, chartAvailability: "project" as const, chartDepthOffset: 1 };
+      const { container, rerender } = render(
+        chartElement(
+          qc,
+          state([{ ...loadingRow(), parentId: null, depth: 0 }], project),
+          "p1",
+        ),
+      );
+      expect(scale(container)).toBe(1);
+
+      const roots = Array.from({ length: 12 }, (_, i) => row(`r${i}`, 0));
+      rerender(chartElement(qc, state(roots, project), "p1"));
+      expect(scale(container)).toBeLessThan(1);
+    });
+  });
+
   describe("node cap", () => {
     const issues = (n: number, depth: number) =>
       Array.from({ length: n }, (_, i) => row(`c${i}`, depth));
@@ -425,6 +495,16 @@ describe("AG patch: TreeChartView", () => {
       );
       expect(nodes()).toHaveLength(0);
       expect(container.querySelector('[data-slot="tree-chart-edges"]')).toBeNull();
+    });
+
+    it("disables Show next level while over the cap, so it cannot fan out more fetches", () => {
+      const focused = (n: number) =>
+        state([row("1", 0, { expanded: true }), ...issues(n - 1, 1)], { focusId: "1" });
+      const qc = new QueryClient();
+      const { rerender } = render(chartElement(qc, focused(TREE_CHART_NODE_CAP + 1)));
+      expect(screen.getByRole("button", { name: /tree\.chart_expand_level/ })).toBeDisabled();
+      rerender(chartElement(qc, focused(TREE_CHART_NODE_CAP)));
+      expect(screen.getByRole("button", { name: /tree\.chart_expand_level/ })).toBeEnabled();
     });
 
     it("keeps the toolbar and breadcrumb usable while asking to narrow down", () => {

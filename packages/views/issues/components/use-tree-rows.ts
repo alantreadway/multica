@@ -45,6 +45,7 @@ import {
   TREE_CHART_DEFAULT_OPEN_DEPTH,
   TREE_CHART_DEFAULT_OPEN_PER_BRANCH,
   TREE_CHART_MAX_OPEN_DEPTH,
+  TREE_CHART_NODE_CAP,
 } from "./tree-chart-layout";
 
 // AG patch: data + state behind the outline tree view. It sits beside the
@@ -488,17 +489,25 @@ export function useTreeRows({
   useEffect(() => {
     if (!enabled) return;
     const open = new Set<string>();
+    let issueCount = 0;
     for (const row of rows) {
-      if (row.kind === "issue" && row.expanded && row.issue.id !== focusId) {
-        open.add(row.issue.id);
-      }
+      if (row.kind !== "issue") continue;
+      issueCount += 1;
+      if (row.expanded && row.issue.id !== focusId) open.add(row.issue.id);
     }
-    setActiveState((prev) =>
-      prev.scope === parentsScope && sameSet(prev.ids, open)
+    // The chart draws nothing above its node cap, so past it no further branch
+    // is opened: only the ones already fetched stay, however deep the rule goes.
+    const frozen = layout === "chart" && issueCount > TREE_CHART_NODE_CAP;
+    setActiveState((prev) => {
+      const prevIds = prev.scope === parentsScope ? prev.ids : EMPTY_PARENTS;
+      const ids = frozen
+        ? new Set([...open].filter((id) => prevIds.has(id)))
+        : open;
+      return prev.scope === parentsScope && sameSet(prev.ids, ids)
         ? prev
-        : { scope: parentsScope, ids: open },
-    );
-  }, [enabled, focusId, parentsScope, rows]);
+        : { scope: parentsScope, ids };
+    });
+  }, [enabled, focusId, layout, parentsScope, rows]);
 
   const issueIds = useMemo(
     () => rows.flatMap((row) => (row.kind === "issue" ? [row.issue.id] : [])),
