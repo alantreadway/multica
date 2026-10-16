@@ -122,9 +122,7 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
         />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate" title={summary}>
-          {summary}
-        </span>
+        <span className="text-caption leading-snug">{summary}</span>
         {drainLabel && (
           <span
             data-testid="agent-status-drain"
