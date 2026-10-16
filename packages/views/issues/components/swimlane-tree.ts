@@ -40,6 +40,10 @@ export interface SwimlaneTreeInfo {
   path: { id: string; identifier: string }[];
   /** Lanes below this one at any depth. */
   descendantCount: number;
+  /** `rawId` of the root lane of this lane's tree (itself for a root); null when pinned. */
+  rootRawId: string | null;
+  /** Position of the tree among root trees, 0-based; null when pinned. Drives the alternating band. */
+  rootOrdinal: number | null;
 }
 
 export type TreeLane<L> = L & { tree: SwimlaneTreeInfo };
@@ -102,7 +106,14 @@ export function orderLanesAsTree<L extends TreeLaneInput>(
     if (lane.isPinned) {
       pinned.push({
         ...lane,
-        tree: { depth: 0, treeParentRawId: null, path: [], descendantCount: 0 },
+        tree: {
+          depth: 0,
+          treeParentRawId: null,
+          path: [],
+          descendantCount: 0,
+          rootRawId: null,
+          rootOrdinal: null,
+        },
       });
     } else {
       treeLanes.push(lane);
@@ -162,7 +173,14 @@ export function orderLanesAsTree<L extends TreeLaneInput>(
   const result: TreeLane<L>[] = [];
   const emitted = new Set<string>();
 
-  const emit = (lane: L, depth: number, treeParent: string | null): number => {
+  let rootCount = 0;
+  const emit = (
+    lane: L,
+    depth: number,
+    treeParent: string | null,
+    rootRawId: string,
+    rootOrdinal: number,
+  ): number => {
     emitted.add(lane.rawId);
     const slot = result.length;
     result.push(undefined as unknown as TreeLane<L>);
@@ -170,7 +188,7 @@ export function orderLanesAsTree<L extends TreeLaneInput>(
     for (const child of children.get(lane.rawId) ?? []) {
       // `emitted` also guards a cycle reached from a root through a loop.
       if (emitted.has(child.rawId)) continue;
-      below += 1 + emit(child, depth + 1, lane.rawId);
+      below += 1 + emit(child, depth + 1, lane.rawId, rootRawId, rootOrdinal);
     }
     result[slot] = {
       ...lane,
@@ -179,16 +197,20 @@ export function orderLanesAsTree<L extends TreeLaneInput>(
         treeParentRawId: treeParent,
         path: paths.get(lane.rawId) ?? [],
         descendantCount: below,
+        rootRawId,
+        rootOrdinal,
       },
     };
     return below;
   };
 
-  for (const root of children.get(null) ?? []) emit(root, 0, null);
+  for (const root of children.get(null) ?? []) {
+    emit(root, 0, null, root.rawId, rootCount++);
+  }
   // Anything left sits on a cycle (every member has a lane parent): start at
   // the first one in incoming order and treat it as a root.
   for (const lane of treeLanes) {
-    if (!emitted.has(lane.rawId)) emit(lane, 0, null);
+    if (!emitted.has(lane.rawId)) emit(lane, 0, null, lane.rawId, rootCount++);
   }
 
   return [...pinned, ...result];

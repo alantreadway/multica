@@ -82,6 +82,7 @@ import {
   lanesToExpand,
   type SwimlaneTreeInfo,
 } from "./swimlane-tree";
+import { laneBand, laneBandClass, laneGapClass } from "./swimlane-band";
 import { useSwimlaneTreeLanes } from "./use-swimlane-tree";
 
 const COLUMN_WIDTH = 280;
@@ -1472,7 +1473,7 @@ function SwimLaneViewImpl({
 
   const computeLaneKey = (_index: number, lane: LaneGroup) => lane.key;
   const renderLane = (index: number, lane: LaneGroup) => (
-    <div className={index === 0 ? undefined : "pt-4"}>
+    <div className={laneGapClass(index, lane.tree)}>
       <DraggableSwimLane
         lane={lane}
         grouping={swimlaneGrouping}
@@ -1729,14 +1730,21 @@ function DraggableSwimLane({
   const depth = lane.tree?.depth ?? 0;
   const ancestorPath = lane.tree && lane.tree.path.length > 1 ? lane.tree.path : null;
   const pathText = ancestorPath?.map((p) => p.identifier).join(" > ") ?? "";
+  const parentIdentifier = ancestorPath?.[ancestorPath.length - 2]?.identifier ?? "";
   const subLanes = lane.tree?.descendantCount ?? 0;
+  const band = laneBand(lane.tree);
 
   return (
     <div
       ref={setNodeRef}
       style={style}
       data-lane-depth={depth}
-      className={`flex flex-col ${isDragging ? "opacity-50" : ""}`}
+      data-lane-band={band ?? undefined}
+      className={cn(
+        "flex flex-col",
+        isDragging && "opacity-50",
+        band && laneBandClass(band),
+      )}
     >
       {/* Non-interactive container — the inner collapse button and any
           ancillary links (e.g. open-parent) are independent controls so we
@@ -1747,13 +1755,6 @@ function DraggableSwimLane({
         {...attributes}
         {...listeners}
       >
-        {depth > 0 && (
-          <span aria-hidden className="-my-1 flex shrink-0 self-stretch">
-            {Array.from({ length: depth }, (_, i) => (
-              <span key={i} className="w-3.5 border-l border-border" />
-            ))}
-          </span>
-        )}
         {!lane.isPinned && (
           <GripVertical
             className="!size-3 shrink-0 cursor-grab text-faint-foreground"
@@ -1791,11 +1792,11 @@ function DraggableSwimLane({
               title={pathText}
               className="min-w-0 max-w-[45%] shrink truncate text-micro font-medium tabular-nums text-muted-foreground"
             >
-              {pathText}
+              {`↳ ${parentIdentifier}`}
             </span>
           )}
           <span className="truncate text-body font-semibold">{lane.title}</span>
-          {lane.identifier && !ancestorPath && (
+          {lane.identifier && (
             <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-micro font-medium tabular-nums text-muted-foreground">
               {lane.identifier}
             </span>

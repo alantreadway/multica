@@ -59,9 +59,20 @@ lanes sit under their parent lane. Status: landed in
 - Files:
   - `packages/views/issues/components/swimlane-tree.ts` (new)
   - `packages/views/issues/components/swimlane-tree.test.ts` (new)
+  - `packages/views/issues/components/swimlane-band.ts` (new)
   - `packages/views/issues/components/swimlane-view.tsx`
   - `packages/views/issues/components/swimlane-view.test.tsx`
   - `packages/core/issues/queries.ts` (append only)
+
+Nesting is shown by an alternating band, not an indent: every root lane and its
+sub-lanes share one band (`data-lane-band="odd|even"`, odd tinted with
+`bg-muted/60`), consecutive roots alternate, and the pinned lanes (No parent,
+Other parents) have none and don't count. The band tints the header row and
+the gaps around the cells, never the cells. Lane headers all start at the same
+x; a nested header shows `↳ <parent identifier>` with the full path in the
+tooltip. Lanes inside one tree sit `pt-2` apart, a new root `pt-4`. Non-parent
+groupings are unchanged. `SwimlaneTreeInfo` gained `rootRawId` and
+`rootOrdinal`. Rollback: switch the web image back.
 
 - Upstream:
   - Status: `candidate`.
