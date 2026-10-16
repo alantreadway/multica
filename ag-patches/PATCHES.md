@@ -172,6 +172,59 @@ first mode. Rollback: switch the web image back to a build without this patch.
     nothing about views. Feature work, so it goes through a Feature Request
     first, after reading #2966 so we don't race it.
 
+### Tree mode org-chart layout
+
+Tree mode gains an Outline | Chart choice in the Display menu (the view menu,
+under the view list, only while Tree is the active view). Chart draws a top-down
+org chart: a hand-rolled tidy-tree layout (per-subtree contours, siblings pushed
+apart only as far as needed, parent centred over its children; no `d3-hierarchy`,
+no new dependency), elbow connectors, and pan / zoom by a CSS transform (drag the
+background, wheel pans, ctrl / pinch / buttons zoom, `+` `-` `0` and arrows on the
+keyboard, Fit button). It reads the outline's rows, so filters, sort, paging,
+focus, peek and the node's focus action behave as in Outline; a node's count chip
+opens and closes its branch. Nodes at depth 2 and below start collapsed (and only
+the first 20 children of a branch open by default, so opening the chart never
+fans out into a request per sibling); the toolbar has "Show next level",
+"Collapse all" and "Reset". Above 200 visible issues the chart draws nothing and
+asks the user to collapse or focus deeper, with a way back to Outline.
+
+Where it is available: from a focused node anywhere tree mode runs, and on a
+project page without focusing (the project is a virtual top node over the
+project's root issues, subject to the current filters). On `/issues` and
+`/my-issues` with nothing focused, Chart is disabled with a hint. The choice
+persists per surface in `multica_issue_tree_layout`; it only applies while the
+chart is available, so clearing focus on `/issues` shows the outline. The chart
+keeps its own open state (scoped to the surface and root, reset when the root
+changes), so the outline's expanded nodes and focus are untouched. Frontend only.
+Rollback: switch the web image back to a build without this patch.
+
+- Test prefix: `AG patch:`
+- Files:
+  - `packages/views/issues/components/tree-chart-layout.ts`,
+    `tree-chart-viewport.ts`, `tree-chart-view.tsx`, `tree-layout-context.tsx`,
+    `tree-layout-menu.tsx` (new)
+  - `packages/views/issues/components/tree-chart-layout.test.ts`,
+    `tree-chart-viewport.test.ts`, `tree-chart-view.test.tsx`,
+    `issues-header.tree-layout.test.tsx` (new)
+  - `packages/views/issues/surface/tree-chart-mode.test.tsx` (new)
+  - `packages/core/issues/stores/tree-layout-store.ts`,
+    `tree-layout-store.test.ts` (new)
+  - Hooks into tree mode's own files: `use-tree-rows.ts` (layout, chart open
+    state), `tree-rows.ts` (`flattenTree` accepts an open rule), `tree-view.tsx`
+    (shared `TreeToolbar`)
+  - One-line hooks in upstream files: `issues-header.tsx` (menu section),
+    `issue-surface.tsx` (layout switch and context provider),
+    `use-issue-surface-controller.ts` (`projectRoot`)
+  - `packages/views/locales/*/issues.json` (`tree.layout_*`, `tree.chart_*`),
+    `locales/ag-tree.test.ts`
+
+- Upstream:
+  - Status: `fork-only` for now; it extends the tree view patch above and would
+    follow it, so it is not a separate proposal.
+  - Overlap: none found beyond the tree view entry (open [#2966](https://github.com/multica-ai/multica/pull/2966) is an outline, not a chart).
+  - Fit: a second renderer for a view that does not exist upstream yet. Offer it
+    only after the outline lands, and only if asked.
+
 ### Daemon drain mode (landed)
 
 The daemon can be put into drain: it stops claiming new tasks, lets running

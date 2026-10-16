@@ -347,7 +347,20 @@
     "hidden_ancestors": "Parent issues hidden by the current filters",
     "filters_paused": "Filters are paused while focused",
     "clear_focus": "Clear focus",
-    "sub_issue_progress": "{{done}} of {{total}} sub-issues done"
+    "sub_issue_progress": "{{done}} of {{total}} sub-issues done",
+    "layout_section": "Layout",
+    "layout_outline": "Outline",
+    "layout_chart": "Chart",
+    "chart_hint": "Focus on an issue to see it as a chart.",
+    "chart_aria_label": "Issue org chart",
+    "chart_zoom_in": "Zoom in",
+    "chart_zoom_out": "Zoom out",
+    "chart_fit": "Fit to view",
+    "chart_reset": "Reset",
+    "chart_expand_level": "Show next level",
+    "chart_use_outline": "Switch to outline",
+    "chart_too_many_title": "Too many issues to draw",
+    "chart_too_many_body": "{{count}} issues are open, more than the {{max}} the chart draws. Collapse branches or focus on a smaller subtree."
   },
   "actor_issues": {
     "scope": {
