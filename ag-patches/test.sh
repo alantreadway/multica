@@ -24,6 +24,7 @@ pnpm install --frozen-lockfile
 pnpm --filter @multica/views exec vitest run \
   issues/components/swimlane-view.test.tsx \
   issues/components/swimlane-tree.test.ts \
+  issues/components/swimlane-band.test.ts \
   runtimes/components/drain-badge.test.tsx \
   runtimes/components/runtime-list-drain.test.tsx \
   runtimes/components/runtime-detail-drain.test.tsx \

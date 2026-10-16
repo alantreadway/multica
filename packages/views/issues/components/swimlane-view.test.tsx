@@ -2244,6 +2244,127 @@ describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
     expect(container.querySelector(".-mx-2")).toBeNull();
   });
 
+  it("AG patch: three roots alternate even / odd / even, ignoring the pinned lane ahead of them", async () => {
+    const W = mk("w", 9, null);
+    renderServer([null, W, B, A, X], [W, C, B, Y, A, X]);
+
+    await waitFor(() => expect(laneOf("Issue B")?.dataset.laneBand).toBe("odd"));
+    const bands = Object.fromEntries(
+      laneElements().map((el) => [laneTitle(el), el.dataset.laneBand ?? null]),
+    );
+    expect(bands).toEqual({
+      "No parent": null,
+      "Issue W": "even",
+      "Issue A": "odd",
+      "Issue B": "odd",
+      "Issue X": "even",
+    });
+    expect(laneOf("Issue A").dataset.laneBand).toBe(laneOf("Issue B").dataset.laneBand);
+  });
+
+  it("AG patch: every lane header sits at the same x whatever its depth", async () => {
+    renderServer([null, C, B, A], [D, C, B, A]);
+
+    await waitFor(() => expect(laneOf("Issue C")?.dataset.laneBand).toBe("even"));
+    const headerOf = (title: string) =>
+      laneOf(title).firstElementChild as HTMLElement;
+    const chevronOf = (title: string) =>
+      headerOf(title).querySelector("button svg") as SVGElement;
+    for (const title of ["Issue A", "Issue B", "Issue C"]) {
+      // The first child of the lane is the header row, with no leading rail or indent.
+      expect(headerOf(title).className).toBe(headerOf("Issue A").className);
+      expect(headerOf(title).querySelector(".border-l")).toBeNull();
+      expect(headerOf(title).getAttribute("style")).toBeNull();
+      // Grip, then the collapse button whose first icon is the chevron.
+      expect(headerOf(title).children[0]?.tagName.toLowerCase()).toBe("svg");
+      expect(headerOf(title).children[1]?.tagName.toLowerCase()).toBe("button");
+      expect(chevronOf(title)).toBe(
+        headerOf(title).children[1]!.firstElementChild,
+      );
+    }
+    // Banding pads and pulls back identically for every band, so x is shared.
+    expect(laneOf("Issue A").className).toContain("-mx-2");
+    expect(laneOf("Issue C").className).toContain("-mx-2");
+  });
+
+  it("AG patch: the band wraps the header row and the cells row, and no cell carries a band", async () => {
+    const { container } = renderServer([null, B, A, X], [C, B, Y, A, X]);
+
+    await waitFor(() => expect(laneOf("Issue X")?.dataset.laneBand).toBe("odd"));
+    const lane = laneOf("Issue X");
+    // Header row, then the cells grid, both inside the band element.
+    expect(lane.children).toHaveLength(2);
+    expect(lane.children[0]!.querySelector("button")).not.toBeNull();
+    // The band attribute and tint live on the lane element only.
+    expect(container.querySelectorAll("[data-lane-band]")).toHaveLength(
+      laneElements(container).filter((el) => el.dataset.laneBand).length,
+    );
+    const cells = lane.children[1]!.children;
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of Array.from(cells)) {
+      expect(cell.hasAttribute("data-lane-band")).toBe(false);
+      expect(cell.className).not.toContain("bg-muted/60");
+    }
+    // The band is inside the gap wrapper, so bands of different roots never touch.
+    expect(lane.parentElement!.className).toMatch(/\bpt-[24]\b/);
+  });
+
+  it("AG patch: a root that was collapsed gets its cells and sub-lanes back once expanded, band unchanged", async () => {
+    mockViewState.collapsedSwimlanes = { parent: ["a"], project: [], assignee: [] };
+    const first = renderServer([null, B, A, X], [C, B, Y, A, X]);
+
+    await waitFor(() => expect(lanesOf(first.container)).toHaveLength(3));
+    expect(laneOf("Issue A").children).toHaveLength(1);
+    expect(laneOf("Issue A").dataset.laneBand).toBe("even");
+
+    mockViewState.collapsedSwimlanes = { parent: [], project: [], assignee: [] };
+    first.unmount();
+    const view = renderServer([null, B, A, X], [C, B, Y, A, X]);
+
+    await waitFor(() => expect(laneOf("Issue B")?.dataset.laneBand).toBe("even"));
+    expect(lanesOf(view.container)).toHaveLength(4);
+    expect(laneOf("Issue A").children).toHaveLength(2);
+    expect(laneOf("Issue A").dataset.laneBand).toBe("even");
+    expect(laneOf("Issue B").dataset.laneBand).toBe("even");
+    expect(laneOf("Issue X").dataset.laneBand).toBe("odd");
+  });
+
+  it("AG patch: a sub-lane shows only its immediate parent, deeper lanes still show the full path in the tooltip", async () => {
+    renderServer([null, C, B, A], [D, C, B, A]);
+
+    const labels = await screen.findAllByText(/^↳ /);
+    const byText = Object.fromEntries(
+      labels.map((el) => [el.textContent, el.getAttribute("title")]),
+    );
+    expect(byText).toEqual({
+      "↳ MAG-1": "MAG-1 > MAG-2",
+      "↳ MAG-2": "MAG-1 > MAG-2 > MAG-3",
+    });
+    // Root lane A has no parent label.
+    expect(laneOf("Issue A").textContent).not.toContain("↳");
+  });
+
+  it.each(["project", "assignee"] as const)(
+    "AG patch: %s grouping keeps today's flat gap and no band",
+    async (grouping) => {
+      mockViewState.swimlaneGrouping = grouping;
+      const { container } = renderWithI18n(
+        <SwimLaneView
+          issues={[A, X]}
+          visibleStatuses={["todo"]}
+          onMoveIssue={vi.fn()}
+        />,
+      );
+
+      await waitFor(() =>
+        expect(laneElements(container).length).toBeGreaterThan(0),
+      );
+      expect(container.querySelector("[data-lane-band]")).toBeNull();
+      expect(container.querySelector(".-mx-2")).toBeNull();
+      expect(container.querySelector(".pt-2")).toBeNull();
+    },
+  );
+
   it("AG patch: ancestors without a lane of their own still appear in the path", async () => {
     // Only D is visible, so only C gets a lane; B and A exist in the
     // unfiltered set and must still show up in C's header path.
