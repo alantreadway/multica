@@ -89,16 +89,17 @@ export function countChartIssues(root: ChartNode | null): number {
 }
 
 /**
- * The chart has something to fit once the root's own branch has settled: no
- * loading placeholder directly under it. A focused issue is cached before its
- * children arrive, and a project's virtual root has no data of its own, so the
- * root node alone says nothing.
+ * The chart has something to fit once nothing in it is still loading: the
+ * focused issue is fetched, not cached, so until it lands the only row is a
+ * placeholder. Every open branch (the default-open levels included) shows a
+ * loading row until its children arrive, so none left means the tree is drawn.
  */
 export function isChartRootSettled(root: ChartNode | null): boolean {
-  if (!root) return false;
-  return !root.children.some(
-    (child) => child.row?.kind === "status" && child.row.state === "loading",
-  );
+  if (!root || root.kind === "status") return false;
+  const loading = (node: ChartNode): boolean =>
+    (node.row?.kind === "status" && node.row.state === "loading") ||
+    node.children.some(loading);
+  return !loading(root);
 }
 
 export interface ChartPlacedNode {
