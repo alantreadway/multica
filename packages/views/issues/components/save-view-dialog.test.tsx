@@ -68,6 +68,19 @@ describe("DraftDefinitionFields ordering", () => {
   });
 });
 
+describe("AG patch: saved-view layout picker", () => {
+  it("offers Tree as a layout and stores it on the draft", async () => {
+    const user = userEvent.setup();
+    const store = renderFields("position");
+
+    await user.click(screen.getByRole("button", { name: /Default display/ }));
+    await user.click(screen.getByRole("combobox", { name: /Layout/ }));
+    await user.click(await screen.findByRole("option", { name: "Tree" }));
+
+    expect(store.getState().viewMode).toBe("tree");
+  });
+});
+
 describe("SaveViewDialog draft lifecycle", () => {
   const liveStore = createStore<IssueViewState>()(viewStoreSlice);
   // Hosts build `scope` inline, so every host render passes a new object.

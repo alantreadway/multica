@@ -21,6 +21,7 @@ import type {
 } from "@multica/core/types";
 import { useIssueSurfaceController } from "./use-issue-surface-controller";
 import type { TreeIssueRow } from "../components/tree-rows";
+import type { IssueSurfaceMode } from "./types";
 
 // AG patch: tree view mode. The hook is driven through the surface controller,
 // the way the page uses it, against an in-memory issue graph.
@@ -78,6 +79,7 @@ describe("AG patch: tree view mode", () => {
   let listIssueTableRows: ReturnType<typeof vi.fn>;
   let listIssues: ReturnType<typeof vi.fn>;
   let getIssue: ReturnType<typeof vi.fn>;
+  let listIssueTableFacets: ReturnType<typeof vi.fn>;
 
   const childrenOf = (parent: string | null) =>
     [...graph.values()].filter((issue) => {
@@ -104,7 +106,7 @@ describe("AG patch: tree view mode", () => {
     };
   }
 
-  function useController(modes: Array<"list" | "table" | "tree"> = ["list", "table", "tree"]) {
+  function useController(modes: IssueSurfaceMode[] = ["list", "table", "tree"]) {
     return useIssueSurfaceController({ scope: { type: "workspace" }, modes });
   }
 
@@ -139,16 +141,17 @@ describe("AG patch: tree view mode", () => {
       return { issues, total: issues.length };
     });
     getIssue = vi.fn(async (id: string) => graph.get(id)!);
+    listIssueTableFacets = vi.fn(async () => ({
+      query_fingerprint: "fp",
+      total: 7,
+      facets: [{ kind: "priority", values: [{ key: "high", count: 7 }] }],
+    }));
     setApiInstance({
       listIssueStatuses: async () => ({ statuses: [], categories: [], total: 0 }),
       listIssues,
       getIssue,
       listIssueTableRows,
-      listIssueTableFacets: async () => ({
-        query_fingerprint: "fp",
-        total: 0,
-        facets: [],
-      }),
+      listIssueTableFacets,
       listIssueTableGroups: vi.fn(() => never()),
       listGroupedIssues: vi.fn(() => never()),
       listProjects: vi.fn(() => never()),
@@ -351,5 +354,123 @@ describe("AG patch: tree view mode", () => {
         ([request]) => (request as IssueTableRowsRequest).group.kind === "none",
       ),
     ).toBe(false);
+  });
+
+  it("applies filters and sort to the tree's row requests, and re-queries when they change", async () => {
+    graph.set("1", makeIssue("1"));
+    const store = getIssueSurfaceViewStore("workspace");
+    store.getState().setViewMode("tree");
+    store.getState().togglePriorityFilter("high");
+    store.getState().setSortBy("created_at");
+
+    const { result } = renderHook(useController, { wrapper: wrapper("workspace") });
+    await waitFor(() => expect(treeRows(result)).toHaveLength(1));
+
+    const lastRequest = () =>
+      listIssueTableRows.mock.calls.at(-1)![0] as IssueTableRowsRequest;
+    expect(lastRequest().query.filters).toMatchObject({ priorities: ["high"] });
+    expect(lastRequest().query.sort.field).toBe("created_at");
+
+    const callsBefore = listIssueTableRows.mock.calls.length;
+    act(() => store.getState().togglePriorityFilter("urgent"));
+    await waitFor(() =>
+      expect(lastRequest().query.filters.priorities).toEqual(["high", "urgent"]),
+    );
+    expect(listIssueTableRows.mock.calls.length).toBeGreaterThan(callsBefore);
+    expect(lastRequest().query.filters.include_sub_issues).toBe(true);
+  });
+
+  it("keeps the filter-bar counts on the server facets, evaluated over the same query", async () => {
+    graph.set("1", makeIssue("1"));
+    const store = getIssueSurfaceViewStore("workspace");
+    store.getState().setViewMode("tree");
+    store.getState().togglePriorityFilter("high");
+
+    const { result } = renderHook(useController, { wrapper: wrapper("workspace") });
+    await waitFor(() => expect(treeRows(result)).toHaveLength(1));
+    // Counts are not recounted from the loaded rows.
+    expect(result.current.facetCountsExact).toBe(false);
+
+    act(() => result.current.setActiveTableFacet({ kind: "priority" }));
+    await waitFor(() => expect(result.current.tableFacetCounts?.total).toBe(7));
+    const request = listIssueTableFacets.mock.calls.at(-1)![0];
+    expect(request.facets).toEqual(expect.arrayContaining([{ kind: "priority" }]));
+    expect(request.query.filters).toMatchObject({
+      priorities: ["high"],
+      include_sub_issues: true,
+    });
+  });
+
+  it("makes no tree requests in other modes", async () => {
+    graph.set("1", makeIssue("1"));
+    getIssueSurfaceViewStore("workspace").getState().setViewMode("list");
+
+    const { result } = renderHook(useController, { wrapper: wrapper("workspace") });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.tree.rows).toEqual([]);
+    expect(
+      listIssueTableRows.mock.calls.some(
+        ([request]) => (request as IssueTableRowsRequest).group.kind === "none",
+      ),
+    ).toBe(false);
+  });
+
+  it("works on a project surface with no focus, scoped to that project", async () => {
+    graph.set("1", makeIssue("1"));
+    graph.set("2", makeIssue("2", "1"));
+    getIssueSurfaceViewStore("project:p1").getState().setViewMode("tree");
+
+    const { result } = renderHook(
+      () =>
+        useIssueSurfaceController({
+          scope: { type: "project", projectId: "p1" },
+          modes: ["list", "tree"],
+        }),
+      { wrapper: wrapper("project:p1") },
+    );
+    await waitFor(() => expect(treeRows(result).map((r) => r.issue.id)).toEqual(["1"]));
+
+    expect(result.current.viewMode).toBe("tree");
+    expect(result.current.tree.focusId).toBeNull();
+    expect(result.current.tree.focusIssue).toBeNull();
+    expect(JSON.stringify(listIssueTableRows.mock.calls.at(-1)![0].query.scope)).toContain("p1");
+  });
+
+  it("keeps each surface's expanded nodes separate", async () => {
+    graph.set("1", makeIssue("1"));
+    graph.set("2", makeIssue("2", "1"));
+    getIssueSurfaceViewStore("workspace").getState().setViewMode("tree");
+    getIssueSurfaceViewStore("project:p1").getState().setViewMode("tree");
+
+    const workspace = renderHook(useController, { wrapper: wrapper("workspace") });
+    await waitFor(() => expect(treeRows(workspace.result)).toHaveLength(1));
+    act(() => workspace.result.current.tree.toggle("1"));
+    await waitFor(() => expect(treeRows(workspace.result)).toHaveLength(2));
+
+    const project = renderHook(
+      () =>
+        useIssueSurfaceController({
+          scope: { type: "project", projectId: "p1" },
+          modes: ["list", "tree"],
+        }),
+      { wrapper: wrapper("project:p1") },
+    );
+    await waitFor(() => expect(treeRows(project.result)).toHaveLength(1));
+    expect(treeRows(project.result)[0]).toMatchObject({ expanded: false });
+    expect(treeRows(workspace.result)).toHaveLength(2);
+  });
+
+  it("falls back to the surface's first mode, not List, when tree is not offered", async () => {
+    const store = getIssueSurfaceViewStore("workspace");
+    store.getState().setViewMode("tree");
+
+    const { result } = renderHook(() => useController(["board", "list"]), {
+      wrapper: wrapper("workspace"),
+    });
+
+    expect(result.current.viewMode).toBe("board");
+    expect(result.current.allowTree).toBe(false);
+    await waitFor(() => expect(store.getState().viewMode).toBe("board"));
   });
 });

@@ -232,8 +232,12 @@ vi.mock("./project-due-date-picker", () => ({
   ProjectDueDatePicker: () => null,
 }));
 
+const surfaceModes = vi.hoisted(() => ({ seen: [] as string[][] }));
 vi.mock("../../issues/surface/issue-surface", () => ({
-  IssueSurface: () => null,
+  IssueSurface: ({ modes }: { modes: string[] }) => {
+    surfaceModes.seen.push(modes);
+    return null;
+  },
 }));
 
 vi.mock("../../layout/breadcrumb-header", () => ({
@@ -317,6 +321,16 @@ describe("ProjectDetail sharing", () => {
     );
     expect(mocks.copyText).toHaveBeenCalledWith(
       "https://app.example/test-workspace/projects/project-1",
+    );
+  });
+});
+
+describe("AG patch: ProjectDetail layouts", () => {
+  it("offers Tree on the project page alongside the existing layouts", () => {
+    surfaceModes.seen = [];
+    renderProjectDetail();
+    expect(surfaceModes.seen.at(-1)).toEqual(
+      expect.arrayContaining(["board", "list", "table", "swimlane", "gantt", "tree"]),
     );
   });
 });
