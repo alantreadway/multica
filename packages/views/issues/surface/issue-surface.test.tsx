@@ -643,6 +643,87 @@ describe("IssueSurface — table pagination ownership", () => {
     expect(screen.getByText("Table row kept during sort")).toBeInTheDocument();
   });
 
+  // AG patch: the real surface in tree mode. The surface renders `<TreeView>`
+  // and hands `allowTree` to the header; a mode wired into the controller but
+  // not into these two spots would give a blank surface or no menu entry.
+  it("AG patch: renders the outline tree and a Tree menu entry in tree mode", async () => {
+    const { getIssueSurfaceViewStore } = await import(
+      "@multica/core/issues/stores/surface-view-store"
+    );
+    const store = getIssueSurfaceViewStore("project:pt-tree-mode");
+    store.getState().setViewMode("tree");
+    const parent = makeIssue("tree-parent", "Tree parent row", "pt-tree-mode");
+    const child = makeIssue("tree-child", "Tree child row", "pt-tree-mode");
+    child.parent_issue_id = parent.id;
+    const listIssueTableRows = vi.fn(async (request: IssueTableRowsRequest) => ({
+      query_fingerprint: "sha256:tree",
+      group_key: null,
+      parent_id: request.parent_id,
+      total: 1,
+      rows:
+        request.parent_id === null
+          ? [{ issue: parent, direct_child_count: 1 }]
+          : [{ issue: child, direct_child_count: 0 }],
+      branch_total: 1,
+      next_cursor: null,
+    }));
+    setApiInstance({
+      listIssueStatuses: async () => ({ statuses: [], categories: [], total: 0 }),
+      listIssues,
+      listIssueTableRows,
+      listIssueTableFacets: vi.fn(() => never()),
+      listGroupedIssues: vi.fn(() => never()),
+      listProjects: vi.fn(() => Promise.resolve([])),
+      getAgentTaskSnapshot: vi.fn(() => Promise.resolve([])),
+      getChildIssueProgress: vi.fn(() => Promise.resolve([])),
+      listProperties: vi.fn(() => Promise.resolve({ properties: [] })),
+      listMembers: vi.fn(() => Promise.resolve([])),
+      listAgents: vi.fn(() => Promise.resolve([])),
+      listSquads: vi.fn(() => Promise.resolve([])),
+      listLabels: vi.fn(() => never()),
+    } as unknown as ApiClient);
+    // Name each control by its i18n key path ($.view.tree -> "view.tree").
+    const keyPath = (select: (r: unknown) => unknown) => {
+      const parts: string[] = [];
+      const proxy: object = new Proxy(
+        {},
+        {
+          get: (_t, p) => {
+            if (p === Symbol.toPrimitive || p === "toString") {
+              return () => parts.join(".");
+            }
+            parts.push(String(p));
+            return proxy;
+          },
+        },
+      );
+      return String(select(proxy));
+    };
+    mockTranslate.mockImplementation(keyPath as never);
+
+    render(
+      <QueryClientProvider client={qc}>
+        <IssueSurface
+          scope={{ type: "project", projectId: "pt-tree-mode" }}
+          modes={["list", "tree"]}
+          batchToolbar="never"
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Tree parent row")).toBeInTheDocument();
+    expect(screen.getByRole("tree")).toBeInTheDocument();
+    expect(screen.getAllByRole("treeitem")).toHaveLength(1);
+    // Children arrive when the parent opens.
+    fireEvent.click(screen.getByRole("button", { name: "tree.expand" }));
+    expect(await screen.findByText("Tree child row")).toBeInTheDocument();
+
+    // The header offers the Tree layout, so it can be left and re-entered.
+    fireEvent.click(await screen.findByRole("button", { name: /view\.tree/ }));
+    expect(await screen.findByRole("menuitemradio", { name: /view\.tree/ })).toBeInTheDocument();
+    mockTranslate.mockImplementation((() => "translated") as never);
+  });
+
   it("keeps selected Table rows in the batch universe after their group collapses", async () => {
     const { getIssueSurfaceViewStore } = await import(
       "@multica/core/issues/stores/surface-view-store"

@@ -122,7 +122,13 @@ sub-issue progress and the agent-working dot. Each node expands and collapses
 at most (and no more than 100 nodes). A node's focus action makes it the root,
 with a breadcrumb back up. A root whose parent the filters removed shows that
 hidden ancestor path dimmed (`MAG-1 › MAG-2 ›`); clicking a crumb focuses that
-ancestor. Peek and open work as in List. Frontend only: it reuses the Table row
+ancestor. While a node is focused, its subtree is fetched without the filter-bar
+filters, search or surface scope (sort stays, sub-issues stay on), because the
+server only returns a branch whose parent passes the filters and a hidden
+ancestor would otherwise come back empty; the bar shows "Filters are paused
+while focused" with a clear-focus action, and leaving focus restores the
+filtered tree. Filter counts are those of the filtered view. Peek and open work
+as in List. Frontend only: it reuses the Table row
 query (`hierarchy: { enabled: true }`, one parent per request, pages of 50), so
 filtering, sort, counts and WebSocket invalidation match the other modes, and
 tree mode forces `include_sub_issues` on. Expand state persists per surface
@@ -141,8 +147,8 @@ first mode. Rollback: switch the web image back to a build without this patch.
   - `packages/views/issues/surface/tree-mode.test.tsx`,
     `tree-mode-surfaces.test.tsx`, `packages/views/locales/ag-tree.test.ts` (new)
   - Tree cases added to the existing `save-view-dialog.test.tsx`,
-    `actor-issues-panel.test.tsx`, `project-detail.test.tsx` and
-    `issue-statuses-tab.test.tsx`
+    `actor-issues-panel.test.tsx`, `project-detail.test.tsx`,
+    `issue-statuses-tab.test.tsx` and `issue-surface.test.tsx`
   - `packages/core/issues/stores/tree-view-store.ts`,
     `tree-view-store.test.ts` (new)
   - `packages/core/issues/stores/view-store.ts` (`ViewMode`, card options)

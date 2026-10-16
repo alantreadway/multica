@@ -279,12 +279,58 @@ describe("AG patch: TreeView", () => {
     const tree = state([
       root("1", { childCount: 5, expanded: true }),
       { kind: "status", key: "status:1", parentId: "1", depth: 1, guides: [false], branchKey: "1", state: "error" },
-      { kind: "more", key: "more:__root__", parentId: null, depth: 0, guides: [], branchKey: "__root__", loading: false },
+      { kind: "more", key: "more:__root__", parentId: null, depth: 0, guides: [], branchKey: "__root__", loading: false, error: false },
     ]);
     renderTree(tree);
     fireEvent.click(screen.getByRole("button", { name: "tree.retry" }));
     expect(tree.retry).toHaveBeenCalledWith("1");
     fireEvent.click(screen.getByRole("button", { name: "tree.load_more" }));
     expect(tree.loadMore).toHaveBeenCalledWith("__root__");
+  });
+
+  it("shows a failed load-more as an error with a retry, not a dead button", () => {
+    const tree = state([
+      root("1"),
+      { kind: "more", key: "more:__root__", parentId: null, depth: 0, guides: [], branchKey: "__root__", loading: false, error: true },
+    ]);
+    renderTree(tree);
+    expect(screen.getByRole("alert")).toHaveTextContent("tree.load_error");
+    expect(screen.queryByRole("button", { name: "tree.load_more" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "tree.retry" }));
+    expect(tree.retry).toHaveBeenCalledWith("__root__");
+    expect(tree.loadMore).not.toHaveBeenCalled();
+  });
+
+  it("keeps the focus action in the tab order and visible on keyboard focus or touch", () => {
+    renderTree(state([root("1")]));
+    const button = screen.getByRole("button", { name: "tree.focus" });
+    const classes = button.className.split(/\s+/);
+    // `hidden` is display:none, which removes the button from the tab order.
+    expect(classes).not.toContain("hidden");
+    expect(classes).toContain("flex");
+    expect(classes).toContain("opacity-0");
+    expect(classes).toContain("focus-visible:opacity-100");
+    expect(classes).toContain("group-focus-within/row:opacity-100");
+    expect(classes).toContain("[@media(hover:none)]:opacity-100");
+    button.focus();
+    expect(document.activeElement).toBe(button);
+  });
+
+  it("says filters are paused while focused, and clears focus from the hint", () => {
+    const focusIssue = issue("9");
+    const tree = state([root("9", { issue: focusIssue, expanded: true })], {
+      focusId: "9",
+      focusIssue,
+    });
+    renderTree(tree);
+    const hint = document.querySelector('[data-slot="tree-filters-paused"]') as HTMLElement;
+    expect(hint).toHaveTextContent("tree.filters_paused");
+    fireEvent.click(within(hint).getByRole("button", { name: "tree.clear_focus" }));
+    expect(tree.clearFocus).toHaveBeenCalled();
+  });
+
+  it("has no paused-filters hint when nothing is focused", () => {
+    renderTree(state([root("1")]));
+    expect(document.querySelector('[data-slot="tree-filters-paused"]')).toBeNull();
   });
 });
