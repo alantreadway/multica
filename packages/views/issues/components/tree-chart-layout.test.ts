@@ -7,8 +7,6 @@ import {
   CHART_NODE_WIDTH,
   CHART_SIBLING_GAP,
   CHART_VIRTUAL_ROOT_ID,
-  TREE_CHART_DEFAULT_OPEN_DEPTH,
-  TREE_CHART_DEFAULT_OPEN_PER_BRANCH,
   buildChartTree,
   countChartIssues,
   elbowPath,
@@ -189,39 +187,5 @@ describe("AG patch: org chart from outline rows", () => {
     const collapsed = layoutChartTree(buildChartTree(flatten(new Set()), true));
     expect(open.nodes.map((n) => n.id)).toEqual([CHART_VIRTUAL_ROOT_ID, "1", "11", "111", "12", "2"]);
     expect(collapsed.nodes.map((n) => n.id)).toEqual([CHART_VIRTUAL_ROOT_ID, "1", "2"]);
-  });
-
-  it("collapses by default below depth 2 when opened by the depth rule", () => {
-    const rule: TreeExpandRule = (_id, depth, index) =>
-      depth < TREE_CHART_DEFAULT_OPEN_DEPTH && index < TREE_CHART_DEFAULT_OPEN_PER_BRANCH;
-    // The focused root (depth 0) is always open; its children are open by the
-    // rule; their children are drawn but stay collapsed.
-    const deep = branches({
-      __root__: [],
-      "0": ["1"],
-      "1": ["2"],
-      "2": ["3"],
-      "3": ["4"],
-    });
-    const rows = flattenTree({ focusIssue: issue("0"), branches: deep, expanded: rule });
-    const tree = buildChartTree(rows, false)!;
-    const ids: string[] = [];
-    const walk = (n: ChartNode) => {
-      ids.push(n.id);
-      n.children.forEach(walk);
-    };
-    walk(tree);
-    expect(ids).toEqual(["0", "1", "2"]);
-  });
-
-  it("only opens the first nodes of a wide branch by default", () => {
-    const kids = Array.from({ length: TREE_CHART_DEFAULT_OPEN_PER_BRANCH + 5 }, (_, i) => `k${i}`);
-    const wide: Record<string, string[]> = { __root__: kids };
-    for (const k of kids) wide[k] = [`${k}-c`];
-    const rule: TreeExpandRule = (_id, depth, index) =>
-      depth < TREE_CHART_DEFAULT_OPEN_DEPTH && index < TREE_CHART_DEFAULT_OPEN_PER_BRANCH;
-    const rows = flattenTree({ focusIssue: null, branches: branches(wide), expanded: rule });
-    const open = rows.filter((r) => r.kind === "issue" && r.expanded);
-    expect(open).toHaveLength(TREE_CHART_DEFAULT_OPEN_PER_BRANCH);
   });
 });

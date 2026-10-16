@@ -304,7 +304,7 @@ describe("AG patch: TreeChartView", () => {
     expect(nodes()).toHaveLength(TREE_CHART_NODE_CAP);
   });
 
-  it("zooms with its controls and the keyboard, and fits back", () => {
+  it("zooms with its controls and the keyboard", () => {
     const { container } = renderChart(state([row("1", 0)]));
     const canvas = container.querySelector('[data-slot="tree-chart-canvas"]') as HTMLElement;
     const scale = () => /scale\(([\d.]+)\)/.exec(canvas.style.transform)![1]!;
@@ -318,6 +318,84 @@ describe("AG patch: TreeChartView", () => {
     const surface = container.querySelector('[data-slot="tree-chart"]') as HTMLElement;
     fireEvent.keyDown(surface, { key: "-" });
     expect(Number(scale())).toBeLessThan(1);
+  });
+
+  describe("fit and keyboard", () => {
+    // jsdom has no layout: give the view a size so Fit has something to fit to.
+    beforeEach(() => {
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(600);
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(400);
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    const wide = () => {
+      // Twelve siblings are far wider than the 600px view.
+      const kids = Array.from({ length: 12 }, (_, i) => row(`c${i}`, 1));
+      return state([row("1", 0, { childCount: 12, expanded: true }), ...kids], { focusId: "1" });
+    };
+    const parts = (container: HTMLElement) => {
+      const canvas = container.querySelector('[data-slot="tree-chart-canvas"]') as HTMLElement;
+      const [, x, y] = /translate\(([-\d.]+)px, ([-\d.]+)px\) scale\(([\d.]+)\)/
+        .exec(canvas.style.transform)!;
+      return {
+        x: Number(x),
+        y: Number(y),
+        scale: Number(/scale\(([\d.]+)\)/.exec(canvas.style.transform)![1]),
+      };
+    };
+
+    it("Fit to view returns a zoomed and panned chart to the fitted view", () => {
+      const { container } = renderChart(wide());
+      const fitted = parts(container);
+      expect(fitted.scale).toBeLessThan(1);
+
+      const surface = container.querySelector('[data-slot="tree-chart"]') as HTMLElement;
+      fireEvent.click(screen.getByRole("button", { name: "tree.chart_zoom_in" }));
+      fireEvent.keyDown(surface, { key: "ArrowLeft" });
+      expect(parts(container)).not.toEqual(fitted);
+
+      fireEvent.click(screen.getByRole("button", { name: "tree.chart_fit" }));
+      expect(parts(container)).toEqual(fitted);
+    });
+
+    it("the 0 key fits the chart as the Fit button does", () => {
+      const { container } = renderChart(wide());
+      const fitted = parts(container);
+      const surface = container.querySelector('[data-slot="tree-chart"]') as HTMLElement;
+
+      fireEvent.keyDown(surface, { key: "+" });
+      fireEvent.keyDown(surface, { key: "ArrowDown" });
+      expect(parts(container)).not.toEqual(fitted);
+
+      fireEvent.keyDown(surface, { key: "0" });
+      expect(parts(container)).toEqual(fitted);
+    });
+
+    it("pans with the arrow keys", () => {
+      const { container } = renderChart(state([row("1", 0)]));
+      const surface = container.querySelector('[data-slot="tree-chart"]') as HTMLElement;
+      const start = parts(container);
+
+      fireEvent.keyDown(surface, { key: "ArrowLeft" });
+      const left = parts(container);
+      expect(left.x).toBeGreaterThan(start.x);
+      expect(left.y).toBe(start.y);
+
+      fireEvent.keyDown(surface, { key: "ArrowRight" });
+      expect(parts(container)).toEqual(start);
+
+      fireEvent.keyDown(surface, { key: "ArrowUp" });
+      expect(parts(container).y).toBeGreaterThan(start.y);
+      fireEvent.keyDown(surface, { key: "ArrowDown" });
+      expect(parts(container)).toEqual(start);
+    });
+
+    it("ignores keys pressed inside a node", () => {
+      const { container } = renderChart(state([row("1", 0)]));
+      const before = parts(container);
+      fireEvent.keyDown(within(nodes()[0]!).getByRole("link"), { key: "ArrowLeft" });
+      expect(parts(container)).toEqual(before);
+    });
   });
 
   it("pans by dragging the background and ignores a drag that starts on a control", () => {
