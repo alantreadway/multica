@@ -482,6 +482,13 @@ Needs a CLI built with `ag-patches/build-cli.sh`.
       `cmd_daemon.go` (one-line hooks in the launcher, `runDaemonForeground`,
       `runDaemonStop`, `runDaemonRestart`)
     - `ag-patches/multica-daemon-reload` (new), `ag-patches/README.md`
+    - Tests: `server/internal/daemon/ag_handoff_test.go`,
+      `server/cmd/multica/ag_daemon_handoff_test.go` (new: handoff and overlap
+      behaviour, predecessor discovery and death, GC step preemption, the CLI
+      flags) and `server/cmd/multica/ag_reload_script_test.go` (new: runs
+      `multica-daemon-reload` against stub `launchctl`, `plutil` and `multica`;
+      the cases that run the script need `bash` and `jq` and skip without them)
+    - `ag-patches/test.sh` (`AG_GO_MIN_TESTS` 67)
 
 - Upstream:
   - Status: `fork-only`. It lets two daemons overlap during a handoff, which
