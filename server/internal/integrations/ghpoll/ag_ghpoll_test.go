@@ -219,8 +219,12 @@ func TestAGPatchGHPollFirstPassAndCursor(t *testing.T) {
 
 	t.Run("AG patch: the first pass mirrors the page oldest first, refreshes each, and sends the token", func(t *testing.T) {
 		p.Tick(context.Background())
+		refreshed := strings.Join(sink.refreshed, ",")
 		if got := strings.Join(sink.take(), ","); got != "org/repo#2,org/repo#3" {
 			t.Fatalf("mirrored %s", got)
+		}
+		if refreshed != "org/repo#2,org/repo#3" {
+			t.Fatalf("refreshed %s, want every mirrored PR", refreshed)
 		}
 		r := g.requests[0]
 		if r.Header.Get("Authorization") != "Bearer ghp_secret" || r.URL.Path != "/repos/org/repo/pulls" {
@@ -306,11 +310,12 @@ func TestAGPatchGHPollFailurePolicy(t *testing.T) {
 		sink := &fakeSink{failOn: map[int32]bool{2: true}}
 		p, _ := newPoller(t, g, sink)
 		p.Tick(context.Background())
+		refreshed := append([]string(nil), sink.refreshed...)
 		if got := sink.take(); len(got) != 1 || got[0] != "org/repo#1" {
 			t.Fatalf("mirrored %v", got)
 		}
-		if len(sink.refreshed) != 0 && strings.Contains(strings.Join(sink.refreshed, ","), "#2") {
-			t.Fatalf("a failed PR must not be refreshed")
+		if len(refreshed) != 1 || refreshed[0] != "org/repo#1" {
+			t.Fatalf("refreshed %v, want only the PR that mirrored", refreshed)
 		}
 		sink.failOn = nil
 		p.Tick(context.Background())
