@@ -5,10 +5,16 @@ package daemon
 // the helper process from ag_slotlock_test.go.
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -269,5 +275,153 @@ func TestAGPatchHeavyGCRunsWhenNoOtherDaemon(t *testing.T) {
 	d.maintainRepoCache(t.Context(), barePath, &gcStats{})
 	if _, err := os.Stat(filepath.Join(barePath, repoMaintenanceMarker)); !os.IsNotExist(err) {
 		t.Fatalf("heavy maintenance should have run and cleared its marker (stat err = %v)", err)
+	}
+}
+
+// The headline cap through the real claim loop: while another process holds K of
+// N slots, runBatchPoller asks the server for at most N-K tasks, never runs more
+// than N-K at once, and hands each task a slot index the other process doesn't
+// hold (that index is what MULTICA_TASK_SLOT carries).
+func TestAGPatchBatchPollerHonoursSlotsHeldByOtherProcess(t *testing.T) {
+	skipWithoutFlock(t)
+	const total, held, queued = 4, 2, 10
+	dir := filepath.Join(t.TempDir(), "slots")
+	helper := startAGSlotHelper(t, dir, total, held)
+	heldByHelper := map[int]bool{}
+	for _, s := range helper.slots {
+		heldByHelper[s] = true
+	}
+	if len(heldByHelper) != held {
+		t.Fatalf("helper holds %v, want %d distinct slots", helper.slots, held)
+	}
+
+	var (
+		mu       sync.Mutex
+		remain   = queued
+		requests []int
+		next     int
+	)
+	var completed atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/api/daemon/tasks/claim"):
+			var body struct {
+				MaxTasks int `json:"max_tasks"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			mu.Lock()
+			requests = append(requests, body.MaxTasks)
+			n := body.MaxTasks
+			if n > remain {
+				n = remain
+			}
+			var tasks []string
+			for i := 0; i < n; i++ {
+				next++
+				tasks = append(tasks, fmt.Sprintf(`{"id":"t%d","runtime_id":"rt-1","issue_id":"i%d"}`, next, next))
+			}
+			remain -= n
+			mu.Unlock()
+			_, _ = w.Write([]byte(`{"tasks":[` + strings.Join(tasks, ",") + `]}`))
+		case strings.HasSuffix(r.URL.Path, "/complete"):
+			completed.Add(1)
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	d := New(Config{
+		ServerBaseURL:      srv.URL,
+		WorkspacesRoot:     t.TempDir(),
+		DaemonID:           "daemon-cap",
+		PollInterval:       10 * time.Millisecond,
+		MaxConcurrentTasks: total,
+	}, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	d.workspaces["ws-1"] = &workspaceState{workspaceID: "ws-1", runtimeIDs: []string{"rt-1"}}
+	d.runtimeIndex["rt-1"] = Runtime{ID: "rt-1"}
+	d.cancelPollInterval = time.Hour
+	d.taskSlotWait = 10 * time.Millisecond
+
+	var (
+		runMu      sync.Mutex
+		running    int
+		peak       int
+		inUse      = map[int]bool{}
+		violations []string
+	)
+	d.runner = taskRunnerFunc(func(_ context.Context, task Task, _ string, slot int, _ *slog.Logger) (TaskResult, error) {
+		runMu.Lock()
+		running++
+		if running > peak {
+			peak = running
+		}
+		if heldByHelper[slot] {
+			violations = append(violations, fmt.Sprintf("%s got slot %d held by the other process", task.ID, slot))
+		}
+		if slot < 0 || slot >= total {
+			violations = append(violations, fmt.Sprintf("%s got slot %d outside [0,%d)", task.ID, slot, total))
+		}
+		if inUse[slot] {
+			violations = append(violations, fmt.Sprintf("%s got slot %d already in use", task.ID, slot))
+		}
+		inUse[slot] = true
+		runMu.Unlock()
+
+		time.Sleep(40 * time.Millisecond)
+
+		runMu.Lock()
+		running--
+		delete(inUse, slot)
+		runMu.Unlock()
+		return TaskResult{Status: "completed"}, nil
+	})
+
+	sem := newTaskSlotSemaphore(dir, total, nil)
+	wakeup := make(chan struct{}, 1)
+	var taskWG sync.WaitGroup
+	ctx, cancel := context.WithCancel(context.Background())
+	pollDone := make(chan struct{})
+	go func() {
+		defer close(pollDone)
+		d.runBatchPoller(ctx, ctx, sem, wakeup, &taskWG)
+	}()
+	deadline := time.After(10 * time.Second)
+	for completed.Load() < queued {
+		select {
+		case <-deadline:
+			cancel()
+			<-pollDone
+			taskWG.Wait()
+			t.Fatalf("only %d of %d tasks completed", completed.Load(), queued)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	cancel()
+	<-pollDone
+	taskWG.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(requests) == 0 {
+		t.Fatal("poller never claimed")
+	}
+	for i, n := range requests {
+		if n < 1 || n > total-held {
+			t.Fatalf("claim %d asked for max_tasks=%d, want 1..%d (requests %v)", i, n, total-held, requests)
+		}
+	}
+	runMu.Lock()
+	defer runMu.Unlock()
+	if peak > total-held {
+		t.Fatalf("peak concurrent tasks = %d, want <= %d", peak, total-held)
+	}
+	if peak != total-held {
+		t.Fatalf("peak concurrent tasks = %d, want the full %d free slots used", peak, total-held)
+	}
+	if len(violations) > 0 {
+		t.Fatalf("slot violations: %v", violations)
 	}
 }
