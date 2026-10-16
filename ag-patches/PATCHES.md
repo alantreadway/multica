@@ -254,14 +254,15 @@ Needs a CLI built with `ag-patches/build-cli.sh`.
 - Files:
   - `server/internal/daemon/ag_slotlock.go`, `ag_slotlock_unix.go`,
     `ag_slotlock_other.go` (new: slot locks, wait loop, GC probe)
-  - `server/internal/daemon/ag_slotlock_test.go` (new)
+  - `server/internal/daemon/ag_slotlock_test.go`, `ag_slotlock_extra_test.go` (new)
   - `server/internal/daemon/daemon.go` (`agSlotDir` and `agSlots` fields,
     `pollLoop`, `runBatchPoller`; the old channel helpers `newTaskSlotSemaphore`,
     `waitForTaskSlot`, `drainAvailableSlots` moved to `ag_slotlock.go`)
   - `server/internal/daemon/gc.go` (two heavy-GC checks call
     `agOtherDaemonBusy`)
   - `server/internal/daemon/repocache/ag_repolock.go`, `ag_repolock_unix.go`,
-    `ag_repolock_other.go` (new) and `ag_repolock_test.go` (new)
+    `ag_repolock_other.go` (new) and `ag_repolock_test.go`,
+    `ag_repolock_extra_test.go` (new)
   - `server/internal/daemon/repocache/cache.go` (`agFlock` field, hooks in
     `LockContext`, `Unlock`, `tryLockMaintenance`, `lockForRepo`)
   - `server/cmd/multica/ag_daemon_pidfile.go`, `ag_daemon_pidfile_test.go` (new)
@@ -272,7 +273,7 @@ Needs a CLI built with `ag-patches/build-cli.sh`.
     a temp slot dir for `pollLoop`), `repocache/cache_test.go` (real temp bare
     paths, since the repo lock now needs a lock file beside the repo),
     `gc_repo_evict_test.go` (tolerates the lock file)
-  - `ag-patches/test.sh` (`repocache` package added, `AG_GO_MIN_TESTS` 33)
+  - `ag-patches/test.sh` (`repocache` package added, `AG_GO_MIN_TESTS` 45)
 
 - Upstream:
   - Status: `fork-only`. It exists to let two daemons overlap during a handoff,
