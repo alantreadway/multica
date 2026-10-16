@@ -373,7 +373,7 @@ changes do not touch a PR's `updated_at`: the snapshot's chase backoff, the
     `--until-pr checks` / `merged` wakeups on a polled row)
   - `server/cmd/server/main.go` (one-line hook next to `PRRefresh.Start`)
   - `ag-patches/docker-compose.github-poll.yml` (new, tooling: passes the three
-    variables to the backend), `ag-patches/test.sh` (new packages, minimum 43)
+    variables to the backend), `ag-patches/test.sh` (new packages, minimum 69)
 
 - Upstream:
   - Status: `candidate`. Nothing is proposed; upstream wants a Feature Request
