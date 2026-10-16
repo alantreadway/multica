@@ -23,6 +23,8 @@ type CheckContext struct {
 	Conclusion      string
 	DetailsURL      string
 	IsStatusContext bool
+	// Required is isRequired(pullRequestNumber:), nil when GitHub did not say.
+	Required *bool
 }
 
 // PRSnapshot is the atomic unit written per fetch. It mirrors exactly what the
@@ -38,6 +40,7 @@ type PRSnapshot struct {
 	// as passed (acceptance criterion 5).
 	HasChecks bool
 	Contexts  []CheckContext
+	AG        AGSnapshotExtras
 }
 
 // Decided reports whether the snapshot has settled: no check is still running
