@@ -271,7 +271,7 @@ func (c *Client) graphQL(ctx context.Context, installationID int64, query string
 		}
 		// Surface the message but nothing else; GraphQL error messages do not
 		// contain credentials.
-		return nil, fmt.Errorf("github graphql error: %s", envelope.Errors[0].Message)
+		return nil, &GraphQLError{Message: envelope.Errors[0].Message}
 	}
 	if len(envelope.Data) == 0 {
 		return nil, errors.New("github graphql: empty data")
