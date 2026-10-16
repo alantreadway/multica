@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setApiInstance } from "@multica/core/api";
 import type { ApiClient } from "@multica/core/api/client";
@@ -127,6 +127,18 @@ const chartNodes = () => document.querySelectorAll('[data-slot="tree-chart-node"
 describe("AG patch: IssueSurface layout choice", () => {
   let qc: QueryClient;
   let graph: Map<string, Issue>;
+  // Requests parked until a test releases them: `issue:<id>` for the detail
+  // fetch, `rows:<parent id>` for a branch of children.
+  let held: Map<string, Promise<void>>;
+  let release: Map<string, () => void>;
+
+  const hold = (key: string) => {
+    held.set(
+      key,
+      new Promise<void>((resolve) => release.set(key, resolve)),
+    );
+  };
+  const letGo = (key: string) => release.get(key)?.();
 
   const childrenOf = (parent: string | null) =>
     [...graph.values()].filter((issue) => issue.parent_issue_id === parent);
@@ -134,6 +146,8 @@ describe("AG patch: IssueSurface layout choice", () => {
   beforeEach(() => {
     qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     graph = new Map();
+    held = new Map();
+    release = new Map();
     // 1 > 2, 1 > 3
     graph.set("1", makeIssue("1"));
     graph.set("2", makeIssue("2", "1"));
@@ -144,8 +158,12 @@ describe("AG patch: IssueSurface layout choice", () => {
         const issues = (params?.ids ?? []).flatMap((id) => graph.get(id) ?? []);
         return { issues, total: issues.length };
       }),
-      getIssue: vi.fn(async (id: string) => graph.get(id)!),
+      getIssue: vi.fn(async (id: string) => {
+        await held.get(`issue:${id}`);
+        return graph.get(id)!;
+      }),
       listIssueTableRows: vi.fn(async (request: IssueTableRowsRequest) => {
+        await held.get(`rows:${request.parent_id}`);
         const all = childrenOf(request.parent_id);
         return {
           query_fingerprint: "fp",
@@ -252,5 +270,74 @@ describe("AG patch: IssueSurface layout choice", () => {
     fireEvent.click(item);
     expect(chart()).toBeNull();
     expect(useTreeLayoutStore.getState().layouts).toEqual({});
+  });
+
+  describe("auto-fit through the real rows hook", () => {
+    // jsdom has no layout: give the chart a size so a fit has somewhere to go.
+    beforeEach(() => {
+      vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(600);
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(400);
+    });
+
+    const scale = () => {
+      const canvas = document.querySelector('[data-slot="tree-chart-canvas"]') as HTMLElement;
+      return Number(/scale\(([\d.]+)\)/.exec(canvas.style.transform)![1]);
+    };
+    const addChildren = (parent: string, count: number) => {
+      for (let i = 0; i < count; i++) {
+        graph.set(`${parent}-${i}`, makeIssue(`${parent}-${i}`, parent));
+      }
+    };
+    const chooseChart = async () => {
+      await chooseTreeMode();
+      await waitFor(() => expect(outlineRows().length).toBeGreaterThan(0));
+      await openMenu("Tree");
+      fireEvent.click(await screen.findByRole("menuitemradio", { name: "Chart" }));
+      await waitFor(() => expect(chart()).toBeInTheDocument());
+    };
+
+    it("fits a re-rooted chart once the focused issue and its children have arrived, not on the lone placeholder", async () => {
+      graph.clear();
+      graph.set("1", makeIssue("1"));
+      addChildren("1", 12);
+      mount({ type: "project", projectId: "p1" });
+      await chooseChart();
+      await waitFor(() => expect(chartNodes().length).toBeGreaterThanOrEqual(13));
+
+      // The focused issue's detail is a plain fetch: until it lands the chart
+      // has one placeholder and nothing to fit.
+      hold("issue:1");
+      const node = await screen.findByLabelText("MAG-1 Issue 1");
+      fireEvent.click(within(node).getByRole("button", { name: "Focus on this issue" }));
+      await waitFor(() =>
+        expect(document.querySelector('[data-slot="tree-chart-status"]')).toBeInTheDocument(),
+      );
+      expect(chartNodes()).toHaveLength(0);
+
+      letGo("issue:1");
+      await waitFor(() => expect(chartNodes().length).toBeGreaterThanOrEqual(13));
+      // Twelve children are far wider than the 600px view: shrunk to fit.
+      await waitFor(() => expect(scale()).toBeLessThan(1));
+    });
+
+    it("waits for the default-open level to load before fitting, so grandchildren do not spill out of the view", async () => {
+      graph.clear();
+      graph.set("r1", makeIssue("r1"));
+      graph.set("r2", makeIssue("r2"));
+      addChildren("r1", 12);
+      hold("rows:r1");
+      mount({ type: "project", projectId: "p1" });
+      await chooseChart();
+      await waitFor(() => expect(chartNodes().length).toBeGreaterThanOrEqual(2));
+      await waitFor(() =>
+        expect(document.querySelector('[data-slot="tree-chart-status"]')).toBeInTheDocument(),
+      );
+      // Two root issues alone fit at scale 1; fitting now would lock that in.
+      expect(scale()).toBe(1);
+
+      letGo("rows:r1");
+      await waitFor(() => expect(chartNodes().length).toBeGreaterThanOrEqual(14));
+      await waitFor(() => expect(scale()).toBeLessThan(1));
+    });
   });
 });
