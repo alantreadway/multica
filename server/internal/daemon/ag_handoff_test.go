@@ -554,9 +554,32 @@ func TestAGPatchOverlapNeverRecoversOrphans(t *testing.T) {
 		}
 	})
 
-	t.Run("AG patch: an overlap daemon does not garbage-collect the predecessor's task dirs or self-restart", func(t *testing.T) {
+	t.Run("AG patch: an overlap daemon does not garbage-collect the predecessor's task dirs until overlap ends", func(t *testing.T) {
+		d := newGCTestDaemon(t, http.NewServeMux())
+		d.cfg.GCOrphanTTL = 0 // a task dir with no metadata is an orphan at once
+		taskDir := createTaskDir(t, d.cfg.WorkspacesRoot, "ws1", "task-pred", nil)
+
+		d.runGC(context.Background())
+		if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
+			t.Fatalf("control: a normal daemon left the orphan task dir (stat err %v), so the next steps prove nothing", err)
+		}
+
+		taskDir = createTaskDir(t, d.cfg.WorkspacesRoot, "ws1", "task-pred", nil)
+		d.AGEnableOverlap(pred)
+		d.runGC(context.Background())
+		if _, err := os.Stat(taskDir); err != nil {
+			t.Fatalf("an overlap daemon collected the predecessor's task dir: %v", err)
+		}
+
+		d.agHandoff.overlapping.Store(false)
+		d.runGC(context.Background())
+		if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
+			t.Fatalf("task dir still present after overlap ended (stat err %v); gc stayed off", err)
+		}
+	})
+
+	t.Run("AG patch: an overlap daemon defers a self-restart until overlap ends", func(t *testing.T) {
 		d := agHandoffDaemon(t, "")
-		d.cfg.WorkspacesRoot = filepath.Join(t.TempDir(), "missing")
 		d.AGEnableOverlap(pred)
 		if !d.agDeferRestart() {
 			t.Error("a self-restart was not deferred while the predecessor lives; its RecoverOrphans would fail the predecessor's tasks")
