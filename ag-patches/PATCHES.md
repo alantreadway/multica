@@ -392,7 +392,9 @@ Second, the handoff and overlap modes on top.
   it stops heartbeating (HTTP and WebSocket) and registering (workspace sync,
   agent discovery, runtime-gone recovery, the register calls themselves), so
   runtime liveness and heartbeat-carried requests belong to the successor. It
-  releases `daemon.lock`, moves its logging to `daemon.handoff.<pid>.log`
+  writes `daemon.handoff.json` (PID and port; a normal start beside a live one
+  refuses, since its startup recovery would fail the draining tasks), releases
+  `daemon.lock`, moves its logging to `daemon.handoff.<pid>.log`
   (through a switchable writer, so the daemon's logger is not replaced), skips
   `deregisterRuntimes` on exit and exits when idle, but not before
   `agHandoffMinHold` (30s) so an idle daemon doesn't vanish before the successor
