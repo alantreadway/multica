@@ -25,13 +25,17 @@ func (h *Handler) AGStartGitHubPoll(ctx context.Context) {
 		return
 	}
 	slog.Info("github: PR polling enabled", "mode", string(mode), "interval", cfg.Interval.String())
-	poller := ghpoll.New(cfg, ghpoll.PGSource{DB: h.DB}, agPollSink{h: h})
+	poller := ghpoll.New(cfg, ghpoll.PGSource{DB: h.DB}, agPollSink{h: h, appOptIn: mode == ghpoll.ModeAppOptIn})
 	go poller.Run(ctx)
 }
 
 // agPollSink feeds polled PRs through the same mirror path a pull_request
-// webhook takes. Rows it writes carry installation_id 0.
-type agPollSink struct{ h *Handler }
+// webhook takes. Rows it writes carry installation_id 0. appOptIn is true when
+// the App is configured too: its webhooks own rows with a real installation id.
+type agPollSink struct {
+	h        *Handler
+	appOptIn bool
+}
 
 // Mirror implements ghpoll.Sink.
 func (s agPollSink) Mirror(ctx context.Context, workspaces []pgtype.UUID, pr ghpoll.PR) error {
@@ -39,14 +43,16 @@ func (s agPollSink) Mirror(ctx context.Context, workspaces []pgtype.UUID, pr ghp
 	if err != nil {
 		return err
 	}
-	// A row an App webhook already wrote carries a real installation id. The
-	// upsert would let the poll rewrite it to 0, which strands that PR's
-	// check_suite/check_run refreshes and zeroes its diff stats, so leave
-	// webhook-owned rows to the webhook.
-	var owned []pgtype.UUID
-	for _, ws := range workspaces {
-		if !s.webhookOwned(ctx, ws, pr) {
-			owned = append(owned, ws)
+	// With the App beside the poller, a row a webhook wrote carries a real
+	// installation id; a poll would rewrite it to 0 and strand its refreshes, so
+	// leave it to the webhook. In token mode no webhook arrives: take it over.
+	owned := workspaces
+	if s.appOptIn {
+		owned = nil
+		for _, ws := range workspaces {
+			if !s.webhookOwned(ctx, ws, pr) {
+				owned = append(owned, ws)
+			}
 		}
 	}
 	if len(owned) == 0 {
