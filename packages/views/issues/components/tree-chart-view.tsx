@@ -501,7 +501,7 @@ export function TreeChartView({
                 data-slot="tree-chart-edges"
                 width={layout.width}
                 height={layout.height}
-                className="absolute left-0 top-0 text-muted-foreground/40"
+                className="absolute left-0 top-0 text-faint-foreground"
               >
                 {layout.edges.map((edge) => (
                   <path
