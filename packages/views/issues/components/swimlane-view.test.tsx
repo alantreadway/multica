@@ -2171,7 +2171,7 @@ describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
     );
   });
 
-  it("AG patch: a nested lane header shows the identifier path, a top-level one does not", async () => {
+  it("AG patch: a nested lane header shows its parent as ↳ identifier, with the full path in the tooltip", async () => {
     renderWithI18n(
       <SwimLaneView
         issues={[D, C, B, A]}
@@ -2180,13 +2180,68 @@ describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
       />,
     );
 
-    const path = await screen.findByText("MAG-1 > MAG-2 > MAG-3");
-    expect(path).toHaveAttribute("title", "MAG-1 > MAG-2 > MAG-3");
-    expect(screen.getByText("MAG-1 > MAG-2")).toBeInTheDocument();
+    const parent = await screen.findByText("↳ MAG-2");
+    expect(parent).toHaveAttribute("title", "MAG-1 > MAG-2 > MAG-3");
+    expect(screen.queryByText(/>/)).not.toBeInTheDocument();
     // Top-level lane A keeps today's header: title plus identifier badge.
     const laneA = screen.getByText("Issue A").closest("[data-lane-depth]")!;
-    expect(laneA.textContent).not.toContain(">");
+    expect(laneA.textContent).not.toContain("↳");
     expect(laneA.textContent).toContain("MAG-1");
+  });
+
+  it("AG patch: each root tree shares one band, roots alternate, pinned lanes have none", async () => {
+    renderServer([null, B, A, X], [C, B, Y, A, X]);
+
+    await waitFor(() => expect(laneOf("Issue X")?.dataset.laneBand).toBe("odd"));
+    const band = (title: string) => laneOf(title).dataset.laneBand ?? null;
+    expect(band("No parent")).toBeNull();
+    expect(band("Issue A")).toBe("even");
+    expect(band("Issue B")).toBe("even");
+    expect(band("Issue X")).toBe("odd");
+    // Tint on the odd band only, and the header row stays the lane's first child.
+    expect(laneOf("Issue X").className).toContain("bg-muted");
+    expect(laneOf("Issue A").className).not.toContain("bg-muted");
+    expect(laneOf("No parent").className).not.toContain("-mx-2");
+  });
+
+  it("AG patch: nested lane headers have no depth offset and lanes in one tree sit closer", async () => {
+    renderServer([null, C, B, A, X], [D, C, B, Y, A, X]);
+
+    await waitFor(() => expect(laneOf("Issue C")?.dataset.laneBand).toBe("even"));
+    for (const title of ["Issue A", "Issue B", "Issue C"]) {
+      expect(laneOf(title).querySelector("span.border-l")).toBeNull();
+    }
+    const gap = (title: string) => laneOf(title).parentElement!.className;
+    expect(gap("No parent")).toBe("");
+    expect(gap("Issue A")).toBe("pt-4");
+    expect(gap("Issue B")).toBe("pt-2");
+    expect(gap("Issue C")).toBe("pt-2");
+    expect(gap("Issue X")).toBe("pt-4");
+  });
+
+  it("AG patch: collapsing a root shrinks its band to the header row", async () => {
+    mockViewState.collapsedSwimlanes = { parent: ["a"], project: [], assignee: [] };
+    const { container } = renderServer([null, B, A, X], [C, B, Y, A, X]);
+
+    await waitFor(() => expect(lanesOf(container)).toHaveLength(3));
+    expect(laneOf("Issue A").dataset.laneBand).toBe("even");
+    expect(laneOf("Issue A").querySelector('[class*="grid"], [style*="grid"]')).toBeNull();
+    expect(laneOf("Issue X").dataset.laneBand).toBe("odd");
+  });
+
+  it("AG patch: non-parent groupings render no band", async () => {
+    mockViewState.swimlaneGrouping = "project";
+    const { container } = renderWithI18n(
+      <SwimLaneView
+        issues={[A, B]}
+        visibleStatuses={["todo"]}
+        onMoveIssue={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(laneElements(container).length).toBeGreaterThan(0));
+    expect(container.querySelector("[data-lane-band]")).toBeNull();
+    expect(container.querySelector(".-mx-2")).toBeNull();
   });
 
   it("AG patch: ancestors without a lane of their own still appear in the path", async () => {
@@ -2201,7 +2256,10 @@ describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
       />,
     );
 
-    expect(await screen.findByText("MAG-1 > MAG-2 > MAG-3")).toBeInTheDocument();
+    expect(await screen.findByText("↳ MAG-2")).toHaveAttribute(
+      "title",
+      "MAG-1 > MAG-2 > MAG-3",
+    );
     expect(lanesOf(container)).toEqual([
       { title: "No parent", depth: 0 },
       { title: "Issue C", depth: 0 },
@@ -2278,7 +2336,7 @@ describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
         ["a"],
       ]),
     );
-    expect(await screen.findByText("MAG-1 > MAG-2 > MAG-3")).toBeInTheDocument();
+    expect(await screen.findByText("↳ MAG-2")).toBeInTheDocument();
     expect(lanesOf(container).map((l) => l.title)).toContain("Issue C");
   });
 
@@ -2342,14 +2400,12 @@ describe("AG patch: SwimLaneView tree-ordered parent lanes", () => {
   it("AG patch: a server-path lane header shows the path once ancestry resolves", async () => {
     renderServer([null, C, B, A], [D, C, B, A]);
 
-    expect(await screen.findByText("MAG-1 > MAG-2 > MAG-3")).toHaveAttribute(
+    expect(await screen.findByText("↳ MAG-2")).toHaveAttribute(
       "title",
       "MAG-1 > MAG-2 > MAG-3",
     );
     // Header path text is clipped with an ellipsis, never wrapped.
-    expect(screen.getByText("MAG-1 > MAG-2 > MAG-3").className).toContain(
-      "truncate",
-    );
+    expect(screen.getByText("↳ MAG-2").className).toContain("truncate");
   });
 
   it("AG patch: server path sends no ancestry request for a non-parent grouping", async () => {

@@ -67,6 +67,50 @@ describe("orderLanesAsTree", () => {
     expect(out.find((l) => l.rawId === "d")!.tree.treeParentRawId).toBe("c");
   });
 
+  it("AG patch: numbers root trees in order and tags every lane with its root", () => {
+    const lanes = ["d", "x", "c", "b", "a", "y"].map((id) => lane(id));
+    const ancestry = ancestryOf({ a: null, b: "a", c: "b", d: "c", x: null, y: "x" });
+
+    const out = orderLanesAsTree(lanes, ancestry, ["x", "a"]);
+
+    expect(out.map((l) => [l.rawId, l.tree.rootRawId, l.tree.rootOrdinal])).toEqual([
+      ["x", "x", 0],
+      ["y", "x", 0],
+      ["a", "a", 1],
+      ["b", "a", 1],
+      ["c", "a", 1],
+      ["d", "a", 1],
+    ]);
+  });
+
+  it("AG patch: pinned lanes have no root and do not count toward the ordinals", () => {
+    const lanes = [
+      lane("none", { isPinned: true, parentIssue: null }),
+      lane("a"),
+      lane("other", { isPinned: true, parentIssue: null }),
+      lane("b"),
+    ];
+    const out = orderLanesAsTree(lanes, ancestryOf({ a: null, b: null }), []);
+
+    expect(out.map((l) => [l.rawId, l.tree.rootRawId, l.tree.rootOrdinal])).toEqual([
+      ["none", null, null],
+      ["other", null, null],
+      ["a", "a", 0],
+      ["b", "b", 1],
+    ]);
+  });
+
+  it("AG patch: a lane parent cycle becomes one root with its own ordinal", () => {
+    const lanes = [lane("r"), lane("p"), lane("q")];
+    const out = orderLanesAsTree(lanes, ancestryOf({ r: null, p: "q", q: "p" }), []);
+
+    expect(out.map((l) => [l.rawId, l.tree.rootRawId, l.tree.rootOrdinal])).toEqual([
+      ["r", "r", 0],
+      ["p", "p", 1],
+      ["q", "p", 1],
+    ]);
+  });
+
   it("keeps pinned lanes first and unchanged, ahead of the tree", () => {
     const none = lane("none", { isPinned: true, parentIssue: null });
     const orphans = lane("__orphans__", { isPinned: true, parentIssue: null });
@@ -225,6 +269,8 @@ describe("laneIsWithinIssue", () => {
     depth: 0,
     treeParentRawId: null,
     descendantCount: 0,
+    rootRawId: null,
+    rootOrdinal: null,
     path: path.map((id) => ({ id, identifier: id })),
   });
 
@@ -252,7 +298,14 @@ describe("laneIsWithinIssue", () => {
 
 describe("areSiblingLanes", () => {
   const at = (treeParentRawId: string | null) => ({
-    tree: { depth: 0, treeParentRawId, path: [], descendantCount: 0 },
+    tree: {
+      depth: 0,
+      treeParentRawId,
+      path: [],
+      descendantCount: 0,
+      rootRawId: null,
+      rootOrdinal: null,
+    },
   });
 
   it("matches lanes with the same tree parent, or both top-level", () => {
