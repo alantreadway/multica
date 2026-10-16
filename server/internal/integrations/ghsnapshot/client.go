@@ -65,6 +65,9 @@ type Client struct {
 	httpClient *http.Client
 	now        func() time.Time
 
+	// staticToken is the GITHUB_POLL_TOKEN credential (ag_static_token.go).
+	staticToken string
+
 	mu     sync.Mutex
 	tokens map[int64]cachedToken
 	// sf collapses concurrent token mints for the same installation into a
@@ -87,7 +90,7 @@ func NewClientFromEnv() (*Client, error) {
 	appID := strings.TrimSpace(os.Getenv("GITHUB_APP_ID"))
 	pemKey := strings.TrimSpace(os.Getenv("GITHUB_APP_PRIVATE_KEY"))
 	if appID == "" || pemKey == "" {
-		return nil, nil
+		return agStaticTokenClient(), nil
 	}
 	key, err := jwt.ParseRSAPrivateKeyFromPEM([]byte(pemKey))
 	if err != nil {
@@ -101,11 +104,14 @@ func NewClientFromEnv() (*Client, error) {
 		httpClient: &http.Client{Timeout: 20 * time.Second},
 		now:        time.Now,
 		tokens:     map[int64]cachedToken{},
+		// An App client keeps the poll token for installation 0 only.
+		staticToken: agPollTokenFromEnv(),
 	}, nil
 }
 
-// Enabled reports whether the App API is configured. A nil client is disabled.
-func (c *Client) Enabled() bool { return c != nil && c.privateKey != nil }
+// Enabled reports whether the client has a credential: the App key or, with no
+// App, GITHUB_POLL_TOKEN. A nil client is disabled.
+func (c *Client) Enabled() bool { return c.agEnabled() }
 
 // signAppJWT mints the short-lived RS256 JWT GitHub requires for
 // App-authenticated calls. iat is back-dated 60s to absorb clock skew and exp
@@ -129,6 +135,9 @@ func (c *Client) signAppJWT(now time.Time) (string, error) {
 // within the renew skew of expiry. Concurrent callers for the same installation
 // are collapsed by singleflight, so a cold cache under N workers mints once.
 func (c *Client) installationToken(ctx context.Context, installationID int64) (string, error) {
+	if tok, ok := c.agStaticToken(installationID); ok {
+		return tok, nil
+	}
 	if tok, ok := c.cachedToken(installationID); ok {
 		return tok, nil
 	}

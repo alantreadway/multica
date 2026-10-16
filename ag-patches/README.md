@@ -20,7 +20,8 @@ backend, switching the image back to stock.
 
 See [`PATCHES.md`](./PATCHES.md). Web UI (`packages/views`, small additions to
 `packages/core`), the local daemon and CLI (`server/internal/daemon`,
-`server/cmd/multica`), and the drain badge's heartbeat handling in the backend.
+`server/cmd/multica`), the drain badge's heartbeat handling in the backend, and
+GitHub PR polling for a self-host without an App (`server/internal/integrations`).
 Patch tests are named with an `AG patch:` prefix (Go: `TestAGPatch*`).
 
 ## Build
@@ -47,14 +48,15 @@ Run the guard tests alone with `ag-patches/test.sh`. CI runs the same script on
 PRs into `ag/**` (`.github/workflows/ag-patches.yml`).
 
 The script also runs the Go `TestAGPatch*` tests (`server/internal/daemon`,
-`server/cmd/multica`, `server/internal/daemonws`, `server/internal/agdrain` and
-`server/pkg/protocol`) from `server/`: it uses local `go` if present, else
+`server/cmd/multica`, `server/internal/daemonws`, `server/internal/agdrain`,
+`server/pkg/protocol`, `server/internal/integrations/ghpoll` and
+`server/internal/integrations/ghsnapshot`) from `server/`: it uses local `go` if present, else
 `docker run golang:<version from server/go.mod>`. It fails if fewer than
 `AG_GO_MIN_TESTS` of them pass, since `go test -run` exits 0 when nothing
 matches.
 
-The drain badge's database-backed tests (`TestAGPatch*` in
-`server/internal/handler`) need Postgres and skip without one, so the guard does
+The database-backed tests (`TestAGPatch*` in
+`server/internal/handler`: the drain badge and the PR poller) need Postgres and skip without one, so the guard does
 not run them. Before a PR that touches that code, run them against a migrated
 test database:
 
@@ -132,6 +134,59 @@ UPDATE agent_runtime SET metadata = metadata - 'ag_drain' WHERE metadata ? 'ag_d
 
 Heartbeats from stock or Homebrew daemons carry no drain field and leave
 metadata alone, so mixed daemons on one backend are fine.
+
+## GitHub PR polling (token mode)
+
+For a self-host with no GitHub App. A backend poller reads each watched repo's
+PRs with a personal access token, so PR cards, issue linking, merge
+auto-complete and `--until-pr checks` / `merged` wakeups work without webhooks.
+Backend only: no migration, no web change. Build the backend image with
+`ag-patches/build-backend.sh` (see "Backend image").
+
+Environment (add to the self-host `.env`):
+
+| Variable | Meaning |
+| --- | --- |
+| `GITHUB_POLL_TOKEN` | A GitHub token that can read pull requests and checks on the watched repos. `gh auth token` works. Treat it as a secret: it is never logged. Empty or whitespace counts as unset. |
+| `GITHUB_POLL_INTERVAL` | Go duration, default `60s`, floored at `15s`. |
+| `GITHUB_POLL_ENABLED` | Only for a deployment that also has the App (`GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY`): `true` runs the poller next to the webhooks. Ignored without an App, where the token alone turns polling on. |
+
+The stock compose file passes a fixed list of variables to the backend, so
+layer the override that adds these three:
+
+```sh
+docker compose -f docker-compose.selfhost.yml -f docker-compose.isolated.yml \
+  -f ag-patches/docker-compose.github-poll.yml up -d backend
+```
+
+Which repos are polled: every GitHub `owner/repo` in any workspace's repository
+list (Settings, Code). Other hosts are skipped.
+
+Mode matrix:
+
+| App vars | `GITHUB_POLL_TOKEN` | `GITHUB_POLL_ENABLED` | Result |
+| --- | --- | --- | --- |
+| unset | set | any | polling on; snapshots use the token |
+| unset | unset | any | nothing runs |
+| set | unset or set | unset or `false` | polling off, App behaviour unchanged |
+| set | set | `true` | polling on beside the webhooks |
+
+Rate budget: one request per watched repo per interval, so at the default
+`60s` that is at most 60 requests an hour per repo. A conditional request that
+answers 304 does not count against GitHub's rate limit, so an idle repo is free.
+Each changed PR costs one GraphQL snapshot query, plus a few retries while its CI
+is undecided. A personal token has 5000 REST and 5000 GraphQL points an hour. On
+a rate-limit answer the poller pauses until GitHub's reset time, then resumes.
+
+Roll back: switch the backend image back (remove `MULTICA_BACKEND_IMAGE` from
+`.env` and run the same `up -d backend`), or just unset `GITHUB_POLL_TOKEN` and
+recreate the backend. This patch has no schema change. PR rows it wrote stay,
+with `installation_id` `0`; they are valid rows and stop updating until polling
+or an App webhook resumes.
+
+The DB-backed `TestAGPatch*` tests for this patch live in
+`server/internal/handler` (`ag_ghpoll_test.go`); run them with the command under
+"Build".
 
 ## Roll back
 
