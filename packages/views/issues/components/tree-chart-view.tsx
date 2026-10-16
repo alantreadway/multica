@@ -47,6 +47,7 @@ import {
   CHART_NODE_HEIGHT,
   CHART_NODE_WIDTH,
   TREE_CHART_NODE_CAP,
+  isChartRootSettled,
   buildChartTree,
   countChartIssues,
   layoutChartTree,
@@ -352,7 +353,7 @@ export function TreeChartView({
   // node's placeholder is up). Later expansions keep the user's view.
   const fittedFor = useRef<string | null>(null);
   const fitKey = `${tree.focusId ?? "top"}|${virtualRoot}`;
-  const rootReady = !!root && root.kind !== "status";
+  const rootReady = isChartRootSettled(root);
   useEffect(() => {
     if (!rootReady || overCap || viewSize.width === 0) return;
     if (fittedFor.current === fitKey) return;
@@ -440,6 +441,7 @@ export function TreeChartView({
           variant="ghost"
           size="xs"
           onClick={tree.expandAll}
+          disabled={overCap}
           className="text-muted-foreground"
         >
           <ChevronsUpDown className="size-3.5" />
