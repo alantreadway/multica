@@ -241,12 +241,14 @@
     "tooltip_list": "リスト表示",
     "tooltip_table": "テーブル表示",
     "tooltip_gantt": "ガント表示",
+    "tooltip_tree": "ツリー表示",
     "tooltip_swimlane": "スイムレーン表示",
     "section": "表示",
     "board": "ボード",
     "list": "リスト",
     "table": "テーブル",
     "gantt": "ガント",
+    "tree": "ツリー",
     "swimlane": "スイムレーン"
   },
   "table": {
@@ -323,6 +325,23 @@
     "show_completed": "完了済みを表示",
     "empty": "スケジュールされたタスクがまだありません。いずれかのタスクに開始日または期限を設定すると、タイムラインに表示されます。",
     "inverted_dates_warning": "開始日が期限より後になっています。バーは早い日付から遅い日付まで表示されます。"
+  },
+  "tree": {
+    "aria_label": "課題ツリー",
+    "expand": "展開",
+    "collapse": "折りたたむ",
+    "expand_all": "すべて展開",
+    "collapse_all": "すべて折りたたむ",
+    "focus": "この課題にフォーカス",
+    "focus_root": "すべての課題",
+    "breadcrumb_label": "フォーカスのパス",
+    "load_more": "さらに読み込む",
+    "loading_children": "サブ課題を読み込み中…",
+    "load_error": "サブ課題を読み込めませんでした",
+    "retry": "再試行",
+    "empty": "表示する課題がありません",
+    "hidden_ancestors": "現在のフィルターで非表示の親課題",
+    "sub_issue_progress": "サブ課題 {{total}} 件中 {{done}} 件完了"
   },
   "actor_issues": {
     "scope": {

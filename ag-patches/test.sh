@@ -26,12 +26,19 @@ pnpm --filter @multica/views exec vitest run \
   issues/components/swimlane-view.test.tsx \
   issues/components/swimlane-tree.test.ts \
   issues/components/swimlane-band.test.ts \
+  issues/components/tree-rows.test.ts \
+  issues/components/tree-view.test.tsx \
+  issues/components/issues-header.tree-mode.test.tsx \
+  issues/surface/tree-mode.test.tsx \
   runtimes/components/drain-badge.test.tsx \
   runtimes/components/runtime-list-drain.test.tsx \
   runtimes/components/runtime-detail-drain.test.tsx \
   locales/ag-drain.test.ts
 
-pnpm --filter @multica/core exec vitest run runtimes/ag-drain.test.ts
+pnpm --filter @multica/core exec vitest run \
+  runtimes/ag-drain.test.ts \
+  issues/stores/tree-view-store.test.ts \
+  issues/queries.test.ts
 
 pnpm --filter @multica/views typecheck
 

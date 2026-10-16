@@ -749,6 +749,8 @@ describe("AG patch: issueAncestryOptions", () => {
       id: "c",
       identifier: "MUL-c",
       parentId: "b",
+      title: expect.any(String),
+      status: expect.any(String),
     });
     expect(nodes.find((n) => n.id === "a")!.parentId).toBeNull();
   });

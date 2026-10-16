@@ -19,6 +19,7 @@ function IssuesSurfaceHeader({
   issues,
   workingAgents,
   isRefreshing,
+  allowTree,
   facetCountsExact,
   tableFacetCounts,
   onTableFacetChange,
@@ -26,6 +27,7 @@ function IssuesSurfaceHeader({
   issues: Issue[];
   workingAgents: WorkingAgentSummary[] | undefined;
   isRefreshing: boolean;
+  allowTree: boolean;
   facetCountsExact: boolean;
   tableFacetCounts?: IssueTableFacetsResponse;
   onTableFacetChange: (facet: IssueTableFacetSpec | null) => void;
@@ -45,6 +47,7 @@ function IssuesSurfaceHeader({
       <IssuesHeader
         scopedIssues={issues}
         workingAgents={workingAgents}
+        allowTree={allowTree}
         dateFilter={dateFilter}
         onDateFilterChange={setDateFilter}
         facetCountsExact={facetCountsExact}
@@ -63,13 +66,14 @@ export function IssuesPage() {
     <div className="flex flex-1 min-h-0 flex-col">
       <IssueSurface
         scope={{ type: "workspace", actorKind: scope }}
-        modes={["board", "list", "table", "swimlane"]}
+        modes={["board", "list", "table", "swimlane", "tree"]}
         batchToolbar="list"
         renderHeader={({ controller }) => (
           <IssuesSurfaceHeader
             issues={controller.surfaceIssues}
             workingAgents={controller.workingAgents}
             isRefreshing={controller.isRefreshing}
+            allowTree={controller.allowTree}
             facetCountsExact={controller.facetCountsExact}
             tableFacetCounts={controller.tableFacetCounts}
             onTableFacetChange={controller.setActiveTableFacet}

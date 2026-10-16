@@ -241,12 +241,14 @@
     "tooltip_list": "列表视图",
     "tooltip_table": "表格视图",
     "tooltip_gantt": "甘特图",
+    "tooltip_tree": "树状视图",
     "tooltip_swimlane": "泳道视图",
     "section": "视图",
     "board": "看板",
     "list": "列表",
     "table": "表格",
     "gantt": "甘特图",
+    "tree": "树状",
     "swimlane": "泳道"
   },
   "table": {
@@ -323,6 +325,23 @@
     "show_completed": "显示已完成",
     "empty": "暂无已排期的任务 — 给任意任务设置开始或截止日期，即可显示在时间轴上。",
     "inverted_dates_warning": "开始日期晚于截止日期——已按区间最小/最大端绘制。"
+  },
+  "tree": {
+    "aria_label": "问题树",
+    "expand": "展开",
+    "collapse": "折叠",
+    "expand_all": "全部展开",
+    "collapse_all": "全部折叠",
+    "focus": "聚焦此问题",
+    "focus_root": "所有问题",
+    "breadcrumb_label": "聚焦路径",
+    "load_more": "加载更多",
+    "loading_children": "正在加载子问题…",
+    "load_error": "无法加载子问题",
+    "retry": "重试",
+    "empty": "没有可显示的问题",
+    "hidden_ancestors": "被当前筛选隐藏的父问题",
+    "sub_issue_progress": "{{total}} 个子问题中已完成 {{done}} 个"
   },
   "actor_issues": {
     "scope": {
