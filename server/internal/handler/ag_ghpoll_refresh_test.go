@@ -65,7 +65,8 @@ func (r *recordingGitHubAPI) calls() []snapshotCall {
 // TestAGPatchPollerEnqueuesSnapshotRefreshes runs the poller with a live,
 // token-enabled snapshot Manager and watches the GitHub API calls its workers
 // make: a polled installation-0 row gets exactly one snapshot refresh as the
-// poll token, and a PR whose only row a webhook owns gets none.
+// poll token, and (with the App opted in) a PR whose only row a webhook owns
+// gets none.
 func TestAGPatchPollerEnqueuesSnapshotRefreshes(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("handler test fixture not initialized (no DB?)")
@@ -107,7 +108,7 @@ func TestAGPatchPollerEnqueuesSnapshotRefreshes(t *testing.T) {
 	// The owned PR is listed first and newer than its webhook, so the poller sees both.
 	gh.set("[" + pullListItem(repo, 31, "Fix "+created.Identifier, "open", "", "2026-10-16T10:00:00Z") + "," +
 		pullListItem(repo, 32, "Unrelated change", "open", "", "2026-10-16T09:59:00Z") + "]")
-	poller := ghpoll.New(ghpoll.Config{Token: token, Interval: time.Minute, APIBase: srv.URL}, ghpoll.PGSource{DB: testHandler.DB}, agPollSink{h: testHandler})
+	poller := ghpoll.New(ghpoll.Config{Token: token, Interval: time.Minute, APIBase: srv.URL}, ghpoll.PGSource{DB: testHandler.DB}, agPollSink{h: testHandler, appOptIn: true})
 	poller.Tick(ctx)
 
 	forRepo := func() (n31, n32 int) {

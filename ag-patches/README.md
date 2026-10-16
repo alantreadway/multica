@@ -185,7 +185,7 @@ with `installation_id` `0`; they are valid rows and stop updating until polling
 or an App webhook resumes.
 
 The DB-backed `TestAGPatch*` tests for this patch live in
-`server/internal/handler` (`ag_ghpoll_test.go`, `ag_ghpoll_flow_test.go`) and
+`server/internal/handler` (`ag_ghpoll_test.go`, `ag_ghpoll_flow_test.go`, `ag_ghpoll_refresh_test.go`) and
 `server/internal/service` (`ag_ghpoll_wakeup_test.go`); run them with the command
 under "Build".
 

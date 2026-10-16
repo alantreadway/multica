@@ -84,7 +84,8 @@ type cachedToken struct {
 // NewClientFromEnv builds a Client from GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY.
 //
 //   - Both unset → (nil, nil): the App API is simply not configured for this
-//     deployment; the caller degrades the whole feature off.
+//     deployment; the caller degrades the whole feature off. (AG: a set
+//     GITHUB_POLL_TOKEN gives a static-token client instead.)
 //   - Key present but malformed → (nil, err): operator-actionable, surface it.
 func NewClientFromEnv() (*Client, error) {
 	appID := strings.TrimSpace(os.Getenv("GITHUB_APP_ID"))
