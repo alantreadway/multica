@@ -88,20 +88,6 @@ export function countChartIssues(root: ChartNode | null): number {
   return count;
 }
 
-/**
- * The chart has something to fit once nothing in it is still loading: the
- * focused issue is fetched, not cached, so until it lands the only row is a
- * placeholder. Every open branch (the default-open levels included) shows a
- * loading row until its children arrive, so none left means the tree is drawn.
- */
-export function isChartRootSettled(root: ChartNode | null): boolean {
-  if (!root || root.kind === "status") return false;
-  const loading = (node: ChartNode): boolean =>
-    (node.row?.kind === "status" && node.row.state === "loading") ||
-    node.children.some(loading);
-  return !loading(root);
-}
-
 export interface ChartPlacedNode {
   id: string;
   node: ChartNode;

@@ -49,7 +49,7 @@ function makeIssue(id: string, parent: string | null = null): Issue {
     id,
     workspace_id: "ws-1",
     number: Number.parseInt(id, 10) || 1,
-    identifier: `MAG-${id}`,
+    identifier: `ISS-${id}`,
     title: `Issue ${id}`,
     description: null,
     status: "todo",
