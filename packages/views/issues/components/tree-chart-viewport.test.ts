@@ -55,4 +55,34 @@ describe("AG patch: org chart viewport", () => {
     expect(fitViewport({ width: 0, height: 0 }, { width: 100, height: 100 })).toBe(IDENTITY_VIEWPORT);
     expect(fitViewport({ width: 100, height: 100 }, { width: 0, height: 0 })).toBe(IDENTITY_VIEWPORT);
   });
+
+  it("zooms in and back out about the same point to where it started", () => {
+    const start = { x: 40, y: -20, k: 1 };
+    const zoomed = zoomAt(start, 1.2, 300, 200);
+    const back = zoomAt(zoomed, 1 / 1.2, 300, 200);
+    expect(back.k).toBeCloseTo(1);
+    expect(back.x).toBeCloseTo(start.x);
+    expect(back.y).toBeCloseTo(start.y);
+  });
+
+  it("does not mutate the viewport it is given", () => {
+    const start = Object.freeze({ x: 1, y: 2, k: 1 });
+    expect(() => {
+      zoomAt(start, 1.5, 10, 10);
+      panBy(start, 5, 5);
+    }).not.toThrow();
+    expect(start).toEqual({ x: 1, y: 2, k: 1 });
+  });
+
+  it("fits a drawing that is only too tall by its height, and pins it to the top", () => {
+    const fit = fitViewport({ width: 400, height: 2000 }, { width: 800, height: 500 });
+    expect(fit.k).toBe(0.25);
+    expect(fit.y).toBe(0);
+    expect(fit.x).toBe((800 - 400 * 0.25) / 2);
+  });
+
+  it("never fits below the minimum scale", () => {
+    const fit = fitViewport({ width: 100000, height: 100 }, { width: 800, height: 600 });
+    expect(fit.k).toBe(CHART_MIN_SCALE);
+  });
 });

@@ -109,6 +109,27 @@ describe("AG patch: Display menu layout choice", () => {
     expect(c.setLayout).not.toHaveBeenCalled();
   });
 
+  it("enables Chart without a focused node on a project page", async () => {
+    const c = control({ chartAvailability: "project" });
+    renderControls({ viewMode: "tree", control: c });
+    await openViewMenu();
+
+    const chart = screen.getByRole("menuitemradio", { name: "Chart" });
+    expect(chart).not.toHaveAttribute("aria-disabled", "true");
+    expect(document.querySelector('[data-slot="tree-chart-hint"]')).toBeNull();
+    fireEvent.click(chart);
+    await waitFor(() => expect(c.setLayout).toHaveBeenCalledWith("chart"));
+  });
+
+  it("returns to the outline from the chart", async () => {
+    const c = control({ layout: "chart", chartAvailability: "focus" });
+    renderControls({ viewMode: "tree", control: c });
+    await openViewMenu();
+
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Outline" }));
+    await waitFor(() => expect(c.setLayout).toHaveBeenCalledWith("outline"));
+  });
+
   it("leaves the layout section out of the other view modes", async () => {
     renderControls({ viewMode: "list", control: control() });
     await openViewMenu(/^List$/);
