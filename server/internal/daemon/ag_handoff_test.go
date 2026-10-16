@@ -991,3 +991,156 @@ func TestAGPatchGCStepPreemptedByOtherDaemon(t *testing.T) {
 		}
 	})
 }
+
+func TestAGPatchHandoffDaemonSkipsGC(t *testing.T) {
+	t.Run("AG patch: a handoff daemon leaves a reclaimable task dir alone while the successor may be using it", func(t *testing.T) {
+		d := newGCTestDaemon(t, http.NewServeMux())
+		d.cfg.GCOrphanTTL = 0 // a task dir with no metadata is an orphan at once
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		d.rootCtx = ctx
+
+		taskDir := createTaskDir(t, d.cfg.WorkspacesRoot, "ws1", "task-succ", nil)
+		d.runGC(context.Background())
+		if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
+			t.Fatalf("control: a normal daemon left the orphan task dir (stat err %v), so the next step proves nothing", err)
+		}
+
+		taskDir = createTaskDir(t, d.cfg.WorkspacesRoot, "ws1", "task-succ", nil)
+		d.agStartHandoff()
+		d.runGC(context.Background())
+		if _, err := os.Stat(taskDir); err != nil {
+			t.Fatalf("a handoff daemon collected a task dir the successor may be running in: %v", err)
+		}
+	})
+}
+
+func TestAGPatchHandoffRefusedWhileOverlapping(t *testing.T) {
+	post := func(d *Daemon) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		d.agHandoffHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/handoff", nil))
+		return rec
+	}
+
+	t.Run("AG patch: POST /handoff on a daemon still overlapping its predecessor is a 409 that names the predecessor and changes nothing", func(t *testing.T) {
+		d := agHandoffDaemon(t, "")
+		var hooks atomic.Int32
+		d.AGSetHandoffHook(func() { hooks.Add(1) })
+		d.AGEnableOverlap(AGPredecessor{PID: 4242, Port: 1, TaskIDs: []string{"a"}, MaxConcurrentTasks: 3})
+
+		rec := post(d)
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("POST /handoff while overlapping = %d, want 409", rec.Code)
+		}
+		if body := rec.Body.String(); !strings.Contains(body, "4242") || !strings.Contains(body, "retry") {
+			t.Fatalf("refusal %q does not name the predecessor's pid or say to retry", body)
+		}
+		if d.agHandoffActive() || d.agDraining() || hooks.Load() != 0 {
+			t.Fatalf("a refused handoff still changed state: handoff=%v draining=%v hooks=%d", d.agHandoffActive(), d.agDraining(), hooks.Load())
+		}
+		if !d.agOverlapActive() {
+			t.Fatal("a refused handoff ended overlap")
+		}
+	})
+
+	t.Run("AG patch: POST /handoff is accepted again once overlap has ended", func(t *testing.T) {
+		d := agHandoffDaemon(t, "")
+		d.AGEnableOverlap(AGPredecessor{PID: 4242, Port: 1, MaxConcurrentTasks: 3})
+		d.agHandoff.overlapping.Store(false)
+
+		if rec := post(d); rec.Code != http.StatusOK || !d.agHandoffActive() {
+			t.Fatalf("POST /handoff after overlap = %d handoff=%v, want 200/true", rec.Code, d.agHandoffActive())
+		}
+	})
+}
+
+func TestAGPatchHandoffWaitsForClaimsInFlight(t *testing.T) {
+	setInFlight := func(d *Daemon, n int) {
+		d.claimMu.Lock()
+		d.claimsInFlight = n
+		d.claimMu.Unlock()
+	}
+	post := func(d *Daemon, done chan<- *httptest.ResponseRecorder) {
+		rec := httptest.NewRecorder()
+		d.agHandoffHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/handoff", nil))
+		done <- rec
+	}
+
+	t.Run("AG patch: POST /handoff answers only after a claim already in flight became a tracked task", func(t *testing.T) {
+		d := agHandoffDaemon(t, "")
+		setInFlight(d, 1)
+		done := make(chan *httptest.ResponseRecorder, 1)
+		go post(d, done)
+
+		select {
+		case <-done:
+			t.Fatal("POST /handoff answered while a claim was still in flight, so a successor reading /health would miss that task")
+		case <-time.After(200 * time.Millisecond):
+		}
+		if !d.agHandoffActive() {
+			t.Fatal("handoff had not begun while waiting; a new claim could slip in")
+		}
+
+		// The in-flight claim hands its task off.
+		d.agTrackTask("t9")
+		d.activeTasks.Add(1)
+		setInFlight(d, 0)
+		select {
+		case rec := <-done:
+			var got map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode: %v (%s)", err, rec.Body.String())
+			}
+			if ids, _ := got["active_task_ids"].([]any); rec.Code != http.StatusOK || len(ids) != 1 || ids[0] != "t9" {
+				t.Fatalf("POST /handoff = %d %v, want 200 listing t9", rec.Code, got)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("POST /handoff did not answer after the claim settled")
+		}
+	})
+
+	t.Run("AG patch: the wait is bounded when a claim never settles", func(t *testing.T) {
+		old := agHandoffClaimSettleTimeout
+		agHandoffClaimSettleTimeout = 150 * time.Millisecond
+		t.Cleanup(func() { agHandoffClaimSettleTimeout = old })
+
+		d := agHandoffDaemon(t, "")
+		setInFlight(d, 1)
+		done := make(chan *httptest.ResponseRecorder, 1)
+		start := time.Now()
+		go post(d, done)
+		select {
+		case rec := <-done:
+			if rec.Code != http.StatusOK {
+				t.Fatalf("POST /handoff = %d, want 200 after the bound", rec.Code)
+			}
+			if took := time.Since(start); took < 100*time.Millisecond {
+				t.Fatalf("answered after %s, before the bound; the wait did not happen", took)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("POST /handoff waited past its bound")
+		}
+	})
+
+	t.Run("AG patch: the wait ends when the request is cancelled", func(t *testing.T) {
+		d := agHandoffDaemon(t, "")
+		setInFlight(d, 1)
+		ctx, cancel := context.WithCancel(context.Background())
+		returned := make(chan struct{})
+		go func() {
+			d.agWaitClaimsSettled(ctx)
+			close(returned)
+		}()
+		select {
+		case <-returned:
+			t.Fatal("returned with a claim in flight and a live request")
+		case <-time.After(100 * time.Millisecond):
+		}
+		cancel()
+		select {
+		case <-returned:
+		case <-time.After(2 * time.Second):
+			t.Fatal("did not return after the request was cancelled")
+		}
+	})
+}

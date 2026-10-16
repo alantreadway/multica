@@ -36,7 +36,8 @@ type agHandoffFake struct {
 	goneAfterPolls int
 	polls          int
 	gone           bool
-	noHandoff      bool // a daemon from before the patch: no /handoff
+	noHandoff      bool   // a daemon from before the patch: no /handoff
+	refuseHandoff  string // non-empty: /handoff answers 409 with this message
 	calls          []string
 }
 
@@ -98,6 +99,10 @@ func (f *agHandoffFake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/handoff":
 		if f.noHandoff {
 			http.NotFound(w, r)
+			return
+		}
+		if f.refuseHandoff != "" {
+			http.Error(w, f.refuseHandoff, http.StatusConflict)
 			return
 		}
 		f.handoff = true
@@ -412,6 +417,33 @@ func TestAGPatchDaemonStopRestartHandoff(t *testing.T) {
 		err := runDaemonRestart(agHandoffCmdFor(t, "restart", profile, map[string]string{"handoff": "true"}), nil)
 		if err == nil || !strings.Contains(err.Error(), "is not running") {
 			t.Fatalf("error = %v, want 'is not running'", err)
+		}
+	})
+
+	t.Run("AG patch: a handoff the daemon refuses while overlapping prints its reason and starts and stops nothing", func(t *testing.T) {
+		const reason = "daemon is still overlapping its predecessor (pid 4242); retry the handoff once that process has exited"
+		for _, c := range []struct {
+			name string
+			run  func(*cobra.Command, []string) error
+		}{{"drain", runDaemonDrain}, {"stop", runDaemonStop}, {"restart", runDaemonRestart}} {
+			mkProfiles(t, profile)
+			f := &agHandoffFake{active: 1, goneAfterPolls: -1, refuseHandoff: reason}
+			fd := &agFakeDaemon{}
+			if c.name == "restart" {
+				agStubRestartPreflight(t, profile, fd)
+			}
+			startAGHandoffFake(t, profile, f)
+
+			err := c.run(agHandoffCmdFor(t, c.name, profile, map[string]string{"handoff": "true"}), nil)
+			if err == nil || !strings.Contains(err.Error(), "pid 4242") || !strings.Contains(err.Error(), "retry") {
+				t.Fatalf("%s --handoff error = %v, want the daemon's reason", c.name, err)
+			}
+			if f.handoff || f.called("POST /shutdown") || f.called("POST /drain") {
+				t.Fatalf("%s --handoff after a refusal: handoff=%v calls=%v", c.name, f.handoff, f.callLog())
+			}
+			if slices.Contains(fd.callLog(), "spawn") {
+				t.Fatalf("%s --handoff started a successor although the handoff was refused: %v", c.name, fd.callLog())
+			}
 		}
 	})
 

@@ -6,6 +6,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -170,6 +171,93 @@ func TestAGPatchOverlapDaemonRun(t *testing.T) {
 			}
 		case <-time.After(10 * time.Second):
 			t.Fatal("Run did not return after cancel")
+		}
+	})
+}
+
+// agStartRunDaemon starts a real daemon through RunWithHealthListener against a
+// fake multica server, once its startup sync has registered the runtimes.
+func agStartRunDaemon(t *testing.T) (d *Daemon, calls *agPathLog, healthURL string, runDone <-chan error, cancel context.CancelFunc) {
+	t.Helper()
+	stageFakeAgent(t)
+	redirectTestHome(t, t.TempDir())
+
+	fx := newBatchFixture(t)
+	fx.setWorkspaces(WorkspaceInfo{ID: "ws-1", Name: "one"})
+	proxy, calls := agRecordingProxy(t, fx.server.URL)
+	if err := cli.SaveCLIConfig(cli.CLIConfig{ServerURL: proxy.URL, Token: "mul_test_token"}); err != nil {
+		t.Fatalf("save cli config: %v", err)
+	}
+	cfg, err := LoadConfig(Overrides{ServerURL: proxy.URL, WorkspacesRoot: t.TempDir(), MaxConcurrentTasks: 2})
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	stubAgentProbe(t, cfg.Agents)
+	d = New(cfg, slog.New(slog.NewTextHandler(testNopWriter{}, &slog.HandlerOptions{Level: slog.LevelWarn})))
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() { done <- d.RunWithHealthListener(ctx, ln) }()
+	agWaitFor(t, "the startup sync to register runtimes", func() bool { return calls.count("/api/daemon/register") > 0 })
+	return d, calls, "http://" + ln.Addr().String(), done, cancel
+}
+
+func TestAGPatchHandoffDaemonRunExitsWhenIdle(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a POSIX shell")
+	}
+	// The CLI treats a nil or context.Canceled return from the daemon as a clean
+	// exit (exit status 0), which the README's launchd KeepAlive setup relies on.
+	cleanExit := func(err error) bool { return err == nil || errors.Is(err, context.Canceled) }
+	waitReturn := func(t *testing.T, runDone <-chan error, within time.Duration) error {
+		t.Helper()
+		select {
+		case err := <-runDone:
+			return err
+		case <-time.After(within):
+			t.Fatal("Run did not return")
+			return nil
+		}
+	}
+
+	t.Run("AG patch: a normal daemon deregisters its runtimes when stopped (control)", func(t *testing.T) {
+		_, calls, _, runDone, cancel := agStartRunDaemon(t)
+		cancel()
+		if err := waitReturn(t, runDone, 10*time.Second); !cleanExit(err) {
+			t.Fatalf("Run: %v", err)
+		}
+		if got := calls.count("/api/daemon/deregister"); got != 1 {
+			t.Fatalf("deregister calls = %d, want 1; the handoff case below proves nothing otherwise", got)
+		}
+	})
+
+	t.Run("AG patch: Run returns cleanly once a handoff daemon is idle, without deregistering", func(t *testing.T) {
+		d, calls, healthURL, runDone, _ := agStartRunDaemon(t)
+
+		resp, err := http.Post(healthURL+"/handoff", "application/json", nil)
+		if err != nil {
+			t.Fatalf("POST /handoff: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("POST /handoff = %d, want 200", resp.StatusCode)
+		}
+		if !d.agHandoffActive() {
+			t.Fatal("daemon is not in handoff mode")
+		}
+
+		// Nothing cancels the daemon from outside: it must leave on its own once
+		// the hold has passed.
+		if err := waitReturn(t, runDone, 10*time.Second); !cleanExit(err) {
+			t.Fatalf("Run returned %v after a handoff drained, want a clean exit", err)
+		}
+		if got := calls.count("/api/daemon/deregister"); got != 0 {
+			t.Fatalf("a handoff daemon deregistered the runtimes its successor owns (%d calls)", got)
 		}
 	})
 }
