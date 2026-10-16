@@ -180,6 +180,24 @@ describe("AG patch: tree chart layout", () => {
       expect(result.current.tree.layout).toBe("outline");
     });
 
+    it("is off on My Issues until a node is focused, then on", async () => {
+      chain();
+      const myScope: IssueSurfaceProps["scope"] = {
+        type: "my",
+        userId: "user-1",
+        relation: "assigned",
+      } as IssueSurfaceProps["scope"];
+      const { result } = mount(myScope, "my:assigned");
+      await waitFor(() => expect(result.current.tree.isLoading).toBe(false));
+      expect(result.current.tree.chartAvailability).toBeNull();
+      act(() => result.current.tree.setLayout("chart"));
+      expect(result.current.tree.layout).toBe("outline");
+
+      act(() => result.current.tree.focus("1"));
+      await waitFor(() => expect(result.current.tree.focusIssue?.id).toBe("1"));
+      expect(result.current.tree.chartAvailability).toBe("focus");
+    });
+
     it("is on from a focused node, anywhere", async () => {
       chain();
       const { result } = mount(workspaceScope, "workspace");
@@ -230,6 +248,34 @@ describe("AG patch: tree chart layout", () => {
         (call) => (call[0] as IssueTableRowsRequest).parent_id,
       );
       expect(asked).not.toContain("3");
+    });
+
+    it("opens only the first 20 children of a wide branch", async () => {
+      graph.set("1", makeIssue("1"));
+      for (let i = 0; i < 25; i += 1) {
+        const id = `c${String(i).padStart(2, "0")}`;
+        graph.set(id, makeIssue(id, "1"));
+        graph.set(`${id}-g`, makeIssue(`${id}-g`, id));
+      }
+      const { result } = mount(workspaceScope, "workspace");
+      await waitFor(() => expect(result.current.tree.isLoading).toBe(false));
+      act(() => result.current.tree.focus("1"));
+      await waitFor(() => expect(result.current.tree.focusIssue?.id).toBe("1"));
+      act(() => result.current.tree.setLayout("chart"));
+
+      // 1 + 25 children + a grandchild under each of the first 20.
+      await waitFor(() => expect(issueRows(result)).toHaveLength(46));
+      const children = issueRows(result).filter((r) => r.depth === 1);
+      expect(children).toHaveLength(25);
+      expect(children.filter((r) => r.expanded).map((r) => r.issue.id)).toEqual(
+        children.slice(0, 20).map((r) => r.issue.id),
+      );
+      expect(children.slice(20).every((r) => !r.expanded && r.childCount === 1)).toBe(true);
+      const asked = listIssueTableRows.mock.calls.map(
+        (call) => (call[0] as IssueTableRowsRequest).parent_id,
+      );
+      expect(asked).toContain("c19");
+      expect(asked).not.toContain("c20");
     });
 
     it("hangs a project's root issues under the virtual node, one level less deep", async () => {
