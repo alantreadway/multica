@@ -188,6 +188,11 @@ fans out into a request per sibling); the toolbar has "Show next level",
 "Collapse all" and "Reset". Above 200 visible issues the chart draws nothing and
 asks the user to collapse or focus deeper, with a way back to Outline.
 
+The chart fits itself on every layout or size change for the current root until
+the user first adjusts the view (pan, zoom, Fit, expand or collapse); after that
+it never auto-fits that root again, and re-rooting starts afresh. It does not try
+to detect when loading has finished.
+
 Where it is available: from a focused node anywhere tree mode runs, and on a
 project page without focusing (the project is a virtual top node over the
 project's root issues, subject to the current filters). On `/issues` and

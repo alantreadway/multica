@@ -10,7 +10,6 @@ import {
   buildChartTree,
   countChartIssues,
   elbowPath,
-  isChartRootSettled,
   layoutChartTree,
   type ChartNode,
   type ChartPlacedNode,
@@ -25,7 +24,7 @@ import {
 // connectors are pure, so they are checked without a DOM.
 
 const issue = (id: string, parent: string | null = null): Issue =>
-  ({ id, identifier: `MAG-${id}`, title: id, parent_issue_id: parent }) as unknown as Issue;
+  ({ id, identifier: `ISS-${id}`, title: id, parent_issue_id: parent }) as unknown as Issue;
 
 /** `shape` maps a parent id (or "__root__") to its child ids. */
 function branches(shape: Record<string, string[]>): Record<string, TreeBranch> {
@@ -188,36 +187,5 @@ describe("AG patch: org chart from outline rows", () => {
     const collapsed = layoutChartTree(buildChartTree(flatten(new Set()), true));
     expect(open.nodes.map((n) => n.id)).toEqual([CHART_VIRTUAL_ROOT_ID, "1", "11", "111", "12", "2"]);
     expect(collapsed.nodes.map((n) => n.id)).toEqual([CHART_VIRTUAL_ROOT_ID, "1", "2"]);
-  });
-});
-
-describe("AG patch: chart settled check", () => {
-  const status = (id: string, state: "loading" | "error"): ChartNode => ({
-    id,
-    kind: "status",
-    row: {
-      kind: "status",
-      key: id,
-      parentId: null,
-      depth: 0,
-      guides: [],
-      branchKey: id,
-      state,
-    },
-    children: [],
-  });
-
-  it("is not settled with nothing to draw, or on the focused issue's own placeholder", () => {
-    expect(isChartRootSettled(null)).toBe(false);
-    expect(isChartRootSettled(status("status:focus", "loading"))).toBe(false);
-  });
-
-  it("is not settled while a branch anywhere in the tree is still loading", () => {
-    expect(isChartRootSettled(node("1", node("2", status("s", "loading"))))).toBe(false);
-  });
-
-  it("is settled once nothing is loading, a failed branch included", () => {
-    expect(isChartRootSettled(leaf("1"))).toBe(true);
-    expect(isChartRootSettled(node("1", node("2", status("s", "error"))))).toBe(true);
   });
 });
