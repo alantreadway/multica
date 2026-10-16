@@ -343,7 +343,20 @@
     "hidden_ancestors": "現在のフィルターで非表示の親課題",
     "filters_paused": "フォーカス中はフィルターが一時停止されます",
     "clear_focus": "フォーカスを解除",
-    "sub_issue_progress": "サブ課題 {{total}} 件中 {{done}} 件完了"
+    "sub_issue_progress": "サブ課題 {{total}} 件中 {{done}} 件完了",
+    "layout_section": "レイアウト",
+    "layout_outline": "アウトライン",
+    "layout_chart": "組織図",
+    "chart_hint": "課題にフォーカスすると組織図で表示できます。",
+    "chart_aria_label": "課題の組織図",
+    "chart_zoom_in": "拡大",
+    "chart_zoom_out": "縮小",
+    "chart_fit": "全体を表示",
+    "chart_reset": "リセット",
+    "chart_expand_level": "次の階層を表示",
+    "chart_use_outline": "アウトラインに切り替え",
+    "chart_too_many_title": "課題が多すぎて描画できません",
+    "chart_too_many_body": "開いている課題が {{count}} 件あり、組織図で描画できる {{max}} 件を超えています。ブランチを折りたたむか、より小さなサブツリーにフォーカスしてください。"
   },
   "actor_issues": {
     "scope": {
