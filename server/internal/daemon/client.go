@@ -684,6 +684,7 @@ func (c *Client) failTaskWithRetrySchedule(ctx context.Context, taskID, errMsg, 
 	if retiredSessionID != "" {
 		body["retired_session_id"] = retiredSessionID
 	}
+	agAddRetryNotBefore(body, taskID) // AG patch: quota
 	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/tasks/%s/fail", taskID), body, nil, schedule)
 }
 
