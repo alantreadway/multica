@@ -1551,6 +1551,7 @@ WHERE id = (
       AND atq.runtime_id = $3
       AND atq.status = 'queued'
       AND (atq.context->>'wakeup_id' IS NULL OR EXISTS (SELECT 1 FROM issue_wakeup w WHERE w.id=(atq.context->>'wakeup_id')::uuid AND w.disabled_at IS NULL AND w.revision=(atq.context->>'wakeup_revision')::bigint))
+      AND (($4::jsonb -> atq.runtime_id::text) IS NULL OR (atq.issue_id IS NOT NULL AND EXISTS (SELECT 1 FROM issue ag_i WHERE ag_i.id = atq.issue_id AND jsonb_exists($4::jsonb -> atq.runtime_id::text, ag_i.priority)))) -- AG patch: urgent-only claim filter
       AND EXISTS (
           SELECT 1
           FROM agent a
@@ -1568,7 +1569,7 @@ WHERE id = (
             )
             AND r.status = 'online'
             AND COALESCE(r.last_seen_at, r.updated_at) >=
-                now() - make_interval(secs => $4::double precision)
+                now() - make_interval(secs => $5::double precision)
       )
       AND NOT EXISTS (
           SELECT 1 FROM agent_task_queue active
@@ -1598,6 +1599,7 @@ type ClaimAgentTaskParams struct {
 	PrepareLeaseSecs float64     `json:"prepare_lease_secs"`
 	AgentID          pgtype.UUID `json:"agent_id"`
 	RuntimeID        pgtype.UUID `json:"runtime_id"`
+	AgClaimFilter    []byte      `json:"ag_claim_filter"`
 	RuntimeStaleSecs float64     `json:"runtime_stale_secs"`
 }
 
@@ -1616,6 +1618,7 @@ func (q *Queries) ClaimAgentTask(ctx context.Context, arg ClaimAgentTaskParams) 
 		arg.PrepareLeaseSecs,
 		arg.AgentID,
 		arg.RuntimeID,
+		arg.AgClaimFilter,
 		arg.RuntimeStaleSecs,
 	)
 	var i AgentTaskQueue
@@ -5974,6 +5977,7 @@ SELECT atq.id, atq.agent_id, atq.issue_id, atq.status, atq.priority, atq.dispatc
 WHERE atq.runtime_id = ANY($1::uuid[])
   AND atq.status = 'queued'
       AND (atq.context->>'wakeup_id' IS NULL OR EXISTS (SELECT 1 FROM issue_wakeup w WHERE w.id=(atq.context->>'wakeup_id')::uuid AND w.disabled_at IS NULL AND w.revision=(atq.context->>'wakeup_revision')::bigint))
+  AND (($2::jsonb -> atq.runtime_id::text) IS NULL OR (atq.issue_id IS NOT NULL AND EXISTS (SELECT 1 FROM issue ag_i WHERE ag_i.id = atq.issue_id AND jsonb_exists($2::jsonb -> atq.runtime_id::text, ag_i.priority)))) -- AG patch: urgent-only claim filter
   AND EXISTS (
       -- Keep this authorization fence in sync with ClaimAgentTask.
       SELECT 1
@@ -5989,6 +5993,11 @@ WHERE atq.runtime_id = ANY($1::uuid[])
 ORDER BY atq.priority DESC, atq.created_at ASC
 `
 
+type ListQueuedClaimCandidatesByRuntimesParams struct {
+	RuntimeIds    []pgtype.UUID `json:"runtime_ids"`
+	AgClaimFilter []byte        `json:"ag_claim_filter"`
+}
+
 // Batch variant of ListQueuedClaimCandidatesByRuntime (MUL-4257): returns
 // queued claim candidates across every runtime_id in the input set in ONE round
 // trip, so a daemon can list candidates for all of its runtimes with a single
@@ -5999,8 +6008,8 @@ ORDER BY atq.priority DESC, atq.created_at ASC
 // a sort step (each runtime's slice is index-ordered, but merging several
 // runtimes' rows into one priority/FIFO order is not). The per-machine
 // candidate set is small, so this is cheap in practice.
-func (q *Queries) ListQueuedClaimCandidatesByRuntimes(ctx context.Context, runtimeIds []pgtype.UUID) ([]AgentTaskQueue, error) {
-	rows, err := q.db.Query(ctx, listQueuedClaimCandidatesByRuntimes, runtimeIds)
+func (q *Queries) ListQueuedClaimCandidatesByRuntimes(ctx context.Context, arg ListQueuedClaimCandidatesByRuntimesParams) ([]AgentTaskQueue, error) {
+	rows, err := q.db.Query(ctx, listQueuedClaimCandidatesByRuntimes, arg.RuntimeIds, arg.AgClaimFilter)
 	if err != nil {
 		return nil, err
 	}
