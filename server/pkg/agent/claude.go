@@ -254,11 +254,14 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 			var msg claudeSDKMessage
 			if err := json.Unmarshal([]byte(line), &msg); err != nil {
 				invalidEventCount++
+				agRateLimitGarbled(opts, line) // AG patch: quota
 				continue
 			}
 			eventCount++
 
 			switch msg.Type {
+			case "rate_limit_event": // AG patch: quota
+				agRateLimit(opts, msg.RateLimitInfo, line)
 			case "assistant":
 				assistantEventCount++
 				turn := b.handleAssistant(msg, msgCh, usage, seenUsage)
@@ -665,6 +668,8 @@ type claudeSDKMessage struct {
 
 	// log fields
 	Log *claudeLogEntry `json:"log,omitempty"`
+
+	RateLimitInfo json.RawMessage `json:"rate_limit_info,omitempty"` // AG patch: quota
 
 	// control request fields
 	RequestID string          `json:"request_id,omitempty"`

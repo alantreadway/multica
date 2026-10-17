@@ -89,6 +89,7 @@ type HealthResponse struct {
 	Workspaces          []healthWorkspace `json:"workspaces"`
 	agDrainHealth                         // AG patch: draining, drain_started_at, idle
 	agHandoffHealth                       // AG patch: handoff, max_concurrent_tasks, active_task_ids
+	agQuotaHealth                         // AG patch: quota, claude_quota
 }
 
 type healthWorkspace struct {
@@ -368,6 +369,7 @@ func (d *Daemon) healthHandler(startedAt time.Time) http.HandlerFunc {
 			Workspaces:          wsList,
 			agDrainHealth:       d.agDrainHealth(),
 			agHandoffHealth:     d.agHandoffHealth(),
+			agQuotaHealth:       d.agQuotaHealth(),
 		}
 		if reporter, ok := d.repoCache.(interface{ Activity() repocache.Activity }); ok {
 			activity := reporter.Activity()
@@ -416,9 +418,10 @@ func (d *Daemon) serveHealth(ctx context.Context, ln net.Listener, startedAt tim
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", d.healthHandler(startedAt))
 	mux.HandleFunc("/shutdown", d.shutdownHandler())
-	mux.HandleFunc("/drain", d.agDrainHandler(true))   // AG patch: drain
-	mux.HandleFunc("/resume", d.agDrainHandler(false)) // AG patch: drain
-	mux.HandleFunc("/handoff", d.agHandoffHandler())   // AG patch: handoff
+	mux.HandleFunc("/drain", d.agDrainHandler(true))        // AG patch: drain
+	mux.HandleFunc("/resume", d.agDrainHandler(false))      // AG patch: drain
+	mux.HandleFunc("/handoff", d.agHandoffHandler())        // AG patch: handoff
+	mux.HandleFunc("/quota/clear", d.agQuotaClearHandler()) // AG patch: quota
 	mux.HandleFunc("/repo/checkout", d.repoCheckoutHandler())
 
 	srv := &http.Server{Handler: mux}
