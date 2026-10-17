@@ -34,6 +34,7 @@ import { propertyIdFromViewKey } from "@multica/core/issues/stores/view-store";
 import { useViewStore } from "@multica/core/issues/stores/view-store-context";
 import type { IssueFilters } from "../utils/filter";
 import type { ChildProgress } from "../components/list-row";
+import { useTreeRows, type TreeRowsState } from "../components/use-tree-rows";
 import { IssueTableExportIntegrityError } from "../components/table-view-model";
 import type { IssueSurfaceMode } from "./types";
 import type { IssueSurfaceActions } from "./actions-context";
@@ -69,6 +70,9 @@ export interface IssueSurfaceController {
   createDefaults: IssueCreateDefaults;
   viewMode: IssueSurfaceMode;
   allowGantt: boolean;
+  allowTree: boolean;
+  /** Rows and focus/expand state for tree mode; inert in other modes. */
+  tree: TreeRowsState;
   surfaceIssues: Issue[];
   projectIssues: Issue[];
   issues: Issue[];
@@ -325,6 +329,9 @@ export function useIssueSurfaceController({
       : grouping;
   const usesGantt = effectiveViewMode === "gantt" && !!projectId;
   const usesTable = effectiveViewMode === "table";
+  const usesTree = effectiveViewMode === "tree";
+  // Tree reads the Table query channel, so its filter counts are server-exact.
+  const usesTableFacets = usesTable || usesTree;
   const activeSearch = usesTable ? tableSearch : search;
   const debouncedActiveSearch = useDebouncedTableSearch(activeSearch);
   const usesServerStatusSurface =
@@ -334,7 +341,7 @@ export function useIssueSurfaceController({
     (effectiveViewMode === "board" && effectiveGrouping !== "status") ||
     effectiveViewMode === "swimlane";
   const usesServerFacets =
-    usesTable || usesServerStatusSurface || usesServerGroupSurface;
+    usesTableFacets || usesServerStatusSurface || usesServerGroupSurface;
   const statusColumnsForFilters = useMemo(
     () => statusFilterColumns(statusFilters, catalog),
     [catalog, statusFilters],
@@ -505,7 +512,8 @@ export function useIssueSurfaceController({
         ...(agentRunningFilter && !workingFilterUnresolved
           ? { working_issue_ids: [...workingIssueIDs] }
           : {}),
-        include_sub_issues: showSubIssues,
+        // Tree mode is the sub-issue hierarchy, so the toggle cannot apply.
+        include_sub_issues: showSubIssues || usesTree,
       },
       ...(debouncedActiveSearch ? { search: debouncedActiveSearch } : {}),
       sort: {
@@ -529,6 +537,7 @@ export function useIssueSurfaceController({
     sort.sort_by,
     sort.sort_direction,
     statusFilters,
+    usesTree,
     viewIncludeNoProject,
     viewProjectFilters,
     workingFilterUnresolved,
@@ -579,7 +588,7 @@ export function useIssueSurfaceController({
     enabled:
       !workingFilterUnresolved && (
         usesServerStatusSurface ||
-        ((usesTable || usesServerGroupSurface) && activeTableFacet !== null)
+        ((usesTableFacets || usesServerGroupSurface) && activeTableFacet !== null)
       ),
   });
   // The header chip's count, kept on its own query rather than folded into the
@@ -774,6 +783,14 @@ export function useIssueSurfaceController({
       (effectiveViewMode === "swimlane" && swimlaneGrouping === "project"),
   });
 
+  const tree = useTreeRows({
+    wsId,
+    surfaceKey: scopeKey,
+    query: tableQuerySpec,
+    enabled: usesTree && !workingFilterUnresolved,
+    projectRoot: !!projectId,
+  });
+
   // Gantt draws a client-materialized canvas, so its chip counts the agents
   // holding those canvas rows. Every other view mode takes the server facet.
   const workingAgents = useMemo<WorkingAgentSummary[] | undefined>(() => {
@@ -858,8 +875,10 @@ export function useIssueSurfaceController({
     createDefaults: resolvedCreateDefaults,
     viewMode: effectiveViewMode,
     allowGantt: allowedModes.has("gantt") && !!projectId,
+    allowTree: allowedModes.has("tree"),
+    tree,
     ...surfaceData,
-    isLoading: data.isLoading || workingFilterPending,
+    isLoading: data.isLoading || workingFilterPending || (usesTree && tree.isLoading),
     workingAgents,
     hasActiveFilters,
     statusPagination: usesServerStatusSurface
@@ -874,9 +893,11 @@ export function useIssueSurfaceController({
     // cleared query is waiting to re-fetch the unsearched window.
     isEmpty:
       !workingFilterUnresolved &&
-      data.isEmpty &&
-      !data.isRefreshing &&
-      !(usesTable && (tableSearch.trim() || debouncedActiveSearch)),
+      (usesTree
+        ? tree.isEmpty
+        : data.isEmpty &&
+          !data.isRefreshing &&
+          !(usesTable && (tableSearch.trim() || debouncedActiveSearch))),
     isStatusCatalogError: data.isStatusCatalogError,
     // Either catalog can be the one that failed, and the error state offers a
     // single retry — refresh both rather than guess which.
@@ -895,11 +916,11 @@ export function useIssueSurfaceController({
     tableQuerySpec,
     tableFacetCounts:
       usesServerStatusSurface ||
-      ((usesTable || usesServerGroupSurface) && activeTableFacet !== null)
+      ((usesTableFacets || usesServerGroupSurface) && activeTableFacet !== null)
         ? tableFacetsQuery.data
         : undefined,
     facetCountsExact:
-      !usesTable && !usesServerStatusSurface && !usesServerGroupSurface,
+      !usesTableFacets && !usesServerStatusSurface && !usesServerGroupSurface,
     setActiveTableFacet: requestActiveTableFacet,
     setTableSearch,
     openCreateIssue,

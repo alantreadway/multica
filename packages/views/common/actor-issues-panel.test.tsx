@@ -26,13 +26,16 @@ vi.mock("../layout/page-header", async (importOriginal) => ({
 // IssueSurface is stubbed down to its renderHeader slot so the real
 // ActorIssuesHeader renders without the query/api layer; the toolbar's own
 // heavy children are stubbed for the same reason.
+const surfaceModes = vi.hoisted(() => ({ seen: [] as string[][] }));
 vi.mock("../issues/surface/issue-surface", () => ({
   IssueSurface: ({
+    modes,
     renderHeader,
   }: {
+    modes: string[];
     renderHeader?: (ctx: { controller: unknown }) => React.ReactNode;
   }) => (
-    <div>
+    <div ref={() => { surfaceModes.seen.push(modes); }}>
       {renderHeader?.({
         controller: {
           surfaceIssues: [],
@@ -66,5 +69,17 @@ describe("ActorIssuesPanel toolbar alignment", () => {
     const toolbar = container.querySelector("div.border-b");
     expect(toolbar).toBeTruthy();
     expect(toolbar).toHaveClass(SENTINEL_GUTTER);
+  });
+});
+
+describe("AG patch: ActorIssuesPanel layouts", () => {
+  it("stays list-only, so the actor panel has no Tree entry", () => {
+    surfaceModes.seen = [];
+    render(
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <ActorIssuesPanel actorType="agent" actorId="agent-1" />
+      </I18nProvider>,
+    );
+    expect(surfaceModes.seen.at(-1)).toEqual(["list"]);
   });
 });

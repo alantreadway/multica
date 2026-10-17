@@ -36,6 +36,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | --- | --- | --- |
 | Tree-ordered parent lanes | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open, adjacent) |
 | Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) |
+| Tree view mode (outline) | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open PR, overlaps), [#5685](https://github.com/multica-ai/multica/issues/5685) (open request) |
 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open) |
 | Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open) |
 | Daemon handoff: machine-wide slot cap and single-instance fixes | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) |
@@ -109,6 +110,126 @@ Depends on the tree-ordered lanes patch.
     the base.
   - Fit: as for tree lanes. The jump chip is the more subjective part; offer the
     drag rules first.
+
+### Tree view mode (outline)
+
+A new issue view mode `tree` beside board, list, table, swimlane and gantt, on
+`/issues`, `/my-issues` and project pages (not the actor panel). The same filter
+bar and sort apply; the rows are an outline of the parent / sub-issue hierarchy
+with ├ └ connectors, a status icon, identifier, title, assignee, `done/total`
+sub-issue progress and the agent-working dot. Each node expands and collapses
+(children load page by page when a parent opens), and expand all opens to depth 2
+at most (and no more than 100 nodes). A node's focus action makes it the root,
+with a breadcrumb back up. A root whose parent the filters removed shows that
+hidden ancestor path dimmed (`MAG-1 › MAG-2 ›`); clicking a crumb focuses that
+ancestor. While a node is focused, its subtree is fetched without the filter-bar
+filters, search or surface scope (sort stays, sub-issues stay on), because the
+server only returns a branch whose parent passes the filters and a hidden
+ancestor would otherwise come back empty; the bar shows "Filters are paused
+while focused" with a clear-focus action, and leaving focus restores the
+filtered tree. Filter counts are those of the filtered view. Peek and open work
+as in List. Frontend only: it reuses the Table row
+query (`hierarchy: { enabled: true }`, one parent per request, pages of 50), so
+filtering, sort, counts and WebSocket invalidation match the other modes, and
+tree mode forces `include_sub_issues` on. Expand state persists per surface
+scope in `multica_issue_tree_view`; focus lives in the surface controller
+(`controller.tree`) so a follow-on layout can read the same rows. A stored
+`tree` mode on a surface that does not offer it falls back to that surface's
+first mode. Rollback: switch the web image back to a build without this patch.
+
+- Test prefix: `AG patch:`
+- Files:
+  - `packages/views/issues/components/tree-view.tsx` (new)
+  - `packages/views/issues/components/use-tree-rows.ts` (new)
+  - `packages/views/issues/components/tree-rows.ts` (new)
+  - `packages/views/issues/components/tree-rows.test.ts`,
+    `tree-view.test.tsx`, `issues-header.tree-mode.test.tsx` (new)
+  - `packages/views/issues/surface/tree-mode.test.tsx`,
+    `tree-mode-surfaces.test.tsx`, `packages/views/locales/ag-tree.test.ts` (new)
+  - Tree cases added to the existing `save-view-dialog.test.tsx`,
+    `actor-issues-panel.test.tsx`, `project-detail.test.tsx`,
+    `issue-statuses-tab.test.tsx` and `issue-surface.test.tsx`
+  - `packages/core/issues/stores/tree-view-store.ts`,
+    `tree-view-store.test.ts` (new)
+  - `packages/core/issues/stores/view-store.ts` (`ViewMode`, card options)
+  - `packages/core/issues/queries.ts` (append only: `IssueAncestryNode` keeps
+    `title` and `status`), `queries.test.ts`
+  - `packages/views/issues/surface/types.ts`,
+    `use-issue-surface-controller.ts`, `issue-surface.tsx` (mode plumbing)
+  - `packages/views/issues/components/issues-header.tsx`, `issues-page.tsx`,
+    `save-view-dialog.tsx`, `packages/views/my-issues/components/my-issues-header.tsx`,
+    `my-issues-page.tsx`, `packages/views/projects/components/project-detail.tsx`
+  - `packages/views/locales/*/issues.json` (`view.tree`, `view.tooltip_tree`,
+    `tree` group)
+
+- Upstream:
+  - Status: `candidate`. Read-only check, 2026-10-16.
+  - Overlap: open request [#5685](https://github.com/multica-ai/multica/issues/5685) for a tree view and closed request
+    [#4180](https://github.com/multica-ai/multica/issues/4180); [#9266](https://github.com/multica-ai/multica/pull/9266) nests sub-issues on the board, not a
+    tree. Open [#2966](https://github.com/multica-ai/multica/pull/2966) (hierarchy views) also adds a tree view, so it overlaps and
+    must be read before proposing this. No upstream implementation has merged.
+  - Fit: a new view mode, frontend only, no new dependency. `VISION.md` says
+    nothing about views. Feature work, so it goes through a Feature Request
+    first, after reading #2966 so we don't race it.
+
+### Tree mode org-chart layout
+
+Tree mode gains an Outline | Chart choice in the Display menu (the view menu,
+under the view list, only while Tree is the active view). Chart draws a top-down
+org chart: a hand-rolled tidy-tree layout (per-subtree contours, siblings pushed
+apart only as far as needed, parent centred over its children; no `d3-hierarchy`,
+no new dependency), elbow connectors, and pan / zoom by a CSS transform (drag the
+background, wheel pans, ctrl / pinch / buttons zoom, `+` `-` `0` and arrows on the
+keyboard, Fit button). It reads the outline's rows, so filters, sort, paging,
+focus, peek and the node's focus action behave as in Outline; a node's count chip
+opens and closes its branch. Nodes at depth 2 and below start collapsed (and only
+the first 20 children of a branch open by default, so opening the chart never
+fans out into a request per sibling); the toolbar has "Show next level",
+"Collapse all" and "Reset". Above 200 visible issues the chart draws nothing and
+asks the user to collapse or focus deeper, with a way back to Outline.
+
+The chart fits itself on every layout or size change for the current root until
+the user first adjusts the view (pan, zoom, Fit, expand or collapse); after that
+it never auto-fits that root again, and re-rooting starts afresh. It does not try
+to detect when loading has finished.
+
+Where it is available: from a focused node anywhere tree mode runs, and on a
+project page without focusing (the project is a virtual top node over the
+project's root issues, subject to the current filters). On `/issues` and
+`/my-issues` with nothing focused, Chart is disabled with a hint. The choice
+persists per surface in `multica_issue_tree_layout`; it only applies while the
+chart is available, so clearing focus on `/issues` shows the outline. The chart
+keeps its own open state (scoped to the surface and root, reset when the root
+changes), so the outline's expanded nodes and focus are untouched. Frontend only.
+Rollback: switch the web image back to a build without this patch.
+
+- Test prefix: `AG patch:`
+- Files:
+  - `packages/views/issues/components/tree-chart-layout.ts`,
+    `tree-chart-viewport.ts`, `tree-chart-view.tsx`, `tree-layout-context.tsx`,
+    `tree-layout-menu.tsx` (new)
+  - `packages/views/issues/components/tree-chart-layout.test.ts`,
+    `tree-chart-layout.invariants.test.ts`, `tree-chart-viewport.test.ts`,
+    `tree-chart-view.test.tsx`, `issues-header.tree-layout.test.tsx` (new)
+  - `packages/views/issues/surface/tree-chart-mode.test.tsx`,
+    `tree-chart-surface.test.tsx` (new)
+  - `packages/core/issues/stores/tree-layout-store.ts`,
+    `tree-layout-store.test.ts`, `tree-layout-store.persist.test.ts` (new)
+  - Hooks into tree mode's own files: `use-tree-rows.ts` (layout, chart open
+    state), `tree-rows.ts` (`flattenTree` accepts an open rule), `tree-view.tsx`
+    (shared `TreeToolbar`)
+  - One-line hooks in upstream files: `issues-header.tsx` (menu section),
+    `issue-surface.tsx` (layout switch and context provider),
+    `use-issue-surface-controller.ts` (`projectRoot`)
+  - `packages/views/locales/*/issues.json` (`tree.layout_*`, `tree.chart_*`),
+    `locales/ag-tree.test.ts`
+
+- Upstream:
+  - Status: `fork-only` for now; it extends the tree view patch above and would
+    follow it, so it is not a separate proposal.
+  - Overlap: none found beyond the tree view entry (open [#2966](https://github.com/multica-ai/multica/pull/2966) is an outline, not a chart).
+  - Fit: a second renderer for a view that does not exist upstream yet. Offer it
+    only after the outline lands, and only if asked.
 
 ### Daemon drain mode (landed)
 

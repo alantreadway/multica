@@ -12,6 +12,7 @@ import {
   FolderKanban,
   FolderMinus,
   List,
+  ListTree,
   Rows3,
   SignalHigh,
   SlidersHorizontal,
@@ -127,6 +128,7 @@ import { matchesPinyin } from "../../editor/extensions/pinyin-match";
 import { FILTER_ITEM_CLASS, HoverCheck } from "../../common/hover-check";
 import { WorkspaceAgentWorkingChip } from "./workspace-agent-working-chip";
 import { TableColumnPicker } from "./table-view";
+import { TreeLayoutMenuSection } from "./tree-layout-menu";
 
 type LocalDateRange = {
   from: Date | undefined;
@@ -1199,6 +1201,7 @@ export function IssuesHeader({
   scopedIssues,
   workingAgents,
   allowGantt = false,
+  allowTree = false,
   dateFilter = null,
   onDateFilterChange,
   isRefreshing,
@@ -1212,6 +1215,7 @@ export function IssuesHeader({
    *  behind the agents-working chip. */
   workingAgents: WorkingAgentSummary[] | undefined;
   allowGantt?: boolean;
+  allowTree?: boolean;
   dateFilter?: IssueDateFilter | null;
   onDateFilterChange?: (filter: IssueDateFilter | null) => void;
   /** Omit when the page title already displays refresh feedback. */
@@ -1388,6 +1392,7 @@ export function IssuesHeader({
           <IssueDisplayControls
             scopedIssues={scopedIssues}
             allowGantt={allowGantt}
+            allowTree={allowTree}
             dateFilter={dateFilter}
             onDateFilterChange={onDateFilterChange}
             facetCountsExact={facetCountsExact}
@@ -1890,6 +1895,7 @@ export function IssueDisplayControls({
   scopedIssues,
   hideViewToggle = false,
   allowGantt = false,
+  allowTree = false,
   dateFilter = null,
   onDateFilterChange,
   facetCountsExact = true,
@@ -1908,6 +1914,8 @@ export function IssueDisplayControls({
   // /my-issues, actor panel) ignore viewMode === "gantt" and would silently
   // fall back to List if the option were exposed there. Keep Gantt opt-in.
   allowGantt?: boolean;
+  // Tree is opt-in for the same reason: only surfaces that render <TreeView>.
+  allowTree?: boolean;
   /**
    * Whether `scopedIssues` covers the surface's full window. Table does not
    * use loaded rows for counts; server-paged List, Board, and Swimlane follow
@@ -2415,6 +2423,8 @@ export function IssueDisplayControls({
                           <Waves className="size-3.5" />
                         ) : viewMode === "gantt" && allowGantt ? (
                           <ChartGantt className="size-3.5" />
+                        ) : viewMode === "tree" && allowTree ? (
+                          <ListTree className="size-3.5" />
                         ) : (
                           <List className="size-3.5" />
                         )}
@@ -2427,6 +2437,8 @@ export function IssueDisplayControls({
                             ? t(($) => $.view.swimlane)
                             : viewMode === "gantt" && allowGantt
                             ? t(($) => $.view.gantt)
+                            : viewMode === "tree" && allowTree
+                            ? t(($) => $.view.tree)
                             : t(($) => $.view.list)}
                         </span>
                       </Button>
@@ -2443,6 +2455,8 @@ export function IssueDisplayControls({
                   ? t(($) => $.view.tooltip_swimlane)
                   : viewMode === "gantt" && allowGantt
                   ? t(($) => $.view.tooltip_gantt)
+                  : viewMode === "tree" && allowTree
+                  ? t(($) => $.view.tooltip_tree)
                   : t(($) => $.view.tooltip_list)}
               </TooltipContent>
             </Tooltip>
@@ -2479,7 +2493,16 @@ export function IssueDisplayControls({
                     {t(($) => $.view.gantt)}
                   </DropdownMenuRadioItem>
                 )}
+                {allowTree && (
+                  <DropdownMenuRadioItem value="tree">
+                    <ListTree />
+                    {t(($) => $.view.tree)}
+                  </DropdownMenuRadioItem>
+                )}
               </DropdownMenuRadioGroup>
+              {allowTree && viewMode === "tree" && (
+                <TreeLayoutMenuSection onChosen={() => setViewMenuOpen(false)} />
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
