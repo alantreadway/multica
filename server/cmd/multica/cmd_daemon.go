@@ -564,7 +564,7 @@ func runDaemonBackground(cmd *cobra.Command) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	health := checkDaemonHealthOnPort(ctx, healthPort)
-	if daemonAlive(health) {
+	if daemonAlive(health) && !agOverlapRequested(cmd) { // AG patch: overlap starts beside a live predecessor
 		// A live daemon on our port that belongs to someone else is a
 		// collision. The foreground child can safely use a fallback port.
 		if err := daemonIdentityMismatch(health, profile, healthPort); err != nil {
@@ -675,7 +675,7 @@ func runDaemonBackground(cmd *cobra.Command) error {
 
 	// Write PID file.
 	pidPath := daemonPIDPathForProfile(profile)
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(pid)), 0o644); err != nil {
+	if err := agWriteLauncherPID(cmd, pidPath, pid); err != nil { // AG patch: overlap child writes its own
 		fmt.Fprintf(os.Stderr, "Warning: could not write PID file: %v\n", err)
 	}
 
@@ -921,6 +921,8 @@ func buildDaemonStartArgs(cmd *cobra.Command) []string {
 		args = append(args, "--no-auto-reload")
 	}
 
+	args = agOverlapArgs(cmd, args) // AG patch: overlap
+
 	// Forward global persistent flags.
 	if v, _ := cmd.Flags().GetString("server-url"); v != "" {
 		args = append(args, "--server-url", v)
@@ -960,6 +962,7 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	var (
 		logger     *slog.Logger
 		logRotator *lumberjack.Logger
+		logSwitch  *agLogSwitch // AG patch: handoff
 	)
 	if logger_pkg.StderrIsTerminal() {
 		logger = logger_pkg.NewLogger("daemon")
@@ -973,10 +976,11 @@ func runDaemonForeground(cmd *cobra.Command) error {
 		repointStdioToErrLog(daemonStderrLogPathForProfile(profile))
 		logRotator = newDaemonLogRotator(daemonLogPathForProfile(profile))
 		defer logRotator.Close()
+		logSwitch = &agLogSwitch{w: logRotator} // AG patch: handoff moves logging aside
 		// Route both this process's structured logger and the package-global
 		// slog default through the rotator, so every log line — including
 		// LoadConfig's slog.Warn below — is captured and rotated.
-		logger = logger_pkg.NewWriterLoggerDefault("daemon", logRotator)
+		logger = logger_pkg.NewWriterLoggerDefault("daemon", logSwitch)
 	}
 
 	serverURL := resolveDaemonServerURL(cmd, profile)
@@ -1103,19 +1107,31 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	// Set by the Electron Desktop app when it spawns the CLI so the server
 	// can mark those runtimes as "managed" and hide CLI self-update UI.
 	cfg.LaunchedBy = os.Getenv("MULTICA_LAUNCHED_BY")
-	lock, err := acquireDaemonProfileLock(profile, os.Getenv("MULTICA_DAEMON_HANDOFF") == "1")
+	overlap := agOverlapRequested(cmd) // AG patch: overlap
+	var pred daemon.AGPredecessor
+	if overlap {
+		if pred, err = agDiscoverPredecessor(profile, cfg.MaxConcurrentTasks); err != nil {
+			return err
+		}
+	}
+	lock, err := acquireDaemonProfileLock(profile, os.Getenv("MULTICA_DAEMON_HANDOFF") == "1" || overlap)
 	if err != nil {
 		return err
 	}
 	defer lock.Close()
 	_ = os.Unsetenv("MULTICA_DAEMON_HANDOFF")
+	if !overlap { // AG patch: handoff
+		if err := agRefuseWhileHandoffDraining(profile); err != nil {
+			return err
+		}
+	}
 	// An older daemon has no profile lock. A direct --foreground start must
 	// still refuse to launch a second daemon for that same profile.
 	port := resolveHealthPort(profile)
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	existing := checkDaemonHealthOnPort(probeCtx, port)
 	probeCancel()
-	if daemonAlive(existing) && daemonIdentityMismatch(existing, profile, port) == nil {
+	if daemonAlive(existing) && daemonIdentityMismatch(existing, profile, port) == nil && !overlap {
 		return fmt.Errorf("daemon %s is already running or starting", describeProfile(profile))
 	}
 	healthLn, actualPort, err := bindDaemonHealthPort(cfg.HealthPort, net.Listen)
@@ -1133,6 +1149,11 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	defer stop()
 
 	d := daemon.New(cfg, logger)
+	agInstallHandoffHook(d, profile, actualPort, logSwitch, lock) // AG patch: handoff
+	defer agRemoveHandoffRecordIfOwned(profile, os.Getpid())      // AG patch: handoff
+	if overlap {
+		d.AGEnableOverlap(pred) // AG patch: overlap
+	}
 
 	// Write PID file so "daemon stop" can find us.
 	if dir := daemonDirForProfile(profile); dir != "" {
@@ -1293,6 +1314,9 @@ func runDaemonRestart(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	health := checkDaemonHealthOnPort(ctx, healthPort)
+	if err := agRequireRunningForHandoff(cmd, profile, health); err != nil { // AG patch: handoff
+		return err
+	}
 	if daemonAlive(health) {
 		// Identity before preflight, and well before the stop phase: restart
 		// kills whatever answered on this port, so a collision would take out
@@ -1308,6 +1332,9 @@ func runDaemonRestart(cmd *cobra.Command, args []string) error {
 		// (empty-token guard + early child-exit detection) handle it without
 		// this extra server round-trip.
 		if err := requireDaemonRestartPreflight(cmd, profile); err != nil {
+			return err
+		}
+		if handled, err := agHandoffRestart(cmd, healthPort, args); handled || err != nil { // AG patch: handoff
 			return err
 		}
 		if err := agDrainBeforeRestart(cmd, healthPort, profile); err != nil { // AG patch: drain
@@ -1362,6 +1389,9 @@ func runDaemonStop(cmd *cobra.Command, _ []string) error {
 	defer cancel()
 
 	health := checkDaemonHealthOnPort(ctx, healthPort)
+	if err := agRequireRunningForHandoff(cmd, profile, health); err != nil { // AG patch: handoff
+		return err
+	}
 	if !daemonAlive(health) {
 		label := "Daemon"
 		if profile != "" {
@@ -1373,6 +1403,9 @@ func runDaemonStop(cmd *cobra.Command, _ []string) error {
 	// The PID to kill comes from whatever answered on this port, so verify it
 	// is ours before signalling it.
 	if err := daemonIdentityMismatch(health, profile, healthPort); err != nil {
+		return err
+	}
+	if handled, err := agHandoffStop(cmd, healthPort); handled || err != nil { // AG patch: handoff
 		return err
 	}
 	if err := agDrainBeforeStop(cmd, healthPort); err != nil { // AG patch: drain

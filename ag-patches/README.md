@@ -222,6 +222,96 @@ multica daemon status                           # Claiming / Active tasks / Idle
   auto-update, server-triggered update) are deferred and say so in
   `reload_pending_reason`.
 
+### Handoff: replace the daemon without a gap
+
+`drain` + restart leaves the machine unclaiming until the old runs finish.
+Handoff lets the new daemon claim at once while the old one finishes its runs and
+exits:
+
+```sh
+multica daemon drain --handoff [--wait] [--timeout 30m]  # old daemon: hand over, exit when idle
+multica daemon start --overlap                           # new daemon: start beside it
+multica daemon restart --handoff                         # both of the above in one command
+multica daemon stop --handoff [--timeout 30m]            # hand off and wait for the daemon to exit
+```
+
+- **Old daemon (`--handoff`).** Implies drain. It stops claiming, stops
+  heartbeating and registering (the new daemon owns runtime liveness and the
+  requests heartbeats carry: update, model list, skills), releases
+  `daemon.lock`, moves its logging to `daemon.handoff.<pid>.log` (two rotating
+  writers on `daemon.log` are not safe), and never deregisters its runtimes. It
+  keeps reporting for its own runs and keeps serving its health port, which the
+  agents it started use (`MULTICA_DAEMON_PORT`). It exits once it has no run
+  left, but not sooner than 30 seconds after the handoff began, so the new daemon
+  can find it. Handoff is one-way: `daemon resume` is refused.
+- **New daemon (`--overlap`).** Reads the old daemon's PID, task IDs and task cap
+  from its `/health` before it writes its own port or PID file, and does not call
+  recover-orphans (which would fail the old daemon's runs) while the old daemon
+  lives. It claims through the machine-wide slot locks, so the running agents
+  across both processes never exceed `MULTICA_DAEMON_MAX_CONCURRENT_TASKS`; that
+  is why both must have the **same cap**, and a mismatch is refused. It skips GC
+  while the old daemon lives, and a heavy `git gc` is cancelled the moment the
+  other daemon takes a slot.
+- **Fails closed.** `--overlap` exits non-zero, before registering anything, when
+  there is no live old daemon, when its `/health` can't be read, when it isn't in
+  handoff mode, or when the caps differ. It never falls back to a normal start.
+- **Old daemon dies mid-handoff.** The new daemon fails only the run IDs the old
+  daemon last reported (failure reason `runtime_offline`, so the server retries
+  them), then behaves as a normal daemon. A transient health failure while the
+  PID is alive changes nothing.
+- `daemon status` shows `Handoff` on the old daemon and `Predecessor` on the new.
+
+#### Two-label reload script
+
+`ag-patches/multica-daemon-reload` drives this under launchd by alternating
+between two labels, `uk.blogic.multica-daemon.a` and `.b`. It never runs
+`launchctl bootout` on the draining label (bootout kills its agents). The repo
+does not install the script or the plists.
+
+One-time setup, by hand:
+
+1. Copy `~/Library/LaunchAgents/uk.blogic.multica-daemon.plist` to `….a.plist`
+   and `….b.plist`, change `Label` to match, and bootout/delete the old
+   single-label job once nothing is running (`multica-ag daemon drain --wait`
+   first). Keep `MULTICA_DAEMON_MAX_CONCURRENT_TASKS` identical in both.
+2. Make each plist's command line start the daemon with `--overlap` while a
+   one-shot marker file is fresh, so the script can ask for an overlap start at
+   bootstrap time without editing the plist:
+
+   ```xml
+   <key>ProgramArguments</key>
+   <array>
+     <string>/bin/sh</string>
+     <string>-c</string>
+     <string>export MULTICA_DAEMON_MAX_CONCURRENT_TASKS=5; if [ -n "$(find "$HOME/.multica/overlap-next" -mmin -10 2>/dev/null)" ]; then exec "$HOME/.local/bin/multica-ag" daemon start --foreground --overlap; fi; exec "$HOME/.local/bin/multica-ag" daemon start --foreground</string>
+   </array>
+   ```
+
+   The `export MULTICA_DAEMON_MAX_CONCURRENT_TASKS=N` must stay in the command
+   line: the script reads the cap from it (and `--cap` rewrites it).
+
+   A launchd restart after a crash, with no fresh marker, starts normally and
+   recovers orphans, as it should, unless a handed-off daemon is still draining:
+   a handoff daemon leaves `daemon.handoff.json` (its PID and port) in the
+   profile directory, and a normal start beside a live one exits non-zero rather
+   than fail that daemon's tasks.
+3. Do not set `KeepAlive` to restart on a clean exit: a handed-off daemon exits 0
+   and must stay down. `<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>`
+   restarts crashes only.
+4. Install the script and run it with the patched CLI:
+
+   ```sh
+   install -m 0755 ag-patches/multica-daemon-reload ~/bin/multica-daemon-reload
+   MULTICA_BIN=multica-ag ~/bin/multica-daemon-reload [--cap N] [--wait] [--dry-run]
+   ```
+
+It finds the label with a running job, runs `drain --handoff` on it, writes the
+marker, bootstraps the other label, waits for it to report running with a new
+PID, and prints what the old one is still draining. `--cap N` edits both plists
+(backed up first); because a different cap can't overlap, it waits for the old
+daemon to hand off and exit, then starts the other label normally. If no label is
+running it starts `.a`. Neither label is touched while both have a running job.
+
 ### Build
 
 From the patch branch with a clean tree and upstream tags fetched:

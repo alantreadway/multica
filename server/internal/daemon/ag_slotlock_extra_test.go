@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -89,6 +90,9 @@ func TestAGPatchSlotCapHoldsWhenOtherProcessStartsLater(t *testing.T) {
 			t.Fatalf("slot %d held by both processes", s)
 		}
 	}
+	// The flocks live in sem's open files; without this the GC may finalise
+	// sem while the helper runs and drop them.
+	runtime.KeepAlive(sem)
 }
 
 // Hammer the cap: two daemons' worth of goroutines plus another process holding
