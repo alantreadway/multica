@@ -27,7 +27,7 @@ offer upstream. Every patch entry below ends with an **Upstream** line:
 - **Fit:** how it sits with upstream's `VISION.md` and roadmap, or why it doesn't.
 
 Last checked 2026-10-16 against upstream `main` (release `v0.6.3` was cut that
-day), using the preflight from the `multica-upstream-contribution` skill: live
+day; the polling patch's entry checked the same day), using the preflight from the `multica-upstream-contribution` skill: live
 `VISION.md` and `CONTRIBUTING.md`, plus issue and PR searches, open and closed.
 Read-only: nothing has been opened, filed or commented on upstream. Re-check on
 every rebase (README, "Rebase onto a new upstream tag").
@@ -39,6 +39,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open) |
 | Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open) |
 | Daemon handoff: machine-wide slot cap and single-instance fixes | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) |
+| GitHub PR polling (token mode) | `candidate` | [#8111](https://github.com/multica-ai/multica/issues/8111) (open feature request, same need) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -301,6 +302,93 @@ Needs a CLI built with `ag-patches/build-cli.sh`.
   - Fit: operator tooling for self-hosters (upgrade without a gap in service),
     in the same spirit as drain. The machine-wide slot cap changes how every
     daemon bounds concurrency, which upstream would want agreed first.
+
+### GitHub PR polling, token mode (backend)
+
+Lets a self-host without a GitHub App keep PR cards, issue linking, merge
+auto-complete and the `--until-pr checks` / `--until-pr merged` wakeups.
+Set `GITHUB_POLL_TOKEN` (a personal access token, e.g. `gh auth token`) and a
+poller reads `GET /repos/{o}/{r}/pulls?state=all&sort=updated&direction=desc`
+every `GITHUB_POLL_INTERVAL` (default `60s`, floor `15s`) for each GitHub
+`owner/repo` listed in any workspace's `repos`. It sends `If-None-Match`, so an
+unchanged list is a 304. Each PR updated since the repo's in-memory cursor is
+mapped onto the webhook payload and mirrored through `mirrorPullRequestForWorkspace`
+for every workspace that lists the repo (same link policy as a webhook), then
+handed to `PRRefresh.Enqueue` for its CI and mergeability snapshot. The first
+pass after a start scans one page (100 PRs); an already-merged PR first seen
+that way is treated as a merge. Rows the poller writes carry `installation_id = 0`.
+No schema change and no migration.
+
+The snapshot client (`ghsnapshot.Client`) takes the token too: with no App vars
+it sends the token on every GraphQL call for any installation id.
+
+When it runs:
+
+- App vars unset, `GITHUB_POLL_TOKEN` set: poller on (token mode).
+- App configured: poller off, and the client is unchanged, unless
+  `GITHUB_POLL_ENABLED=true` and `GITHUB_POLL_TOKEN` are both set. Then the
+  poller runs next to the webhooks. **installation_id choice:** polled rows are
+  written with `0`, as in token mode, and the App client uses the poll token for
+  installation `0` only (every real installation still mints App tokens). Chosen
+  over looking up each workspace's installation row because a repo can be
+  reachable by the token and not by that installation. In this opt-in mode only, a PR
+  whose stored row in a workspace already carries a real installation id (an App
+  webhook wrote it) is skipped for that workspace, so the poll never downgrades the
+  id, zeroes the diff stats or strands `check_suite`/`check_run` refreshes. The
+  poller only fills PRs the webhooks have not seen, and refreshes a PR only when it
+  owns a row for it. In token mode no webhook arrives, so the poll takes such rows
+  over (rewrites them to installation `0`) and refreshes them.
+- Neither: nothing runs. An empty or whitespace `GITHUB_POLL_TOKEN` is unset.
+
+Failure policy (never crashes): a GitHub error, timeout or 5xx on a repo logs a
+warning, skips that repo for the tick and keeps its cursor and ETag. A 401/403
+logs one error per tick and the loop goes on. A rate-limit answer
+(`X-RateLimit-Remaining: 0`, `Retry-After`, or a secondary-limit body) pauses
+the poller until the reset (at most an hour). A failed mirror for one workspace
+is logged, the others carry on, and the cursor stays before that PR (its ETag is
+dropped) so it retries. Entries in `repos` that are not on github.com are
+skipped. The token is never logged.
+
+Known limits: the list endpoint has no diff stats, so polled PRs show 0
+additions, 0 deletions and 0 files. A PR is re-mirrored when its `updated_at`
+equals the cursor second (GitHub timestamps are whole seconds, so `>` would miss
+a later change in the same second); the upsert makes that idempotent. CI state
+changes do not touch a PR's `updated_at`: the snapshot's chase backoff, the
+10-minute sweep and page visits keep it fresh. Web Code settings still reads
+"Not connected" with no App; the PR toggles there work.
+
+- Test prefix: `TestAGPatch` / `AG patch:`. Hermetic ones (`ghpoll`,
+  `ghsnapshot`) run in `ag-patches/test.sh`; the DB-backed ones in
+  `server/internal/handler` and `server/internal/service` need Postgres (see
+  README)
+- Files:
+  - `server/internal/integrations/ghpoll/` (new: `config.go`, `repos.go`,
+    `poller.go`, `ag_ghpoll_test.go`, `ag_ghpoll_policy_test.go`)
+  - `server/internal/integrations/ghsnapshot/ag_static_token.go` (new),
+    `ag_static_token_test.go`, `ag_static_token_policy_test.go` (new),
+    `client.go` (hooks: `staticToken` field, `NewClientFromEnv`, `Enabled`,
+    `installationToken`)
+  - `server/internal/handler/ag_ghpoll.go` (new: `AGStartGitHubPoll`, the
+    sink), `ag_ghpoll_test.go`, `ag_ghpoll_flow_test.go`, `ag_ghpoll_refresh_test.go` (new)
+  - `server/internal/service/ag_ghpoll_wakeup_test.go` (new: DB-backed, the
+    `--until-pr checks` / `merged` wakeups on a polled row)
+  - `server/cmd/server/main.go` (one-line hook next to `PRRefresh.Start`)
+  - `ag-patches/docker-compose.github-poll.yml` (new, tooling: passes the three
+    variables to the backend), `ag-patches/test.sh` (new packages, minimum 69)
+
+- Upstream:
+  - Status: `candidate`. Nothing is proposed; upstream wants a Feature Request
+    agreed first.
+  - Overlap: open feature request [#8111](https://github.com/multica-ai/multica/issues/8111) ("Allow GitHub
+    integration via `gh` command and polling", enhancement, last touched
+    2026-10-01) asks for the same fallback: a polling GitHub integration for
+    people who cannot install an App. It proposes the `gh` CLI; ours is a server
+    poller with a token. No PR for it. [#5006](https://github.com/multica-ai/multica/pull/5006) (merged) already
+    gives Forgejo, Gitea and GitLab a token-based provider in `vcs_connection`;
+    that is the shape a clean upstream version would take, and this patch keeps
+    to the `github_pull_request` tables to avoid a migration.
+  - Fit: removes a stated adoption blocker for self-hosters without an App, and
+    adds no dependency. Add our design to #8111 only if alan says so.
 
 ## Tooling (not a patch)
 

@@ -9,7 +9,8 @@
 #
 # The Go half runs TestAGPatch* in server/internal/daemon,
 # server/internal/daemon/repocache, server/cmd/multica, server/internal/daemonws,
-# server/internal/agdrain and server/pkg/protocol (see PATCHES.md). `go test -run`
+# server/internal/agdrain, server/pkg/protocol, server/internal/integrations/ghpoll
+# and server/internal/integrations/ghsnapshot (see PATCHES.md). `go test -run`
 # passes silently on no match, so the passing
 # top-level tests are counted against AG_GO_MIN_TESTS: raise it when a Go patch
 # adds tests. The DB-backed TestAGPatch* tests in server/internal/handler are not
@@ -35,13 +36,13 @@ pnpm --filter @multica/core exec vitest run runtimes/ag-drain.test.ts
 
 pnpm --filter @multica/views typecheck
 
-# --- Go: daemon, CLI and drain-badge patch guard ----------------------------
+# --- Go: daemon, CLI, drain-badge and GitHub polling patch guard ------------
 
-AG_GO_MIN_TESTS=46
+AG_GO_MIN_TESTS=69
 
 go_out="$(mktemp)"
 trap 'rm -f "$go_out"' EXIT
-if ! ag_go test ./internal/daemon ./internal/daemon/repocache ./cmd/multica ./internal/daemonws ./internal/agdrain ./pkg/protocol -run '^TestAGPatch' -count=1 -v >"$go_out" 2>&1; then
+if ! ag_go test ./internal/daemon ./internal/daemon/repocache ./cmd/multica ./internal/daemonws ./internal/agdrain ./pkg/protocol ./internal/integrations/ghpoll ./internal/integrations/ghsnapshot -run '^TestAGPatch' -count=1 -v >"$go_out" 2>&1; then
   cat "$go_out"
   echo "ag-patches/test.sh: Go patch tests failed" >&2
   exit 1
