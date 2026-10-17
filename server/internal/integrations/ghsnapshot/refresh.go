@@ -439,6 +439,9 @@ func (m *Manager) applySnapshot(ctx context.Context, prID pgtype.UUID, snap *PRS
 			return false, err
 		}
 	}
+	if err := agApplySnapshotExtras(ctx, q, prID, snap); err != nil {
+		return false, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, err
 	}

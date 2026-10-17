@@ -13,9 +13,10 @@
 # and server/internal/integrations/ghsnapshot (see PATCHES.md). `go test -run`
 # passes silently on no match, so the passing
 # top-level tests are counted against AG_GO_MIN_TESTS: raise it when a Go patch
-# adds tests. The DB-backed TestAGPatch* tests in server/internal/handler are not
-# run here (CI has no Postgres and that package skips without one); run them with
-# DATABASE_URL set: go test ./internal/handler -run '^TestAGPatch'.
+# adds tests. The DB-backed TestAGPatch* tests in server/internal/handler and
+# server/internal/integrations/ghsnapshot are not run here (CI has no Postgres;
+# they skip without one); run them with DATABASE_URL set:
+#   go test ./internal/handler ./internal/integrations/ghsnapshot -run '^TestAGPatch'
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -62,7 +63,7 @@ pnpm --filter @multica/views typecheck
 
 # --- Go: daemon, CLI, drain-badge and GitHub polling patch guard ------------
 
-AG_GO_MIN_TESTS=99
+AG_GO_MIN_TESTS=112
 
 go_out="$(mktemp)"
 trap 'rm -f "$go_out"' EXIT

@@ -5,7 +5,9 @@ build a patched web image, a patched backend image and a patched CLI/daemon
 binary and to rebase the set onto a new upstream tag. The web patches are
 frontend-only. The daemon/CLI patch (drain mode) changes the `multica` binary that
 runs the local daemon. The drain badge also patches the backend (no migration):
-see [Backend image](#backend-image). Each part has its own rollback: for the web
+see [Backend image](#backend-image). The PR snapshot fields patch the backend too,
+with one additive migration, and add CLI commands: see
+[GitHub PR snapshot fields](#github-pr-snapshot-fields-and-pull-requests-link). Each part has its own rollback: for the web
 image, removing one env var ([Roll back](#roll-back)); for the CLI, pointing the
 daemon back at the stock binary ([Daemon/CLI patch](#daemoncli-patch)); for the
 backend, switching the image back to stock.
@@ -98,8 +100,9 @@ Rules while switched:
 
 ## Backend image
 
-Only the drain badge needs it: without it the daemon's drain report is ignored
-and the badge never shows. Build from the patch branch, same rules as the web
+The drain badge and the PR snapshot fields need it: without it the daemon's drain
+report is ignored and the badge never shows, and the PR list has none of the
+snapshot fields (see "GitHub PR snapshot fields and `pull-requests link`"). Build from the patch branch, same rules as the web
 build:
 
 ```sh
@@ -120,8 +123,9 @@ MULTICA_BACKEND_IMAGE=multica-backend-ag   # in .env
 docker compose -f docker-compose.selfhost.yml -f docker-compose.isolated.yml up -d backend
 ```
 
-Roll back: remove that line and run the same `up -d backend`. Nothing in the
-schema changes. The stock backend ignores the `ag_drain` key in
+Roll back: remove that line and run the same `up -d backend`. The drain badge
+changes nothing in the schema; the PR snapshot fields add migration `573`, which
+is additive and stays behind harmlessly (see that section). The stock backend ignores the `ag_drain` key in
 `agent_runtime.metadata` and never clears it. Registration overwrites `metadata`
 wholesale, so a runtime that re-registers loses the key. Until then, a runtime
 that was draining at rollback keeps it, and a patched web image keeps showing
@@ -382,6 +386,62 @@ Point the launchd plist back at `/opt/homebrew/bin/multica` and run
 `~/bin/multica-daemon-reload`; drain first with `multica-ag daemon drain --wait`
 so no run is cut off. Nothing on the backend or in the database changed. Keep
 the old binary in `dist/` until the new one has run for a while.
+
+## GitHub PR snapshot fields and `pull-requests link`
+
+Backend and CLI patch. `multica issue pull-requests <id> --output json` gains,
+per PR, `required_checks_state`, `checks` (each with `required`),
+`review_decision`, `latest_reviews` and `base_ref_name`, and
+`multica issue pull-requests link|unlink` attaches or removes a PR by URL. Field
+semantics and the failure policy are in [`PATCHES.md`](./PATCHES.md). There is no
+new environment variable: the fields ride on the GitHub credentials the snapshot
+pipeline already uses, and they stay null until a PR's next snapshot refresh
+after the backend switch (a page visit, a check webhook or the sweep).
+
+```sh
+multica-ag issue pull-requests MUL-1 --output json | jq '.pull_requests[] | {number, required_checks_state, review_decision, base_ref_name}'
+multica-ag issue pull-requests link MUL-1 https://github.com/<owner>/<repo>/pull/<n>
+multica-ag issue pull-requests unlink MUL-1 https://github.com/<owner>/<repo>/pull/<n>   # or the PR id
+```
+
+`link` only finds PRs the workspace already mirrors (its repository is connected
+and the PR has been synced by a webhook or a refresh); otherwise it exits
+non-zero saying the PR has not been mirrored yet. A malformed URL or any other
+4xx exits non-zero with the server's message.
+
+### Deploy
+
+Both halves are needed for the full effect, and neither touches the self-host
+until you switch it:
+
+1. Backend: `ag-patches/build-backend.sh --rev N`, then switch as in "Backend
+   image". The backend's migrate step applies `573_ag_github_pr_snapshot_extras`
+   (four nullable columns, no index) on start.
+2. CLI: `ag-patches/build-cli.sh --rev N`, then install it next to the stock one
+   as in "Daemon/CLI patch, Install" (`~/.local/bin/multica-ag`). Use
+   `multica-ag` for `link` and `unlink`; the stock `multica` has neither, and
+   its `pull-requests` listing prints whatever fields the backend sends. A CLI
+   from this branch against a stock backend lists and links as before, minus the
+   new fields.
+
+### Roll back
+
+Switch the backend image back (remove `MULTICA_BACKEND_IMAGE` and `up -d
+backend`). The stock backend ignores the new columns, never writes them, and its
+migrate step does not mind a recorded migration it has no file for, so the
+database needs no change; checked by running the unpatched branch's migrate and
+PR tests against a database with `573` applied. The columns hold only the last
+snapshot and are overwritten or cleared by the next patched one. To drop them
+anyway (only with the stock backend running, and no patched backend to come
+back to):
+
+```sh
+psql "$DATABASE_URL" -f server/migrations/573_ag_github_pr_snapshot_extras.down.sql
+psql "$DATABASE_URL" -c "DELETE FROM schema_migrations WHERE version = '573_ag_github_pr_snapshot_extras'"
+```
+
+The patched CLI needs no rollback; keep using `multica` to avoid `link` and
+`unlink`.
 
 ## Rebase onto a new upstream tag
 
