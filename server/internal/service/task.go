@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/agclaim"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/attribution"
 	"github.com/multica-ai/multica/server/internal/chattitle"
@@ -3568,6 +3569,7 @@ func (s *TaskService) claimTask(ctx context.Context, agentID, runtimeID pgtype.U
 			RuntimeID:        claimRuntimeID,
 			PrepareLeaseSecs: prepareLeaseDuration.Seconds(),
 			RuntimeStaleSecs: RuntimeClaimFreshnessSeconds,
+			AgClaimFilter:    agclaim.JSONFor(ctx, claimRuntimeID), // AG patch: urgent-only claim filter
 		})
 		claimAgentMs = time.Since(t0).Milliseconds()
 		if err != nil {
@@ -4048,7 +4050,7 @@ func (s *TaskService) ClaimTasksForRuntimes(ctx context.Context, runtimeIDs []pg
 	}
 
 	// 4. One candidate SELECT across the non-empty set.
-	candidates, err := s.Queries.ListQueuedClaimCandidatesByRuntimes(ctx, nonEmpty)
+	candidates, err := s.Queries.ListQueuedClaimCandidatesByRuntimes(ctx, db.ListQueuedClaimCandidatesByRuntimesParams{RuntimeIds: nonEmpty, AgClaimFilter: agclaim.From(ctx).JSON()}) // AG patch: urgent-only claim filter
 	if err != nil {
 		// Steps 2/6 commit reclaimed/claimed tasks in their own transactions,
 		// so `claimed` may already hold tasks dispatched server-side. Dropping
@@ -4076,7 +4078,8 @@ func (s *TaskService) ClaimTasksForRuntimes(ctx context.Context, runtimeIDs []pg
 	}
 	for _, rid := range nonEmpty {
 		key := util.UUIDToString(rid)
-		if _, ok := withCandidates[key]; !ok {
+		// AG patch: a filtered runtime's miss is not an empty queue.
+		if _, ok := withCandidates[key]; !ok && !agclaim.From(ctx).Filtered(rid) {
 			s.EmptyClaim.MarkEmpty(ctx, key, versions[key])
 		}
 	}
