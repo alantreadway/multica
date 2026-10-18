@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/multica-ai/multica/server/internal/agdrain"
+	"github.com/multica-ai/multica/server/internal/agquota"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
@@ -55,6 +56,9 @@ type RuntimeLease struct {
 
 	// agDrain is the AG patch's memo of the drain state stored in metadata.
 	agDrain agdrain.Memo
+	// agQuota is the AG patch's memo of the quota report and runtime setting
+	// stored in metadata.
+	agQuota agquota.Memo
 }
 
 // RuntimeLeaseState is an atomic snapshot used by the heartbeat handler.
@@ -104,6 +108,25 @@ func (l *RuntimeLease) SetAGDrain(m agdrain.Memo) {
 	}
 	l.mu.Lock()
 	l.agDrain = m
+	l.mu.Unlock()
+}
+
+// AGQuota and SetAGQuota hold the AG patch's quota memo (see package agquota).
+func (l *RuntimeLease) AGQuota() agquota.Memo {
+	if l == nil {
+		return agquota.Memo{}
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.agQuota
+}
+
+func (l *RuntimeLease) SetAGQuota(m agquota.Memo) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	l.agQuota = m
 	l.mu.Unlock()
 }
 
@@ -1131,7 +1154,7 @@ func (c *client) handleHeartbeatFrame(raw json.RawMessage) {
 	// that keeps the HTTP heartbeat from putting a per-call timeout on
 	// PopPending. The natural bound is the read pump's lifetime (the conn
 	// closes if the daemon goes away) plus Redis's own server-side limits.
-	ack, err := handler(agdrain.WithReport(context.Background(), payload.AGDrain), c.identity, payload.RuntimeID, payload.SupportsBatchImport)
+	ack, err := handler(agquota.WithReport(agdrain.WithReport(context.Background(), payload.AGDrain), payload.AGQuota), c.identity, payload.RuntimeID, payload.SupportsBatchImport)
 	if err != nil {
 		slog.Warn("daemon websocket heartbeat handler failed",
 			"error", err,
