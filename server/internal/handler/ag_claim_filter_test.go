@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,6 +143,63 @@ func TestAGPatchClaimFilterBatchClaim(t *testing.T) {
 		}
 		if s := agTaskStatus(t, task); s != "queued" {
 			t.Fatalf("task is %q after rejected requests, want it left queued", s)
+		}
+	})
+}
+
+func TestAGPatchClaimFilterWireEdgeCases(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	t.Run("AG patch: an empty or null ag_min_issue_priority claims as before", func(t *testing.T) {
+		for name, raw := range map[string]string{"empty object": `{}`, "null": `null`} {
+			rt := createClaimReclaimRuntime(t, ctx, "AG filter "+name+" rt")
+			a, issue := createClaimReclaimAgentAndIssue(t, ctx, rt, "AG filter "+name+" agent")
+			task := seedQueuedIssueTask(t, ctx, a, rt, issue)
+
+			body := map[string]any{
+				"daemon_id": batchClaimTestDaemonID, "runtime_ids": []string{rt}, "max_tasks": 5,
+				"ag_min_issue_priority": json.RawMessage(raw),
+			}
+			req := newDaemonTokenRequest(http.MethodPost, "/api/daemon/tasks/claim", body, testWorkspaceID, batchClaimTestDaemonID)
+			w := testutil.Call(t, testHandler.ClaimTasksByRuntime, req)
+			var resp agClaimResponse
+			_ = json.Unmarshal(w.Body.Bytes(), &resp)
+			if w.Code != http.StatusOK || len(resp.Tasks) != 1 || resp.Tasks[0].ID != task {
+				t.Errorf("%s: %d %s, want the queued task %s claimed", name, w.Code, w.Body.String(), task)
+			}
+		}
+	})
+
+	t.Run("AG patch: an upper-case runtime id still filters that runtime", func(t *testing.T) {
+		rt := createClaimReclaimRuntime(t, ctx, "AG filter upper-case rt")
+		a, issue := createClaimReclaimAgentAndIssue(t, ctx, rt, "AG filter upper-case agent")
+		task := seedQueuedIssueTask(t, ctx, a, rt, issue)
+
+		code, resp, raw := agPostBatchClaim(t, []string{rt}, map[string]string{strings.ToUpper(rt): "urgent"})
+		if code != http.StatusOK || len(resp.Tasks) != 0 {
+			t.Fatalf("%d %s, want nothing claimed", code, raw)
+		}
+		if s := agTaskStatus(t, task); s != "queued" {
+			t.Fatalf("task is %q, want it left queued", s)
+		}
+	})
+
+	t.Run("AG patch: a filtered runtime keeps serving urgent issues after a non-urgent miss", func(t *testing.T) {
+		rt := createClaimReclaimRuntime(t, ctx, "AG filter miss rt")
+		a, lowIssue := createClaimReclaimAgentAndIssue(t, ctx, rt, "AG filter miss agent")
+		lowTask := seedQueuedIssueTask(t, ctx, a, rt, lowIssue)
+		filter := map[string]string{rt: "urgent"}
+
+		if code, resp, raw := agPostBatchClaim(t, []string{rt}, filter); code != http.StatusOK || len(resp.Tasks) != 0 {
+			t.Fatalf("first poll: %d %s, want nothing claimed", code, raw)
+		}
+		agSetIssuePriority(t, lowIssue, "urgent")
+		code, resp, raw := agPostBatchClaim(t, []string{rt}, filter)
+		if code != http.StatusOK || len(resp.Tasks) != 1 || resp.Tasks[0].ID != lowTask {
+			t.Fatalf("second poll: %d %s, want %s claimed", code, raw, lowTask)
 		}
 	})
 }
