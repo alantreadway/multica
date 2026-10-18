@@ -323,6 +323,9 @@ type agQuotaHoldInfo struct {
 	Window  string `json:"window,omitempty"`
 	Until   string `json:"until"`
 	Reason  string `json:"reason"`
+	// Gating is true only for the daemon's own account; a hold on an agent's
+	// own CLAUDE_CONFIG_DIR is tracked but does not stop the batch claim.
+	Gating bool `json:"gating"`
 }
 
 type agQuotaAccountInfo struct {
@@ -376,7 +379,7 @@ func (d *Daemon) agQuotaHealth() agQuotaHealth {
 			}
 		}
 		if hold := acct.activeHold(now); hold != nil {
-			ai.Hold = &agQuotaHoldInfo{Account: key, Window: hold.Window, Until: hold.Until.Format(time.RFC3339), Reason: hold.Reason}
+			ai.Hold = &agQuotaHoldInfo{Account: key, Window: hold.Window, Until: hold.Until.Format(time.RFC3339), Reason: hold.Reason, Gating: key == def}
 			if key == def {
 				info.Held = true
 				info.Hold = ai.Hold
