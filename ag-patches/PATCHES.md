@@ -53,6 +53,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Copy (Slack) comment menu item | `candidate` | none open; upstream ships the Slack mrkdwn formatter server-side (`server/internal/integrations/slack/mrkdwn.go`) |
 | 1d and Yesterday periods on usage pages (web) | `candidate` (runtime `1d`), `fork-only` (Yesterday) | none open (searched 2026-10-19); related merged [#2837](https://github.com/multica-ai/multica/pull/2837), [#6194](https://github.com/multica-ai/multica/pull/6194) |
 | Claude pacing: 80% knee, weekly curve, EWMA cap (daemon) | `fork-only` | [#6011](https://github.com/multica-ai/multica/pull/6011) (adaptive admission, open), [#8331](https://github.com/multica-ai/multica/pull/8331) (static caps, closed unmerged), [#7015](https://github.com/multica-ai/multica/issues/7015), [#4205](https://github.com/multica-ai/multica/issues/4205) (ask for static caps) |
+| Claude quota report and runtime backup setting (daemon + backend) | `fork-only` (the report alone is a `candidate` only if it lines up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (plan quota per runtime, open), [#6000](https://github.com/multica-ai/multica/issues/6000) (the request, open) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -1293,6 +1294,91 @@ the account as a parameter (`agPaceEvaluate`), so a backup account can reuse it.
   - Fit: pacing against a subscription's rolling windows is operator tooling
     for self-hosters. Upstream has so far preferred static caps or generic
     admission control over provider-specific quota maths.
+
+### Claude quota report and runtime backup setting (daemon + backend)
+
+The daemon attaches an `ag_quota` report to every heartbeat (HTTP, WebSocket and
+the pending-work hint heartbeat) for its Claude runtimes, beside `ag_drain`.
+The backend merges it into `agent_runtime.metadata.ag_quota` and publishes a
+`daemon:register` refresh (`action: "quota"`) so the Runtimes page refetches. In
+the other direction `PUT /api/runtimes/{runtimeId}/ag-settings` stores
+`{backup_enabled, backup_max_concurrent}` for a Claude runtime and the heartbeat
+ack returns it as `ag_settings`. Detecting and using a backup account is a later
+unit; here `backup` reports `detected/valid: false` plus the stored setting.
+
+- Report: `account` (`primary`), `hold` (`until`, `window`; absent when not held),
+  `effective_cap` (the pacing limiter's cap, `0` while a hold gates Claude claims),
+  `max` (`MULTICA_DAEMON_MAX_CONCURRENT_TASKS`), `windows` (`five_hour` and
+  `seven_day`: `utilization`, `resets_at`, `observed_at`), `backup`
+  (`detected`, `valid`, `reason`, `enabled`, `max_concurrent`) and
+  `backup_windows` (empty for now). It describes the daemon's own account, like
+  the tracker and the limiter. Utilisation is rounded to 0.01 and `observed_at`
+  to the minute so the guarded write fires only on a real change. Only Claude
+  runtime IDs report; only the heartbeating daemon reports (the successor during
+  a handoff).
+- Writes: `SetAgentRuntimeAGQuota` is one guarded statement (`IS DISTINCT FROM`,
+  like `SetAgentRuntimeAGDrain`); an unchanged report writes nothing. The memo is
+  rebuilt from the row on the HTTP path and kept on the WebSocket lease, which
+  re-runs the guarded query every 60s. A malformed report (unknown account,
+  negative counts) is logged and not written. There is no `Clear` query: nothing
+  stops reporting short of a registration, and registration already drops
+  `ag_quota`.
+- Setting storage: `metadata.ag_settings`, kept through registration. Both
+  register upserts in `runtime.sql` now end in
+  `metadata = EXCLUDED.metadata || jsonb_strip_nulls(jsonb_build_object('ag_settings', agent_runtime.metadata -> 'ag_settings'))`,
+  so only `ag_settings` survives a re-register; stale `ag_drain`, `ag_quota` and
+  `offline_reason` still clear. No migration.
+- Ack delivery: the HTTP ack reads `ag_settings` from the runtime row it already
+  loaded. The WebSocket hot path never reads `agent_runtime`, so the setting rides
+  the lease's quota memo, read back by the same guarded query on the lease's
+  first beat and every 60s: a toggle reaches the daemon within about a minute.
+- Endpoint: gated by `canEditRuntime`; Claude runtimes only (400 otherwise);
+  `backup_enabled` required, `backup_max_concurrent` 1..100 and 2 when unset
+  (400 outside the range); publishes `daemon:register` with `action: "ag_settings"`
+  only when the stored value changed. It is its own handler, not a field on
+  `UpdateAgentRuntimeRequest`.
+- Daemon: `handleHeartbeatActions` stores the ack's setting per runtime. With no
+  setting on the ack the daemon treats backup as disabled (fail closed); it keeps
+  the last setting for 10 minutes to ride out a missed ack and drops it on
+  restart.
+
+Fail policy: an unpatched daemon sends no `ag_quota` and ignores `ag_settings`; an
+unpatched server ignores `ag_quota` and sends no `ag_settings`.
+
+- Test prefix: `TestAGPatch` / `AG patch:` (`TestAGPatchQuota*`,
+  `TestAGPatchRuntimeSettings*`, `TestAGPatchBackupSetting*`, `TestAGPatchLeaseKeepsQuotaMemo`).
+  The DB-backed ones in `internal/handler` need `DATABASE_URL` and are not run by
+  `ag-patches/test.sh`.
+- Files:
+  - `server/pkg/protocol/ag_quota.go`, `ag_quota_test.go` (new);
+    `messages.go` (`AGQuota` on the heartbeat request, `AGSettings` on the ack)
+  - `server/internal/agquota/agquota.go`, `agquota_test.go` (new)
+  - `server/internal/handler/ag_quota.go`, `ag_quota_settings.go`,
+    `ag_quota_test.go` (new); `daemon.go` (HTTP apply, the ack map, the WS apply and
+    ack)
+  - `server/internal/daemonws/hub.go` (lease memo, the report on the context),
+    `ag_quota_test.go` (new)
+  - `server/cmd/server/router.go` (one route)
+  - `server/pkg/db/queries/runtime.sql` and the regenerated
+    `server/pkg/db/generated/runtime.sql.go` (two new queries, the two upsert edits)
+  - `server/internal/daemon/ag_quota_report.go`, `ag_quota_report_test.go` (new);
+    `client.go` (`SendHeartbeatWithReports`), `daemon.go` (the field, the two HTTP
+    call sites, one line in `handleHeartbeatActions`), `wakeup.go` (the WS frame)
+  - `ag-patches/test.sh` (`./internal/agquota`, `AG_GO_MIN_TESTS` 145)
+
+- Upstream:
+  - Status: `fork-only`. The report alone would be a `candidate` only if it
+    aligned with one of the open PRs below; the runtime-metadata setting is
+    fork-only.
+  - Overlap: [#7413](https://github.com/multica-ai/multica/pull/7413) ("show CLI
+    plan quota per runtime") and [#8679](https://github.com/multica-ai/multica/pull/8679)
+    ("show local plan usage for Claude, Cursor, Codex, and more signed-in CLIs")
+    both answer [#6000](https://github.com/multica-ai/multica/issues/6000); all
+    three open. They show plan usage; ours also carries hold, the pacing cap and a
+    backup setting. Last checked 2026-10-18.
+  - Fit: showing plan quota on the Runtimes page is a plausible product feature
+    (the three above); a per-runtime backup-account setting stored in metadata is
+    operator tooling for subscription users.
 
 ## Tooling (not a patch)
 
