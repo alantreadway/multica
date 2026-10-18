@@ -42,6 +42,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Daemon handoff: machine-wide slot cap and single-instance fixes | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) |
 | GitHub PR polling (token mode) | `candidate` | [#8111](https://github.com/multica-ai/multica/issues/8111) (open feature request, same need) |
 | Daemon handoff (overlap mode) | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) |
+| Claude quota tracker and auto-hold (daemon) | `fork-only` (the `rate_limit_event` parsing alone is a `candidate`) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255), #8965 (closed), #8969 (withdrawn) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -631,6 +632,79 @@ Frontend only: rollback is switching the web image back.
     status row (searched `multica-ai/multica` PRs, October 2026).
   - Fit: the agent-count half could go upstream alone, as a small sidebar
     addition with no new request. The drain marker would come out first.
+
+### Claude quota tracker and auto-hold (daemon)
+
+Every headless `claude` run emits a `rate_limit_event` on stream-json; upstream
+drops it. The patch surfaces it through `ExecOptions.AGOnRateLimit` and keeps
+per-account state in the daemon, keyed by the run's effective
+`CLAUDE_CONFIG_DIR` (an agent's own `custom_env` value is its own account):
+each window's utilisation and `resetsAt`, the status and when it was last seen.
+On `status: rejected` the account is held until `resetsAt` + 2 minutes. While the
+daemon's own (default) account is held, the batch claim leaves out Claude
+runtimes (`rt.Provider == "claude"` or protocol family `claude`); Codex, Cursor
+and the rest keep claiming, running tasks are never touched, and the hold clears
+itself at reset. A hold on another account is tracked and shown in `daemon
+status` as `..., not gating` (and with `gating: false` in `/health`) but does not
+gate claims, because the claim cannot know which account a task will use.
+
+State is machine-wide in `<~/.multica>/ag_quota.json` (beside the slot dir):
+atomic writes, re-read when the mtime or size changes (once per claim cycle),
+merged per account and window by newest `observed_at`; holds and `quota clear`
+overrides carry timestamps and the latest wins, so a hold survives a restart or a
+handoff. `/health` gains `claude_quota` (default-account hold, each account's
+windows and last seen, dropped-event count; each hold carries `gating`). `multica daemon quota clear` (POST
+`/quota/clear`) ends the hold; `daemon status` shows `Claude: quota hold
+(five_hour) until 21:10`. The failed-task report carries `ag_retry_not_before`
+(RFC 3339), the `resetsAt` of the `rejected` event that run saw, for the
+server-side retry in a later unit; an unpatched server ignores it. Needs a CLI
+built with `ag-patches/build-cli.sh`. No DB migration, no backend change.
+
+Fail policy: no event, no state, or no `utilization` is open (no hold from it);
+a garbled or cut-off event is dropped, counted and warned about at most once per
+10 minutes; `rejected` with an unknown or past `resetsAt` holds for 1 hour with
+reason `reset_unknown`, which the next non-rejected event or `quota clear` ends;
+an unreadable or corrupt state file runs on in-memory state with a warning, and
+the next write replaces it.
+
+- Test prefix: `TestAGPatch` / `AG patch:` (run by `ag-patches/test.sh`; it now
+  also runs `./pkg/agent`)
+- Files:
+  - `server/pkg/agent/ag_ratelimit.go`, `ag_ratelimit_test.go` (new: parser and
+    the stream-hook tests), `testdata/claude-code-2.1.299-rate-limit-allowed.jsonl`
+    (captured), `testdata/claude-code-rate-limit-rejected.jsonl` (synthetic),
+    `testdata/README-ag-rate-limit.md`
+  - `server/pkg/agent/agent.go` (`AGOnRateLimit` field), `claude.go` (the
+    `rate_limit_info` field, the `rate_limit_event` case, the garbled-line hook)
+  - `server/internal/daemon/ag_quota.go`, `ag_quota_store.go`,
+    `ag_quota_test.go`, `ag_quota_edge_test.go`, `ag_quota_runtask_test.go`
+    (new; the last drives `runTask` with a test-created `claude` printing the
+    rejected fixture)
+  - `server/internal/daemon/daemon.go` (one-line hooks: `agQuota` field, the
+    observer after the `ExecOptions` literal, `agQuotaClaim` in the batch poller),
+    `health.go` (embedded `agQuotaHealth`, `/quota/clear` route), `client.go`
+    (`agAddRetryNotBefore` in the fail body)
+  - `server/cmd/multica/ag_daemon_quota.go`, `ag_daemon_quota_test.go` (new:
+    `daemon quota clear`, status rows); `ag_daemon_drain.go` appends the rows in
+    `agDaemonStatusRows`
+  - `ag-patches/test.sh` (`./pkg/agent`, `AG_GO_MIN_TESTS`)
+
+On Claude Code 2.1.299 a plain `status: allowed` event does carry
+`unifiedWindows.<window>.utilization` (captured fixture above), so utilisation is
+available on every run, not only near a limit. No real `rejected` frame has been
+captured yet; that fixture is synthetic.
+
+- Upstream:
+  - Status: `fork-only`. Parsing `rate_limit_event` alone is a `candidate`:
+    nothing upstream parses it.
+  - Overlap: [#4123](https://github.com/multica-ai/multica/pull/4123) (runtime
+    hold/resume, open); [#8931](https://github.com/multica-ai/multica/pull/8931)
+    (provider quota pools, open); [#6255](https://github.com/multica-ai/multica/issues/6255)
+    (stop accepting work per account); the dispatch-gate design is pending
+    (#8965 closed, #8969 withdrawn). Last checked 2026-10-17.
+  - Fit: quota-aware dispatch is operator tooling for self-hosters on a
+    subscription plan; the obstacle is the open overlapping work and the missing
+    dispatch-gate design, not the vision.
 
 ## Tooling (not a patch)
 
