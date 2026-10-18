@@ -845,7 +845,7 @@ unpatched server ignores `ag_quota` and sends no `ag_settings`.
   - `server/internal/daemon/ag_quota_report.go`, `ag_quota_report_test.go`,
     `ag_quota_report_spec_test.go` (new); `client.go` (`SendHeartbeatWithReports`), `daemon.go` (the field, the two HTTP
     call sites, one line in `handleHeartbeatActions`), `wakeup.go` (the WS frame)
-  - `ag-patches/test.sh` (`./internal/agquota`, `AG_GO_MIN_TESTS` 148)
+  - `ag-patches/test.sh` (`./internal/agquota`, `AG_GO_MIN_TESTS` 149)
 
 - Upstream:
   - Status: `fork-only`. The report alone would be a `candidate` only if it

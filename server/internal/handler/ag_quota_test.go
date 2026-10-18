@@ -116,6 +116,18 @@ func TestAGPatchQuotaHeartbeatMetadata(t *testing.T) {
 		if got := count(); got != 2 {
 			t.Fatalf("refreshes after a changed report = %d, want 2", got)
 		}
+
+		moved := agQuotaReport(0.6)
+		moved["windows"].(map[string]any)["five_hour"].(map[string]any)["observed_at"] = "2026-10-18T12:01:00Z"
+		agQuotaHeartbeat(t, runtimeID, map[string]any{"ag_quota": moved})
+		if got := count(); got != 2 {
+			t.Fatalf("refreshes after an observed_at-only change = %d, want still 2", got)
+		}
+		var stored protocol.DaemonQuotaReport
+		_ = json.Unmarshal(agDrainMetadata(t, runtimeID)[agquota.MetadataKey], &stored)
+		if stored.Windows["five_hour"].ObservedAt != "2026-10-18T12:01:00Z" {
+			t.Fatalf("observed_at-only change was not written: %+v", stored.Windows)
+		}
 	})
 
 	t.Run("AG patch: a heartbeat without the field leaves a stored report alone", func(t *testing.T) {

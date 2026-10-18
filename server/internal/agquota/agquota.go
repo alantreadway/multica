@@ -23,7 +23,7 @@ const (
 
 	// DefaultBackupMaxConcurrent applies when a PUT leaves backup_max_concurrent unset.
 	DefaultBackupMaxConcurrent = 2
-	// MaxBackupMaxConcurrent is a sanity bound; the daemon clamps to its own max.
+	// MaxBackupMaxConcurrent is a sanity bound; the backend cannot know the daemon's max.
 	MaxBackupMaxConcurrent = 100
 )
 
@@ -147,6 +147,35 @@ func Apply(ctx context.Context, store Store, runtimeID pgtype.UUID, memo Memo, r
 		return memo, false, err
 	}
 	return Memo{Known: true, Report: want, WrittenAt: now, Settings: ParseSettings(settings)}, changed, nil
+}
+
+// Material reports whether a write that changed the stored report is worth a
+// workspace-wide refresh: it is not when only the windows' observed_at moved,
+// which happens about once a minute while a Claude run is active. prev is the
+// memo before the write and next the report it wrote. An unknown or empty prev,
+// or a next identical to prev (the row had been reset), is material.
+func Material(prev Memo, next []byte) bool {
+	if !prev.Known || prev.Report == nil || bytes.Equal(prev.Report, next) {
+		return true
+	}
+	a, okA := withoutObservedAt(prev.Report)
+	b, okB := withoutObservedAt(next)
+	return !okA || !okB || !bytes.Equal(a, b)
+}
+
+func withoutObservedAt(report []byte) ([]byte, bool) {
+	var r protocol.DaemonQuotaReport
+	if err := json.Unmarshal(report, &r); err != nil {
+		return nil, false
+	}
+	for _, windows := range []map[string]protocol.DaemonQuotaWindow{r.Windows, r.BackupWindows} {
+		for k, w := range windows {
+			w.ObservedAt = ""
+			windows[k] = w
+		}
+	}
+	out, err := json.Marshal(&r)
+	return out, err == nil
 }
 
 type reportKey struct{}

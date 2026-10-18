@@ -213,3 +213,62 @@ func TestAGPatchQuotaContextCarriesReport(t *testing.T) {
 		}
 	})
 }
+
+func TestAGPatchQuotaMaterial(t *testing.T) {
+	ctx := context.Background()
+	at := func(r *protocol.DaemonQuotaReport, observed string) *protocol.DaemonQuotaReport {
+		w := r.Windows["five_hour"]
+		w.ObservedAt = observed
+		r.Windows["five_hour"] = w
+		return r
+	}
+
+	t.Run("AG patch: a write that only moved observed_at is not material, a utilisation change is", func(t *testing.T) {
+		store := &fakeStore{}
+		memo, changed, _ := Apply(ctx, store, runtime, Memo{}, report(0.5), t0)
+		if !changed || !Material(Memo{}, memo.Report) {
+			t.Fatalf("first report: changed=%v, want a material write", changed)
+		}
+		next, changed, err := Apply(ctx, store, runtime, memo, at(report(0.5), "2026-10-18T12:01:00Z"), t0.Add(time.Second))
+		if err != nil || !changed || store.sets != 2 {
+			t.Fatalf("observed_at move: changed=%v sets=%d err=%v, want a write", changed, store.sets, err)
+		}
+		if Material(memo, next.Report) {
+			t.Error("an observed_at-only change is material")
+		}
+		after, changed, _ := Apply(ctx, store, runtime, next, report(0.6), t0.Add(2*time.Second))
+		if !changed || !Material(next, after.Report) {
+			t.Errorf("a utilisation change: changed=%v, want a material write", changed)
+		}
+	})
+
+	t.Run("AG patch: a hold, cap or reset-time change is material and an unreadable prior report is too", func(t *testing.T) {
+		base := report(0.5)
+		prev, _ := Normalize(base)
+		memo := Memo{Known: true, Report: prev}
+		held := report(0.5)
+		held.Hold = &protocol.DaemonQuotaHold{Until: "2026-10-18T14:00:00Z"}
+		capped := report(0.5)
+		capped.EffectiveCap = 2
+		reset := report(0.5)
+		w := reset.Windows["five_hour"]
+		w.ResetsAt = "2026-10-18T19:00:00Z"
+		reset.Windows["five_hour"] = w
+		for name, r := range map[string]*protocol.DaemonQuotaReport{"hold": held, "cap": capped, "reset": reset} {
+			next, _ := Normalize(r)
+			if !Material(memo, next) {
+				t.Errorf("%s change is not material", name)
+			}
+		}
+		next, _ := Normalize(base)
+		if !Material(memo, next) {
+			t.Error("a write that restored an identical report (row was reset) is not material")
+		}
+		if !Material(Memo{Known: true, Report: []byte(`{`)}, prev) {
+			t.Error("an unreadable prior report is not material")
+		}
+		if !Material(memo, []byte(`{`)) {
+			t.Error("an unreadable next report is not material")
+		}
+	})
+}
