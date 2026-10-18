@@ -880,7 +880,8 @@ hidden while the runtime is offline (stale once heartbeats stop).
 The sidebar status row (`agent-status-indicator.tsx`) gets one more line while any
 online runtime is on the backup account ("Backup account · urgent only") or, if
 none is, held ("Claude on hold until 21:10", earliest end across runtimes, local
-time). Backup wins when both apply. The row then links to Runtimes. It reads the
+time, with the weekday and date when the hold ends on another day, as the weekly
+window's can). Backup wins when both apply. The row then links to Runtimes. It reads the
 same cached runtime list as the drain line: no new request.
 
 The saved setting is read from `metadata.ag_settings`, which the PUT writes at
@@ -893,13 +894,14 @@ The AG refreshes (`daemon:register` with `action` `quota`, `drain` or
 before, a quota report would have completed "Connect a computer" falsely.
 Frontend only: rollback is switching the web image back.
 
-- Test prefix: `AG patch:` (`quota-section.test.tsx`, `runtime-detail-quota.test.tsx`,
+- Test prefix: `AG patch:` (`ag-quota-format.test.ts`, `quota-section.test.tsx`, `runtime-detail-quota.test.tsx`,
   `connect-remote-dialog.ag-quota.test.tsx`, `locales/ag-quota.test.ts`,
   `layout/agent-status-indicator.test.tsx` and core `runtimes/ag-quota.test.ts` and `ag-quota.api.test.ts`, all in `ag-patches/test.sh`)
 - Files:
   - `packages/core/runtimes/ag-quota.ts`, `ag-quota.test.ts`, `ag-quota.api.test.ts` (new: schema,
     sidebar state, refresh filter, save mutation); `packages/core/package.json`
     (one export); `packages/core/api/client.ts` (`updateAGRuntimeSettings`)
+  - `packages/views/runtimes/ag-quota-format.ts`, `ag-quota-format.test.ts` (new: hold time label)
   - `packages/views/runtimes/components/quota-section.tsx`, `quota-section.test.tsx`,
     `runtime-detail-quota.test.tsx`, `connect-remote-dialog.ag-quota.test.tsx` (new)
   - `packages/views/runtimes/components/runtime-detail.tsx` (one import, one JSX line),

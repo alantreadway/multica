@@ -492,7 +492,7 @@
       "unknown": "Raison inconnue"
     },
     "backup_enable": "Utiliser le compte de secours",
-    "backup_urgent_only": "Seules les issues urgentes s'exécutent sur le compte de secours.",
+    "backup_urgent_only": "Seules les tâches urgentes s'exécutent sur le compte de secours.",
     "backup_max": "Simultanéité max.",
     "save_failed": "Impossible d'enregistrer le réglage du compte de secours"
   }

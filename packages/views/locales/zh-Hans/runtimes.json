@@ -476,7 +476,7 @@
       "unknown": "原因未知"
     },
     "backup_enable": "使用备用账号",
-    "backup_urgent_only": "备用账号上只运行紧急事项。",
+    "backup_urgent_only": "备用账号上只运行紧急任务。",
     "backup_max": "最大并发数",
     "save_failed": "无法保存备用账号设置"
   }

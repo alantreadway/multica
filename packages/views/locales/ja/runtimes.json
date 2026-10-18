@@ -476,7 +476,7 @@
       "unknown": "理由不明"
     },
     "backup_enable": "バックアップアカウントを使用",
-    "backup_urgent_only": "バックアップでは緊急の課題のみ実行されます。",
+    "backup_urgent_only": "バックアップでは緊急のタスクのみ実行されます。",
     "backup_max": "最大同時実行数",
     "save_failed": "バックアップ設定を保存できませんでした"
   }

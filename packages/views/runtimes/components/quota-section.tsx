@@ -16,9 +16,10 @@ import { Switch } from "@multica/ui/components/ui/switch";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../../i18n";
 import { useLocale } from "../../i18n/use-locale";
+import { formatHoldUntil } from "../ag-quota-format";
 
-// AG patch: Claude quota section. Renders nothing without a quota report, so an
-// unpatched daemon or a non-Claude runtime shows no section.
+// AG patch: Claude quota section. The caller gates on the Claude provider; this
+// renders nothing without a quota report, so an unpatched daemon shows no section.
 
 const MAX_BACKUP_CONCURRENT = 100;
 
@@ -188,7 +189,7 @@ function QuotaBody({
           {quota.holdUntil && (
             <p className="text-warning">
               {t(($) => $.quota.hold, {
-                time: formatReset(quota.holdUntil, locale, false),
+                time: formatHoldUntil(quota.holdUntil, locale),
               })}
             </p>
           )}
