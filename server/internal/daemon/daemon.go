@@ -664,6 +664,8 @@ type Daemon struct {
 	agQuota agQuotaState // AG patch: Claude quota tracker and hold (see ag_quota.go)
 	agPace  agPaceState  // AG patch: Claude pacing (see ag_quota_pace.go)
 
+	agSettings agSettingsState // AG patch: runtime backup setting (see ag_quota_report.go)
+
 	agSlotDir string                      // AG patch: slot dir override for tests (see ag_slotlock.go)
 	agSlots   atomic.Pointer[agTaskSlots] // AG patch: set by pollLoop (see ag_slotlock.go)
 	agHandoff agHandoffState              // AG patch: handoff / overlap mode (see ag_handoff.go)
@@ -4600,7 +4602,7 @@ func (d *Daemon) runHeartbeatTick(ctx context.Context, rid string) bool {
 		return false
 	}
 	d.logger.Debug("heartbeat: HTTP tick", "runtime_id", rid)
-	resp, err := d.client.SendHeartbeatWithDrain(ctx, rid, d.agDrainReport())
+	resp, err := d.client.SendHeartbeatWithReports(ctx, rid, d.agDrainReport(), d.agQuotaReport(rid))
 	if err != nil {
 		if ctx.Err() == nil {
 			if isRuntimeNotFoundError(err) {
@@ -4635,6 +4637,7 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 	if resp == nil {
 		return
 	}
+	d.agApplySettings(runtimeID, resp.AGSettings) // AG patch: runtime backup setting
 	if resp.PendingUpdate != nil || resp.PendingModelList != nil || resp.PendingLocalSkills != nil || resp.PendingLocalSkillImport != nil {
 		d.logger.Debug("heartbeat: pending actions",
 			"runtime_id", runtimeID,
@@ -4745,7 +4748,7 @@ func (d *Daemon) handlePendingWorkHint(runtimeID, kind string) {
 		return
 	}
 	hbCtx, cancel := context.WithTimeout(ctx, pendingWorkHeartbeatTimeout)
-	resp, err := d.client.SendHeartbeatWithDrain(hbCtx, runtimeID, d.agDrainReport())
+	resp, err := d.client.SendHeartbeatWithReports(hbCtx, runtimeID, d.agDrainReport(), d.agQuotaReport(runtimeID))
 	cancel()
 	if err != nil {
 		if isRuntimeNotFoundError(err) {
