@@ -6,8 +6,7 @@ package daemon
 // quota tracker (ag_quota.go) and the pacing limiter (ag_quota_pace.go); the
 // server stores it in the runtime's metadata for the runtimes page. The ack
 // carries ag_settings back: the backup-account setting the UI stored for that
-// runtime. This unit only reports and keeps the setting; detecting and using a
-// backup account is separate.
+// runtime; ag_quota_backup.go detects and uses the backup account.
 //
 // Fail policy: a runtime that is not Claude reports nothing; a received ack with
 // no setting disables backup for that runtime at once (a rollback to a stock
@@ -75,7 +74,8 @@ func (d *Daemon) agBackupSetting(runtimeID string) protocol.AGRuntimeSettings {
 }
 
 // agQuotaReport builds the report for one heartbeat, or nil for a runtime that is
-// not Claude. It describes the daemon's own account.
+// not Claude. It describes the daemon's own account, or the backup while urgent
+// Claude work is failing over to it (see agBackupFillReport).
 func (d *Daemon) agQuotaReport(runtimeID string) *protocol.DaemonQuotaReport {
 	if !d.agQuotaIsClaudeRuntime(runtimeID) {
 		return nil

@@ -92,7 +92,7 @@ type agBackupState struct {
 	capOK    bool
 	capSeen  time.Time
 	rejected map[string]agBackupRejection // task id -> primary account it was rejected on
-	resuming int                          // in-place resumes started and not yet finished
+	slots    map[string]struct{}          // task ids holding a backup slot until their run is counted
 }
 
 // agBackupDir is the backup config dir: MULTICA_AG_CLAUDE_BACKUP_DIR, else ~/.claude-backup.
@@ -193,9 +193,9 @@ func (d *Daemon) agBackupEvaluate(ctx context.Context, dir string) (detected, va
 	return true, true, ""
 }
 
-// agBackupLoop checks the backup at start and every agBackupCheckInterval. It does
-// nothing at all while the backup dir does not exist, so a daemon that never set
-// up a backup never runs the CLI for it.
+// agBackupLoop checks the backup at start and every agBackupCheckInterval. A check
+// finding no backup dir stops there and never runs the CLI, so a daemon that never
+// set up a backup spends nothing on it.
 func (d *Daemon) agBackupLoop(ctx context.Context) {
 	d.agBackupCheck(ctx)
 	t := time.NewTicker(agBackupCheckInterval)
@@ -448,7 +448,9 @@ func (d *Daemon) agBackupClaim(ctx context.Context, daemonID string, claude, oth
 
 // agApplyClaudeAccount points an urgent Claude task at the backup config dir while
 // the primary is on hold. An agent's own CLAUDE_CONFIG_DIR is left alone, and so
-// is any task that is not urgent (one claimed just before the hold started).
+// is any task that is not urgent (one claimed just before the hold started). A
+// task that would exceed backup_max_concurrent, or find the backup on hold too,
+// stays on the primary and fails as quota.
 func (d *Daemon) agApplyClaudeAccount(provider string, task Task, agentEnv map[string]string) {
 	if !agQuotaIsClaudeProvider(provider) || task.AGIssuePriority != agBackupUrgent {
 		return
@@ -460,6 +462,10 @@ func (d *Daemon) agApplyClaudeAccount(provider string, task Task, agentEnv map[s
 		return
 	}
 	dir := d.agBackupStatusNow().Dir
+	if d.agQuotaAccountHold(dir) != nil || !d.agBackupReserve(task.ID, dir, d.agBackupSetting(task.RuntimeID).BackupMaxConcurrent) {
+		d.agQuotaLogger().Info("quota: backup account is on hold or full; urgent claude task stays on the primary", "task_id", task.ID)
+		return
+	}
 	agentEnv["CLAUDE_CONFIG_DIR"] = dir
 	d.agQuotaLogger().Info("quota: urgent claude task runs on the backup account", "task_id", task.ID, "dir", dir)
 }
@@ -496,23 +502,32 @@ func (d *Daemon) agBackupTakeRejected(taskID string) bool {
 	return ok
 }
 
-// agBackupReserveResume takes one of the backup's concurrency slots for a resume.
-func (d *Daemon) agBackupReserveResume(dir string, limit int) (release func(), ok bool) {
+// agBackupReserve takes one of the backup's concurrency slots for a task that is about
+// to run there, so concurrent starts cannot overshoot the limit. The slot is held
+// until the run is counted (agBackupSlotDone), so it is never counted twice.
+func (d *Daemon) agBackupReserve(taskID, dir string, limit int) bool {
 	b := &d.agBackup
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if d.agBackupRunning(dir)+b.resuming >= limit {
-		return nil, false
+	if _, held := b.slots[taskID]; held {
+		return true
 	}
-	b.resuming++
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			b.mu.Lock()
-			b.resuming--
-			b.mu.Unlock()
-		})
-	}, true
+	if d.agBackupRunning(dir)+len(b.slots) >= limit {
+		return false
+	}
+	if b.slots == nil {
+		b.slots = map[string]struct{}{}
+	}
+	b.slots[taskID] = struct{}{}
+	return true
+}
+
+// agBackupSlotDone ends a task's reservation: its run is now counted, or it never started.
+func (d *Daemon) agBackupSlotDone(taskID string) {
+	b := &d.agBackup
+	b.mu.Lock()
+	delete(b.slots, taskID)
+	b.mu.Unlock()
 }
 
 // agQuotaResumeOnBackup continues an urgent run that was rejected on the primary
@@ -534,12 +549,11 @@ func (d *Daemon) agQuotaResumeOnBackup(ctx context.Context, backend agent.Backen
 	if agQuotaAccountKey(agentEnv) != agQuotaAccountKey(nil) || d.agQuotaAccountHold(st.Dir) != nil {
 		return result, tools
 	}
-	release, ok := d.agBackupReserveResume(st.Dir, d.agBackupSetting(task.RuntimeID).BackupMaxConcurrent)
-	if !ok {
+	if !d.agBackupReserve(task.ID, st.Dir, d.agBackupSetting(task.RuntimeID).BackupMaxConcurrent) {
 		taskLog.Info("quota: backup account is at its concurrency limit; not resuming this run there", "task_id", task.ID)
 		return result, tools
 	}
-	defer release()
+	defer d.agBackupSlotDone(task.ID)
 
 	taskLog.Info("quota: urgent run hit the usage limit; resuming in place on the backup account", "session_id", result.SessionID, "dir", st.Dir)
 	agentEnv["CLAUDE_CONFIG_DIR"] = st.Dir
