@@ -5,10 +5,8 @@ import { parseWithFallback } from "../api/schema";
 import type { AgentRuntime } from "../types";
 import { runtimeKeys } from "./queries";
 
-// AG patch: Claude quota section and sidebar warning. The daemon reports
-// `metadata.ag_quota` on every heartbeat and the server stores the backup
-// setting in `metadata.ag_settings`. Both are absent on an unpatched daemon,
-// which must stay silent.
+// AG patch: quota section and sidebar warning, read from `metadata.ag_quota`
+// and `ag_settings`. Both are absent on an unpatched daemon, which stays silent.
 
 export type QuotaAccount = "primary" | "backup";
 
@@ -33,7 +31,6 @@ export interface RuntimeQuota {
   /** Whose windows are reported; an unknown value reads as primary. */
   account: QuotaAccount;
   holdUntil: Date | null;
-  holdWindow: string | null;
   effectiveCap: number | null;
   max: number | null;
   fiveHour: QuotaWindow | null;
@@ -152,7 +149,6 @@ export function runtimeQuota(
   return {
     account: parsed.account === "backup" ? "backup" : "primary",
     holdUntil,
-    holdWindow: holdUntil ? (parsed.hold?.window ?? null) : null,
     effectiveCap: parsed.effective_cap,
     max: parsed.max,
     fiveHour: toWindow(parsed.windows.five_hour),

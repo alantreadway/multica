@@ -85,10 +85,16 @@ function renderSection(runtime: AgentRuntime, canEdit = true) {
 }
 
 beforeEach(() => {
+  // "Today" is pinned so the hold's same-day rule is deterministic.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 9, 18, 12, 0));
   updateSettings.mockReset().mockResolvedValue({});
   toastError.mockReset();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("AG patch: QuotaSection", () => {
   it("AG patch: renders nothing without a quota report", () => {
@@ -137,6 +143,17 @@ describe("AG patch: QuotaSection", () => {
     );
     expect(screen.getByText(`On hold until ${clock(21, 10)}`)).toBeInTheDocument();
     expect(screen.getByText("Running up to 0 of 5")).toBeInTheDocument();
+  });
+
+  it("AG patch: shows the day for a hold that ends on a later day", () => {
+    renderSection(
+      makeRuntime({
+        ...base,
+        effective_cap: 0,
+        hold: { until: new Date(2026, 9, 22, 9, 0).toISOString(), window: "seven_day" },
+      }),
+    );
+    expect(screen.getByText(/On hold until .*Thu.*09:00/)).toBeInTheDocument();
   });
 
   it("AG patch: hides the hold and cap on an offline runtime but keeps the backup", () => {

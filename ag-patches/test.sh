@@ -58,6 +58,7 @@ pnpm --filter @multica/views exec vitest run \
   runtimes/components/drain-badge.test.tsx \
   runtimes/components/runtime-list-drain.test.tsx \
   runtimes/components/runtime-detail-drain.test.tsx \
+  runtimes/ag-quota-format.test.ts \
   runtimes/components/quota-section.test.tsx \
   runtimes/components/runtime-detail-quota.test.tsx \
   runtimes/components/connect-remote-dialog.ag-quota.test.tsx \

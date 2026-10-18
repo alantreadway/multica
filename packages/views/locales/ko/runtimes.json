@@ -479,7 +479,7 @@
       "unknown": "알 수 없는 사유"
     },
     "backup_enable": "백업 계정 사용",
-    "backup_urgent_only": "백업 계정에서는 긴급 이슈만 실행됩니다.",
+    "backup_urgent_only": "백업 계정에서는 긴급 태스크만 실행됩니다.",
     "backup_max": "최대 동시 실행",
     "save_failed": "백업 설정을 저장하지 못했습니다"
   }

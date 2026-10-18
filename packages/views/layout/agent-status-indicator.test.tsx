@@ -112,10 +112,16 @@ function renderIndicator(runtimes: AgentRuntime[] = [], wsId: string | null = "w
 }
 
 beforeEach(() => {
+  // "Today" is pinned so the quota hold's same-day rule is deterministic.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 9, 18, 12, 0));
   setPresence({});
   runtimeFetch.mockClear();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("AG patch: AgentStatusIndicator", () => {
   it("AG patch: shows agents, running and queued counts with a pulsing dot", () => {
@@ -358,6 +364,19 @@ describe("AG patch: AgentStatusIndicator", () => {
       ]);
       expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
         "Claude on hold until 21:10",
+      );
+    });
+
+    it("AG patch: shows the day for a hold that ends on a later day", () => {
+      renderIndicator([
+        makeRuntime({
+          metadata: quota({
+            hold: { until: new Date(2026, 9, 22, 9, 0).toISOString() },
+          }),
+        }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        /Claude on hold until .*Thu.*09:00/,
       );
     });
 
