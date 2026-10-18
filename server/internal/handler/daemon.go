@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/agdrain"
+	"github.com/multica-ai/multica/server/internal/agquota"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
@@ -1029,6 +1030,8 @@ type DaemonHeartbeatRequest struct {
 	SupportsBatchImport bool   `json:"supports_batch_import,omitempty"`
 	// AGDrain: AG patch drain report; nil from a stock daemon.
 	AGDrain *protocol.DaemonDrainReport `json:"ag_drain,omitempty"`
+	// AGQuota: AG patch Claude quota report; nil from a stock daemon.
+	AGQuota *protocol.DaemonQuotaReport `json:"ag_quota,omitempty"`
 }
 
 // heartbeatHasPendingTimeout bounds the cheap HasPending probe on the
@@ -1173,6 +1176,9 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if req.AGDrain != nil {
 		h.agApplyDrainReport(r.Context(), rt.ID, uuidToString(rt.WorkspaceID), agdrain.MemoFromMetadata(rt.Metadata, time.Now()), nil, req.AGDrain)
 	}
+	if req.AGQuota != nil { // AG patch: quota report
+		h.agApplyQuotaReport(r.Context(), rt.ID, uuidToString(rt.WorkspaceID), agquota.MemoFromMetadata(rt.Metadata, time.Now()), nil, req.AGQuota)
+	}
 
 	ack, m, err := h.processHeartbeat(r.Context(), runtimeID, req.SupportsBatchImport)
 	probeModelMs = m.ProbeModelMs
@@ -1210,6 +1216,9 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if len(ack.PendingLocalSkillImports) > 0 {
 		resp["pending_local_skill_imports"] = ack.PendingLocalSkillImports
 	}
+	if s := agquota.SettingsFromMetadata(rt.Metadata); s != nil { // AG patch: runtime setting
+		resp["ag_settings"] = s
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -1243,7 +1252,15 @@ func (h *Handler) HandleDaemonWSHeartbeat(ctx context.Context, identity daemonws
 			h.agApplyDrainReport(ctx, runtimeUUID, lease.Snapshot().WorkspaceID, lease.AGDrain(), lease, report)
 		}
 	}
+	if report := agquota.ReportFrom(ctx); report != nil { // AG patch: quota report
+		if runtimeUUID, err := util.ParseUUID(runtimeID); err == nil {
+			h.agApplyQuotaReport(ctx, runtimeUUID, lease.Snapshot().WorkspaceID, lease.AGQuota(), lease, report)
+		}
+	}
 	ack, _, err := h.processHeartbeat(ctx, runtimeID, supportsBatchImport)
+	if ack != nil { // AG patch: runtime setting, cached on the lease
+		ack.AGSettings = lease.AGQuota().Settings
+	}
 	return ack, err
 }
 
