@@ -125,6 +125,13 @@ func agQuotaReplay(t *testing.T, observer func(json.RawMessage), fixture string)
 
 func agQuotaClaimAll(t *testing.T, d *Daemon) {
 	t.Helper()
+	// These tests are about the hold, not the pacing cap, so the limiter starts
+	// at Max instead of the cold-start floor.
+	d.agPace.mu.Lock()
+	if l := &d.agPace.accountLocked(agQuotaAccountKey(nil)).limiter; !l.set {
+		*l = agPaceLimiter{cap: d.cfg.MaxConcurrentTasks, set: true}
+	}
+	d.agPace.mu.Unlock()
 	if _, err := d.agQuotaClaim(context.Background(), "daemon-test", []string{"rt-claude", "rt-codex", "rt-claude-b"}, 2); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
