@@ -57,7 +57,6 @@ describe("AG patch: runtimeQuota", () => {
       account: "primary",
       effectiveCap: 3,
       max: 5,
-      holdWindow: "five_hour",
       fiveHour: { utilization: 0.84 },
       sevenDay: { utilization: 0.4 },
       backup: {
@@ -77,7 +76,6 @@ describe("AG patch: runtimeQuota", () => {
     expect(runtimeQuota(runtime({ ag_quota: {} }))).toEqual({
       account: "primary",
       holdUntil: null,
-      holdWindow: null,
       effectiveCap: null,
       max: null,
       fiveHour: null,
@@ -151,7 +149,6 @@ describe("AG patch: runtimeQuota", () => {
       runtime({ ag_quota: { hold: { until: "tomorrow" } } }),
     );
     expect(quota?.holdUntil).toBeNull();
-    expect(quota?.holdWindow).toBeNull();
   });
 
   it("AG patch: the stored setting beats the daemon's echo", () => {

@@ -22,6 +22,7 @@ import { WorkingAgentsHoverContent } from "../issues/components/workspace-agent-
 import { AppLink } from "../navigation";
 import { useT } from "../i18n";
 import { useLocale } from "../i18n/use-locale";
+import { formatHoldUntil } from "../runtimes/ag-quota-format";
 
 // AG patch: sidebar agent status. One compact row above Analytics: how many
 // agents are working, plus a drain marker while a patched daemon is draining
@@ -114,11 +115,7 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
     ? t(($) => $.agent_status.backup_urgent)
     : quota.holdUntil
       ? t(($) => $.agent_status.quota_hold, {
-          time: new Intl.DateTimeFormat(locale, {
-            hour: "2-digit",
-            minute: "2-digit",
-            hourCycle: "h23",
-          }).format(quota.holdUntil),
+          time: formatHoldUntil(quota.holdUntil, locale),
         })
       : null;
 
