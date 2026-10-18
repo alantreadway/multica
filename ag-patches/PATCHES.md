@@ -786,15 +786,16 @@ The backend merges it into `agent_runtime.metadata.ag_quota` and publishes a
 write that only moves a window's `observed_at` is stored but not published. In
 the other direction `PUT /api/runtimes/{runtimeId}/ag-settings` stores
 `{backup_enabled, backup_max_concurrent}` for a Claude runtime and the heartbeat
-ack returns it as `ag_settings`. Detecting and using a backup account is a later
-unit; here `backup` reports `detected/valid: false` plus the stored setting.
+ack returns it as `ag_settings`. Detecting and using a backup account is the
+next patch ("Backup Claude account failover"); this patch alone reports
+`detected/valid: false` plus the stored setting.
 
 - Report: `account` (`primary`), `hold` (`until`, `window`; absent when not held),
   `effective_cap` (the pacing limiter's cap, `0` while a hold gates Claude claims),
   `max` (`MULTICA_DAEMON_MAX_CONCURRENT_TASKS`), `windows` (`five_hour` and
   `seven_day`: `utilization`, `resets_at`, `observed_at`), `backup`
   (`detected`, `valid`, `reason`, `enabled`, `max_concurrent`) and
-  `backup_windows` (empty for now). It describes the daemon's own account, like
+  `backup_windows` (empty until the backup patch fills it). It describes the daemon's own account, like
   the tracker and the limiter. Utilisation is rounded to 0.01 and `observed_at`
   to the minute so the guarded write fires only on a real change. Only Claude
   runtime IDs report; only the heartbeating daemon reports (the successor during
@@ -899,7 +900,7 @@ the setting turned on from the runtime page, and a patched server (the claim fil
   batch claim, with `ag_min_issue_priority: {<runtime id>: "urgent"}` and
   `max_tasks = min(pacing room, backup_max_concurrent - active on backup)`. Active
   counts runs on the backup plus tasks claimed and not yet running. The pacing room
-  is unit 2's maths run on the backup's own windows. Tasks without an issue (chat,
+  is the pacing maths of the previous patch run on the backup's own windows. Tasks without an issue (chat,
   autopilot) are not claimed on the backup. A runtime without the setting, the
   backup being held itself, or no room leaves Claude out of the claim, as any hold
   does. The per-runtime legacy claim (`client.go`, used on a 404 from the batch
@@ -922,7 +923,7 @@ the setting turned on from the runtime page, and a patched server (the claim fil
   `max` and `effective_cap` (0 when the backup is held too); `windows` and `hold`
   stay the primary's, which is why it failed over. `backup.{detected,valid,reason}`
   and `backup_windows` (the backup's five_hour and seven_day) are always filled.
-- Settings change in unit 3's code: a received ack with no `ag_settings` now
+- Change to the report and settings patch: a received ack with no `ag_settings` now
   disables backup at once; the 10 minute TTL covers only acks that never arrive.
 - Unverified, needs Alan's backup login: that `--resume` works across the two
   accounts' config dirs on this machine, and that the Keychain item for the backup
@@ -940,7 +941,8 @@ the backup; a rejected resume is a normal quota failure.
   server; no installed CLI is used.
 - Files:
   - `server/internal/daemon/ag_quota_backup.go`, `ag_quota_backup_test.go`,
-    `ag_quota_backup_run_test.go`, `ag_quota_backup_setup_test.go` (new)
+    `ag_quota_backup_run_test.go`, `ag_quota_backup_setup_test.go`,
+    `ag_quota_backup_spec_test.go` (new)
   - `server/internal/daemon/ag_quota_report.go` (null ack disables; report fill),
     `ag_quota.go` (rejection note in the observer, one hook in `agQuotaClaim`)
   - hooks: `daemon.go` (the `agBackup` field, `agApplyAck` in
@@ -952,7 +954,7 @@ the backup; a rejected resume is a normal quota failure.
   - `server/pkg/protocol/messages.go` (`AGCapabilities` on the ack, the same line as
     the claim filter patch)
   - `ag-patches/claude-backup-setup.sh` (new), `ag-patches/test.sh`
-    (`AG_GO_MIN_TESTS` 156)
+    (`AG_GO_MIN_TESTS` 159)
 
 - Upstream:
   - Status: `fork-only`. It encodes one subscriber's two-account setup.
