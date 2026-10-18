@@ -126,7 +126,11 @@ func (d *Daemon) agQuotaObserver(task Task, provider string, agentEnv map[string
 			d.agQuotaDropGarbled(err)
 			return
 		}
-		if resetsAt, rejected := d.agQuotaObserve(account, ev); rejected && task.ID != "" && !resetsAt.IsZero() {
+		resetsAt, rejected := d.agQuotaObserve(account, ev)
+		if rejected {
+			d.agBackupNoteRejected(task.ID, account) // AG patch: backup account
+		}
+		if rejected && task.ID != "" && !resetsAt.IsZero() {
 			agRecordRetryNotBefore(task.ID, resetsAt, d.agQuotaNow())
 		}
 	}, done
@@ -291,6 +295,9 @@ func (d *Daemon) agQuotaClaim(ctx context.Context, daemonID string, runtimeIDs [
 		} else {
 			other = append(other, id)
 		}
+	}
+	if res, handled, err := d.agBackupClaim(ctx, daemonID, claude, other, hold != nil, maxTasks); handled { // AG patch: backup account
+		return res, err
 	}
 	room := capNow - active
 	switch {

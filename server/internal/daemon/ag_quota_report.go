@@ -9,9 +9,11 @@ package daemon
 // runtime. This unit only reports and keeps the setting; detecting and using a
 // backup account is separate.
 //
-// Fail policy: a runtime that is not Claude reports nothing; no setting on the
-// ack means backup is disabled. The last setting received is kept in memory for
-// agSettingsTTL to ride out a missed ack, and dropped on restart.
+// Fail policy: a runtime that is not Claude reports nothing; a received ack with
+// no setting disables backup for that runtime at once (a rollback to a stock
+// server stops failover on the next heartbeat). The last setting received is
+// kept in memory for agSettingsTTL only to ride out an ack that never arrives
+// (a missed or failed heartbeat), and dropped on restart.
 
 import (
 	"math"
@@ -38,10 +40,15 @@ type agSettingsState struct {
 	savedAt map[string]time.Time
 }
 
-// agApplySettings keeps the setting an ack carried for runtimeID. A nil setting
-// (a stock server, or none stored) leaves the last one standing until it expires.
+// agApplySettings keeps the setting a received ack carried for runtimeID. A nil
+// setting (a stock server, or none stored) disables backup for the runtime now.
 func (d *Daemon) agApplySettings(runtimeID string, s *protocol.AGRuntimeSettings) {
-	if s == nil || runtimeID == "" || s.BackupMaxConcurrent < 1 {
+	if runtimeID == "" {
+		return
+	}
+	if s == nil {
+		s = &protocol.AGRuntimeSettings{BackupEnabled: false, BackupMaxConcurrent: agBackupDefaultMaxConcurrent}
+	} else if s.BackupMaxConcurrent < 1 {
 		return
 	}
 	st := &d.agSettings
@@ -92,6 +99,7 @@ func (d *Daemon) agQuotaReport(runtimeID string) *protocol.DaemonQuotaReport {
 		report.EffectiveCap = 0
 		report.Hold = &protocol.DaemonQuotaHold{Until: hold.Until.UTC().Format(time.RFC3339), Window: hold.Window}
 	}
+	d.agBackupFillReport(report, runtimeID, hold != nil) // AG patch: backup account
 	for _, name := range []string{agQuotaWindowFiveHour, agQuotaWindowSevenDay} {
 		if w, ok := windows[name]; ok {
 			report.Windows[name] = agQuotaReportWindow(w)
