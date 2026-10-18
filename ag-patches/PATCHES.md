@@ -781,7 +781,8 @@ the account as a parameter (`agPaceEvaluate`), so a backup account can reuse it.
 The daemon attaches an `ag_quota` report to every heartbeat (HTTP, WebSocket and
 the pending-work hint heartbeat) for its Claude runtimes, beside `ag_drain`.
 The backend merges it into `agent_runtime.metadata.ag_quota` and publishes a
-`daemon:register` refresh (`action: "quota"`) so the Runtimes page refetches. In
+`daemon:register` refresh (`action: "quota"`) so the Runtimes page refetches. A
+write that only moves a window's `observed_at` is stored but not published. In
 the other direction `PUT /api/runtimes/{runtimeId}/ag-settings` stores
 `{backup_enabled, backup_max_concurrent}` for a Claude runtime and the heartbeat
 ack returns it as `ag_settings`. Detecting and using a backup account is a later
