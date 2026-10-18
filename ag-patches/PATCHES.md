@@ -747,10 +747,11 @@ burn is unknown C holds its position; an expired window constrains nothing; C
 never goes below 1, so a lone run keeps refreshing utilisation. The maths takes
 the account as a parameter (`agPaceEvaluate`), so a backup account can reuse it.
 
-- Test prefix: `TestAGPatch` / `AG patch:` (`TestAGPatchPace*`; worked examples
+- Test prefix: `TestAGPatch` / `AG patch:` (`TestAGPatchPace*`, incl. `TestAGPatchPaceSpec*`; worked examples
   A-H from the design as table tests)
 - Files:
-  - `server/internal/daemon/ag_quota_pace.go`, `ag_quota_pace_test.go` (new)
+  - `server/internal/daemon/ag_quota_pace.go`, `ag_quota_pace_test.go`,
+    `ag_quota_pace_spec_test.go` (new)
   - `server/internal/daemon/ag_quota.go` (`agQuotaClaim` applies C,
     `agQuotaObserver` also returns a `done` func, the observe hook, `/health`),
     `ag_handoff.go` (reads the predecessor's `ag_quota` block in the overlap
