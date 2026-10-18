@@ -831,21 +831,21 @@ unpatched server ignores `ag_quota` and sends no `ag_settings`.
   The DB-backed ones in `internal/handler` need `DATABASE_URL` and are not run by
   `ag-patches/test.sh`.
 - Files:
-  - `server/pkg/protocol/ag_quota.go`, `ag_quota_test.go` (new);
+  - `server/pkg/protocol/ag_quota.go`, `ag_quota_test.go`, `ag_quota_compat_test.go` (new);
     `messages.go` (`AGQuota` on the heartbeat request, `AGSettings` on the ack)
   - `server/internal/agquota/agquota.go`, `agquota_test.go` (new)
   - `server/internal/handler/ag_quota.go`, `ag_quota_settings.go`,
-    `ag_quota_test.go` (new); `daemon.go` (HTTP apply, the ack map, the WS apply and
-    ack)
+    `ag_quota_test.go`, `ag_quota_settings_spec_test.go` (new); `daemon.go` (HTTP
+    apply, the ack map, the WS apply and ack)
   - `server/internal/daemonws/hub.go` (lease memo, the report on the context),
     `ag_quota_test.go` (new)
   - `server/cmd/server/router.go` (one route)
   - `server/pkg/db/queries/runtime.sql` and the regenerated
     `server/pkg/db/generated/runtime.sql.go` (two new queries, the two upsert edits)
-  - `server/internal/daemon/ag_quota_report.go`, `ag_quota_report_test.go` (new);
-    `client.go` (`SendHeartbeatWithReports`), `daemon.go` (the field, the two HTTP
+  - `server/internal/daemon/ag_quota_report.go`, `ag_quota_report_test.go`,
+    `ag_quota_report_spec_test.go` (new); `client.go` (`SendHeartbeatWithReports`), `daemon.go` (the field, the two HTTP
     call sites, one line in `handleHeartbeatActions`), `wakeup.go` (the WS frame)
-  - `ag-patches/test.sh` (`./internal/agquota`, `AG_GO_MIN_TESTS` 145)
+  - `ag-patches/test.sh` (`./internal/agquota`, `AG_GO_MIN_TESTS` 148)
 
 - Upstream:
   - Status: `fork-only`. The report alone would be a `candidate` only if it
