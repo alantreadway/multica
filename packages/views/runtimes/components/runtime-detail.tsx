@@ -203,7 +203,7 @@ export function RuntimeDetail({
               daemonShort={daemonShort}
             />
             {canReadRuntime && <UsageSection runtime={runtime} />}
-            {canReadRuntime && <QuotaSection runtime={runtime} canEdit={!!canEditRuntime} />}
+            {canReadRuntime && runtime.provider === "claude" && <QuotaSection runtime={runtime} canEdit={!!canEditRuntime} />}
           </div>
 
           {/* Right rail: serving agents + diagnostics */}
