@@ -229,7 +229,7 @@ func TestAGPatchQuotaHoldsClaudeClaims(t *testing.T) {
 			t.Fatalf("claim = %v, want all three runtimes", got)
 		}
 		h := d.agQuotaHealth().ClaudeQuota
-		if h == nil || h.Held || len(h.Accounts) != 1 || h.Accounts[0].Account != other || h.Accounts[0].Default || h.Accounts[0].Hold == nil {
+		if h == nil || h.Held || len(h.Accounts) != 1 || h.Accounts[0].Account != other || h.Accounts[0].Default || h.Accounts[0].Hold == nil || h.Accounts[0].Hold.Gating {
 			t.Fatalf("health = %+v", h)
 		}
 	})
@@ -621,7 +621,7 @@ func TestAGPatchQuotaHealthAndStatus(t *testing.T) {
 		}
 		hold, _ := quota["hold"].(map[string]any)
 		wantUntil := agQuotaResets.Add(agQuotaResetGrace).Format(time.RFC3339)
-		if hold["until"] != wantUntil || hold["window"] != "five_hour" || hold["reason"] != "rejected" {
+		if hold["until"] != wantUntil || hold["window"] != "five_hour" || hold["reason"] != "rejected" || hold["gating"] != true {
 			t.Fatalf("hold = %v, want until %s", hold, wantUntil)
 		}
 		accounts, _ := quota["accounts"].([]any)

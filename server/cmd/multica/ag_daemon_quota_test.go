@@ -65,10 +65,10 @@ func agQuotaHealthBlock(until time.Time, reason string) map[string]any {
 		"held": true,
 		"accounts": []any{
 			map[string]any{"account": "/home/u/.claude", "default": true, "hold": map[string]any{
-				"window": "five_hour", "until": until.UTC().Format(time.RFC3339), "reason": reason,
+				"window": "five_hour", "until": until.UTC().Format(time.RFC3339), "reason": reason, "gating": true,
 			}},
 			map[string]any{"account": "/home/u/.claude-b", "hold": map[string]any{
-				"window": "seven_day", "until": until.UTC().Format(time.RFC3339), "reason": "rejected",
+				"window": "seven_day", "until": until.UTC().Format(time.RFC3339), "reason": "rejected", "gating": false,
 			}},
 			map[string]any{"account": "/home/u/.claude-c"},
 		},
@@ -144,7 +144,7 @@ func TestAGPatchDaemonStatusShowsQuotaHold(t *testing.T) {
 		if got, want := rows["Claude"], "quota hold (five_hour) until "+clock; got != want {
 			t.Errorf("Claude = %q, want %q\n%s", got, want, out)
 		}
-		if got, want := rows["Claude (/home/u/.claude-b)"], "quota hold (seven_day) until "+clock; got != want {
+		if got, want := rows["Claude (/home/u/.claude-b)"], "quota hold (seven_day) until "+clock+", not gating"; got != want {
 			t.Errorf("other account = %q, want %q\n%s", got, want, out)
 		}
 		if strings.Contains(out, ".claude-c") {

@@ -75,6 +75,9 @@ func agQuotaStatusRows(health map[string]any) [][2]string {
 		if reason, _ := hold["reason"].(string); reason == "reset_unknown" {
 			value += ", reset time unknown"
 		}
+		if gating, _ := hold["gating"].(bool); !gating {
+			value += ", not gating"
+		}
 		rows = append(rows, [2]string{label, value})
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i][0] < rows[j][0] })

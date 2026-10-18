@@ -645,15 +645,15 @@ daemon's own (default) account is held, the batch claim leaves out Claude
 runtimes (`rt.Provider == "claude"` or protocol family `claude`); Codex, Cursor
 and the rest keep claiming, running tasks are never touched, and the hold clears
 itself at reset. A hold on another account is tracked and shown in `daemon
-status` but does not gate claims, because the claim cannot know which account a
-task will use.
+status` as `..., not gating` (and with `gating: false` in `/health`) but does not
+gate claims, because the claim cannot know which account a task will use.
 
 State is machine-wide in `<~/.multica>/ag_quota.json` (beside the slot dir):
 atomic writes, re-read when the mtime or size changes (once per claim cycle),
 merged per account and window by newest `observed_at`; holds and `quota clear`
 overrides carry timestamps and the latest wins, so a hold survives a restart or a
 handoff. `/health` gains `claude_quota` (default-account hold, each account's
-windows and last seen, dropped-event count). `multica daemon quota clear` (POST
+windows and last seen, dropped-event count; each hold carries `gating`). `multica daemon quota clear` (POST
 `/quota/clear`) ends the hold; `daemon status` shows `Claude: quota hold
 (five_hour) until 21:10`. The failed-task report carries `ag_retry_not_before`
 (RFC 3339), the `resetsAt` of the `rejected` event that run saw, for the
@@ -677,7 +677,9 @@ the next write replaces it.
   - `server/pkg/agent/agent.go` (`AGOnRateLimit` field), `claude.go` (the
     `rate_limit_info` field, the `rate_limit_event` case, the garbled-line hook)
   - `server/internal/daemon/ag_quota.go`, `ag_quota_store.go`,
-    `ag_quota_test.go` (new)
+    `ag_quota_test.go`, `ag_quota_edge_test.go`, `ag_quota_runtask_test.go`
+    (new; the last drives `runTask` with a test-created `claude` printing the
+    rejected fixture)
   - `server/internal/daemon/daemon.go` (one-line hooks: `agQuota` field, the
     observer after the `ExecOptions` literal, `agQuotaClaim` in the batch poller),
     `health.go` (embedded `agQuotaHealth`, `/quota/clear` route), `client.go`
