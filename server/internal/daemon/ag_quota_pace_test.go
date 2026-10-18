@@ -247,8 +247,8 @@ func TestAGPatchPaceBurnAndCap(t *testing.T) {
 		f := newAGPaceFixture(t, 5)
 		now := f.clock.now()
 		f.event(t, 0.90, 0.10, now.Add(2*time.Hour), now.Add(100*time.Hour))
-		if c, _ := f.cap(t); c != 5 {
-			t.Fatalf("cap = %d, want 5 (hold position)", c)
+		if c, _ := f.cap(t); c != 1 {
+			t.Fatalf("cap = %d, want 1 (a fresh process holds at the floor)", c)
 		}
 		f.d.agPace.mu.Lock()
 		f.d.agPace.accounts[f.acct].limiter.cap = 3
@@ -381,7 +381,7 @@ func TestAGPatchPaceActiveCount(t *testing.T) {
 		done()
 	})
 
-	t.Run("AG patch: a claimed task counts until its run starts, or ten minutes", func(t *testing.T) {
+	t.Run("AG patch: a claimed task counts until its dispatch goroutine exits, with no timeout", func(t *testing.T) {
 		f.d.agPaceNoteClaimed([]*Task{{ID: "t1", RuntimeID: "rt-claude"}, {ID: "t2", RuntimeID: "rt-codex"}, nil})
 		if f.d.agPaceHealth().ActiveClaude != 1 {
 			t.Fatalf("claimed count = %d, want 1 (Codex task ignored)", f.d.agPaceHealth().ActiveClaude)
@@ -391,10 +391,15 @@ func TestAGPatchPaceActiveCount(t *testing.T) {
 			t.Fatalf("run replacing its claim double counted: %d", f.d.agPaceHealth().ActiveClaude)
 		}
 		done()
+		f.d.agUntrackTask("t1")
 		f.d.agPaceNoteClaimed([]*Task{{ID: "t3", RuntimeID: "rt-claude"}})
-		f.clock.set(f.clock.now().Add(agPaceClaimedTTL + time.Second))
+		f.clock.set(f.clock.now().Add(24 * time.Hour))
+		if f.d.agPaceHealth().ActiveClaude != 1 {
+			t.Fatal("a claim whose run has not started stopped counting before its goroutine exited")
+		}
+		f.d.agUntrackTask("t3")
 		if f.d.agPaceHealth().ActiveClaude != 0 {
-			t.Fatal("a claim whose run never started still counts after the TTL")
+			t.Fatal("a claim still counts after its dispatch goroutine exited")
 		}
 	})
 

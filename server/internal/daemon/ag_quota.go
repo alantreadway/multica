@@ -312,7 +312,9 @@ func (d *Daemon) agQuotaClaim(ctx context.Context, daemonID string, runtimeIDs [
 		return d.agQuotaSplitClaim(ctx, daemonID, claude, other, room, maxTasks)
 	}
 	res, err := d.claimTasksWSFirst(ctx, daemonID, runtimeIDs, maxTasks)
-	d.agPaceNoteClaimed(res.Tasks)
+	if err == nil {
+		d.agPaceNoteClaimed(res.Tasks)
+	}
 	return res, err
 }
 
@@ -320,10 +322,10 @@ func (d *Daemon) agQuotaClaim(ctx context.Context, daemonID string, runtimeIDs [
 // the remaining slots from the others, and merges the two results.
 func (d *Daemon) agQuotaSplitClaim(ctx context.Context, daemonID string, claude, other []string, room, maxTasks int) (claimTasksResult, error) {
 	res, err := d.claimTasksWSFirst(ctx, daemonID, claude, room)
-	d.agPaceNoteClaimed(res.Tasks)
 	if err != nil {
 		return res, err
 	}
+	d.agPaceNoteClaimed(res.Tasks)
 	rest := maxTasks - len(res.Tasks)
 	if len(other) == 0 || rest <= 0 {
 		return res, nil

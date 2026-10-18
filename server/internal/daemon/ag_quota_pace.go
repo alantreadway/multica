@@ -22,11 +22,12 @@ package daemon
 // state but not paced.
 //
 // Fail policy: no windows or no state is Max; where the formula applies but the
-// burn is unknown the cap holds its position; an expired window constrains
-// nothing; the cap never drops below 1 (a lone run is what refreshes
-// utilisation). During a handoff overlap the successor adds the predecessor's
-// reported Claude runs (its last known value, or all its tasks when it never
-// reported one) to its own count.
+// burn is unknown the cap holds its position, and a fresh process starts that
+// position at 1 (a handoff successor starts it at the predecessor's reported
+// cap); an expired window constrains nothing; the cap never drops below 1 (a
+// lone run is what refreshes utilisation). During a handoff overlap the
+// successor adds the predecessor's reported Claude runs (its last known value,
+// or all its tasks when it never reported one) to its own count.
 //
 // Deviation from a literal EWMA of du/dt / max(a, 1): a sample with no change in
 // utilisation and fewer than 0.05 runs on average is skipped, so idle time does
@@ -51,9 +52,6 @@ const (
 	agPaceIdleRuns       = 0.05
 	// agPaceResetTolerance is how far resetsAt may move and still be the same window.
 	agPaceResetTolerance = time.Minute
-	// agPaceClaimedTTL is how long a claimed Claude task counts as active before its
-	// run starts.
-	agPaceClaimedTTL = 10 * time.Minute
 
 	agQuotaWindowFiveHour = "five_hour"
 	agQuotaWindowSevenDay = "seven_day"
@@ -188,11 +186,12 @@ type agPaceState struct {
 	accounts map[string]*agPaceAccount
 
 	nextRun uint64
-	running map[uint64]string    // run token -> account
-	claimed map[string]time.Time // task id -> claim time, default account assumed
+	running map[uint64]string   // run token -> account
+	claimed map[string]struct{} // task ids claimed and not yet through their dispatch goroutine
 
 	predActive int  // predecessor's reported Claude runs
 	predKnown  bool // false until the predecessor reports
+	seeded     bool // the limiter has taken the predecessor's cap
 }
 
 func (p *agPaceState) accountLocked(key string) *agPaceAccount {
@@ -208,9 +207,9 @@ func (p *agPaceState) accountLocked(key string) *agPaceAccount {
 }
 
 // agPaceActiveLocked is the Claude runs counted against account: running ones on it,
-// plus (default account only) claimed tasks whose run has not started and, in an
-// overlap, the predecessor's. def is the daemon's own account.
-func (d *Daemon) agPaceActiveLocked(account, def string, now time.Time) int {
+// plus (default account only) claimed tasks still in their dispatch goroutine and,
+// in an overlap, the predecessor's. def is the daemon's own account.
+func (d *Daemon) agPaceActiveLocked(account, def string) int {
 	p := &d.agPace
 	n := 0
 	for _, acct := range p.running {
@@ -221,13 +220,7 @@ func (d *Daemon) agPaceActiveLocked(account, def string, now time.Time) int {
 	if account != def {
 		return n
 	}
-	for id, at := range p.claimed {
-		if now.Sub(at) > agPaceClaimedTTL {
-			delete(p.claimed, id)
-			continue
-		}
-		n++
-	}
+	n += len(p.claimed)
 	if d.agOverlapActive() {
 		if p.predKnown {
 			n += p.predActive
@@ -243,7 +236,7 @@ func (d *Daemon) agPaceActiveLocked(account, def string, now time.Time) int {
 // agPaceAccrueLocked folds the time since the last count change into cum and records
 // the current count.
 func (d *Daemon) agPaceAccrueLocked(a *agPaceAccount, account string, now time.Time) {
-	count := d.agPaceActiveLocked(account, agQuotaAccountKey(nil), now)
+	count := d.agPaceActiveLocked(account, agQuotaAccountKey(nil))
 	if a.counting && now.After(a.countAt) {
 		a.cum += float64(a.count) * now.Sub(a.countAt).Hours()
 	}
@@ -350,12 +343,15 @@ func (d *Daemon) agPaceEvaluate(account string, windows map[string]agQuotaWindow
 	w7, ok7 := windows[agQuotaWindowSevenDay]
 	in5, in7 := a.window(agQuotaWindowFiveHour, w5, ok5, now), a.window(agQuotaWindowSevenDay, w7, ok7, now)
 
+	n5, hold5 := agPaceSessionAllowed(in5, max)
+	n7, hold7 := agPaceWeeklyAllowed(in7, max)
+	if !a.limiter.set && (hold5 || hold7) {
+		a.limiter.set, a.limiter.cap = true, 1 // cold start in the paced zone, burn unknown: the floor
+	}
 	cur := max
 	if a.limiter.set {
 		cur = a.limiter.cap
 	}
-	n5, hold5 := agPaceSessionAllowed(in5, max)
-	n7, hold7 := agPaceWeeklyAllowed(in7, max)
 	if hold5 {
 		n5 = float64(cur)
 	}
@@ -410,11 +406,15 @@ func (d *Daemon) agPaceRunStart(taskID, account string, now time.Time) func() {
 }
 
 // agPaceNoteClaimed counts freshly claimed Claude tasks on the daemon's own
-// account until their runs start.
+// account until their dispatch goroutine exits (agPaceReleaseClaimed). It stops at
+// the first nil task, as the dispatch loop does.
 func (d *Daemon) agPaceNoteClaimed(tasks []*Task) {
 	var ids []string
 	for _, t := range tasks {
-		if t != nil && t.ID != "" && d.agQuotaIsClaudeRuntime(t.RuntimeID) {
+		if t == nil {
+			break
+		}
+		if t.ID != "" && d.agQuotaIsClaudeRuntime(t.RuntimeID) {
 			ids = append(ids, t.ID)
 		}
 	}
@@ -426,25 +426,59 @@ func (d *Daemon) agPaceNoteClaimed(tasks []*Task) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.claimed == nil {
-		p.claimed = map[string]time.Time{}
+		p.claimed = map[string]struct{}{}
 	}
 	def := agQuotaAccountKey(nil)
 	d.agPaceAccrueLocked(p.accountLocked(def), def, now)
 	for _, id := range ids {
-		p.claimed[id] = now
+		p.claimed[id] = struct{}{}
 	}
 	d.agPaceAccrueLocked(p.accountLocked(def), def, now)
 }
 
-// agPaceSetPredecessor records the Claude runs the predecessor reported.
-func (d *Daemon) agPaceSetPredecessor(activeClaude *int) {
-	if activeClaude == nil {
-		return
-	}
+// agPaceReleaseClaimed ends a task's claim entry when its dispatch goroutine exits,
+// whether or not its run ever started. It runs from agUntrackTask.
+func (d *Daemon) agPaceReleaseClaimed(taskID string) {
 	p := &d.agPace
 	p.mu.Lock()
-	p.predActive, p.predKnown = *activeClaude, true
-	p.mu.Unlock()
+	defer p.mu.Unlock()
+	if _, ok := p.claimed[taskID]; !ok {
+		return
+	}
+	now := d.agQuotaNow()
+	def := agQuotaAccountKey(nil)
+	d.agPaceAccrueLocked(p.accountLocked(def), def, now)
+	delete(p.claimed, taskID)
+	d.agPaceAccrueLocked(p.accountLocked(def), def, now)
+}
+
+// agPaceSetPredecessor records what the predecessor reported: its Claude runs and
+// its cap. The first cap reported seeds the limiter (clamped to 1..Max), so a
+// successor never starts above the predecessor's pace.
+func (d *Daemon) agPaceSetPredecessor(activeClaude, effectiveCap *int) {
+	p := &d.agPace
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if activeClaude != nil {
+		p.predActive, p.predKnown = *activeClaude, true
+	}
+	if effectiveCap == nil || p.seeded {
+		return
+	}
+	p.seeded = true
+	max := d.cfg.MaxConcurrentTasks
+	if max < 1 {
+		max = 1
+	}
+	c := *effectiveCap
+	if c > max {
+		c = max
+	}
+	if c < 1 {
+		c = 1
+	}
+	l := &p.accountLocked(agQuotaAccountKey(nil)).limiter
+	l.set, l.cap, l.changedAt = true, c, time.Time{}
 }
 
 // --- health ---------------------------------------------------------------------
@@ -463,15 +497,9 @@ func (d *Daemon) agPaceHealth() *agQuotaPaceInfo {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	def := agQuotaAccountKey(nil)
-	now := d.agQuotaNow()
-	n := 0
+	n := len(p.claimed)
 	for _, acct := range p.running {
 		if acct == def {
-			n++
-		}
-	}
-	for _, at := range p.claimed {
-		if now.Sub(at) <= agPaceClaimedTTL {
 			n++
 		}
 	}

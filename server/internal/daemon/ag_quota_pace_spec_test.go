@@ -247,8 +247,10 @@ func TestAGPatchPaceSpecClaimTimeline(t *testing.T) {
 
 	u := 0.90
 	f.event(t, u, 0.10, reset5, reset7)
-	// Burn unknown in the paced zone: hold position at Max. One run is active,
-	// so four more may start.
+	// A successor seeded at the predecessor's cap (Max). Burn unknown in the paced
+	// zone: hold position at Max. One run is active, so four more may start.
+	five := 5
+	f.d.agPaceSetPredecessor(nil, &five)
 	if m, c := claim(); c != 5 || m != 4 {
 		t.Fatalf("t+0: cap %d, Claude max_tasks %d; want 5 and 4", c, m)
 	}
@@ -550,7 +552,7 @@ func TestAGPatchPaceSpecConcurrentUse(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 30; j++ {
 				n := j % 3
-				f.d.agPaceSetPredecessor(&n)
+				f.d.agPaceSetPredecessor(&n, &n)
 			}
 		}(i)
 	}

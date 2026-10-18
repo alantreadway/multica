@@ -712,8 +712,8 @@ captured yet; that fixture is synthetic.
 Builds on the quota tracker above. From the daemon's own Claude account's 5-hour
 and 7-day windows it derives a cap C on Claude runs in flight, and the batch
 claim starts at most `C - active` more. `active` counts Claude runs on this
-account (running ones, tasks claimed but not yet started, and during a handoff
-overlap the predecessor's); runs on an agent's own `CLAUDE_CONFIG_DIR` are
+account (running ones, tasks claimed until their dispatch goroutine exits, and
+during a handoff overlap the predecessor's); runs on an agent's own `CLAUDE_CONFIG_DIR` are
 tracked per account but do not count. C limits new claims only; running tasks
 are never touched, and it is read every claim cycle, so no restart is needed.
 
@@ -740,10 +740,14 @@ are never touched, and it is read every claim cycle, so no restart is needed.
   adds the predecessor's `ag_quota.active_claude`, read from the `/health` it
   already polls, to its own count: the last known value when the read fails,
   all of the predecessor's tasks when it never reported one (an older build),
-  and only its own once the overlap ends.
+  and only its own once the overlap ends. The first `ag_quota.effective_cap` it
+  reads (clamped to 1..Max) seeds its limiter, so it never starts above the
+  predecessor's pace.
 
 Fail policy: no windows or no state is Max; where the formula applies and the
-burn is unknown C holds its position; an expired window constrains nothing; C
+burn is unknown C holds its position, and a fresh process (a restart, or a
+successor before its first read of the predecessor's cap) starts that position
+at 1; an expired window constrains nothing; C
 never goes below 1, so a lone run keeps refreshing utilisation. The maths takes
 the account as a parameter (`agPaceEvaluate`), so a backup account can reuse it.
 
@@ -751,11 +755,11 @@ the account as a parameter (`agPaceEvaluate`), so a backup account can reuse it.
   A-H from the design as table tests)
 - Files:
   - `server/internal/daemon/ag_quota_pace.go`, `ag_quota_pace_test.go`,
-    `ag_quota_pace_spec_test.go` (new)
+    `ag_quota_pace_spec_test.go`, `ag_quota_pace_start_test.go` (new)
   - `server/internal/daemon/ag_quota.go` (`agQuotaClaim` applies C,
     `agQuotaObserver` also returns a `done` func, the observe hook, `/health`),
     `ag_handoff.go` (reads the predecessor's `ag_quota` block in the overlap
-    step), `daemon.go` (the `agPace` field; the observer hook is now
+    step; `agUntrackTask` releases the task's claim), `daemon.go` (the `agPace` field; the observer hook is now
     `defer d.agQuotaWire(...)()`)
   - `ag_quota_test.go`, `ag_quota_edge_test.go` (the observer's second return value)
   - `ag-patches/test.sh` (`AG_GO_MIN_TESTS`)
