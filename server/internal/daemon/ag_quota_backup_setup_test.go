@@ -149,6 +149,31 @@ func TestAGPatchBackupSetupScript(t *testing.T) {
 		}
 	})
 
+	t.Run("AG patch: setup expands a leading ~ in the backup dir and reports a symlinked .claude.json as a conflict", func(t *testing.T) {
+		home, _ := newHome(t)
+		if out, err := runBackupSetup(t, home, "MULTICA_AG_CLAUDE_BACKUP_DIR=~/second-backup"); err != nil {
+			t.Fatalf("setup: %v\n%s", err, out)
+		}
+		if _, err := os.Readlink(filepath.Join(home, "second-backup", "CLAUDE.md")); err != nil {
+			t.Fatalf("~ was not expanded: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(home, "~")); err == nil {
+			t.Fatal("a literal ~ directory was created")
+		}
+
+		linked := filepath.Join(home, "linked-backup")
+		if err := os.MkdirAll(linked, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(filepath.Join(home, ".claude.json"), filepath.Join(linked, ".claude.json")); err != nil {
+			t.Fatal(err)
+		}
+		out, err := runBackupSetup(t, home, "MULTICA_AG_CLAUDE_BACKUP_DIR="+linked)
+		if err == nil || !strings.Contains(out, "conflict") || !strings.Contains(out, ".claude.json") {
+			t.Fatalf("a symlinked .claude.json was accepted: err %v\n%s", err, out)
+		}
+	})
+
 	t.Run("AG patch: setup fails clearly when the primary dir is missing", func(t *testing.T) {
 		out, err := runBackupSetup(t, t.TempDir())
 		if err == nil || !strings.Contains(out, "does not exist") {

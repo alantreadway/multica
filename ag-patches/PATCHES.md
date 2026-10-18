@@ -910,13 +910,17 @@ the setting turned on from the runtime page, and a patched server (the claim fil
   `CLAUDE_CONFIG_DIR` = the backup, only when its effective dir was the primary (an
   agent's own `custom_env` dir is left alone). A task that is not urgent is not
   moved, even if it was claimed just before the hold started; it fails as quota and
-  comes back at the reset through the deferred retry. When the hold ends at the
+  comes back at the reset through the deferred retry. The same goes for an urgent
+  task that finds the backup held or already at `backup_max_concurrent`: each task
+  takes a backup slot at the swap, held until its run is counted, so tasks claimed
+  just before the hold cannot all move over. When the hold ends at the
   primary's reset, new tasks go back to the primary.
 - In-place resume: a run that saw `rejected` on the primary resumes on the backup
   with `--resume <this run's session>` and the prompt "You hit a usage limit and
   have been moved to another account; continue where you left off", only for an
   urgent issue, with the backup valid, enabled and not held, and a free slot under
-  `backup_max_concurrent` (reserved atomically with the runs already there). Usage
+  `backup_max_concurrent` (a slot reserved the same way, counted once: it is released when the resumed run
+  is counted). Usage
   from both runs is summed. If the backup rejects the resume the run fails as quota
   with its original result: no fresh-session retry, because tools already ran.
 - Report: `ag_quota.account` is `backup` while failing over, with the backup's
@@ -936,15 +940,18 @@ means no Claude claims on the backup; the legacy claim is never used for Claude 
 the backup; a rejected resume is a normal quota failure.
 
 - Test prefix: `TestAGPatchBackup*` (`Detection`, `AckGates`, `EnvSwap`, `Claim`,
-  `Report`, `ResumeInPlace`, `SetupScript`), plus the null-ack cases in
+  `Report`, `Pacing`, `ResumeInPlace`, `ResumeSessionAndPrompt`, `ConcurrentResumes`,
+  `SwapLimit`, `RunTaskSwap`, `NoIssueTaskStaysOnPrimary`, `SetupScript`,
+  `SetupLinksEverySpecItem`), plus the null-ack cases in
   `TestAGPatchBackupSetting*`. They use a test-created `claude` and a fake claim
   server; no installed CLI is used.
 - Files:
   - `server/internal/daemon/ag_quota_backup.go`, `ag_quota_backup_test.go`,
     `ag_quota_backup_run_test.go`, `ag_quota_backup_setup_test.go`,
-    `ag_quota_backup_spec_test.go` (new)
+    `ag_quota_backup_spec_test.go`, `ag_quota_backup_limit_test.go` (new)
   - `server/internal/daemon/ag_quota_report.go` (null ack disables; report fill),
-    `ag_quota.go` (rejection note in the observer, one hook in `agQuotaClaim`)
+    `ag_quota.go` (rejection note and slot release in the observer, one hook in
+    `agQuotaClaim`), `ag_handoff.go` (slot release in `agUntrackTask`)
   - hooks: `daemon.go` (the `agBackup` field, `agApplyAck` in
     `handleHeartbeatActions`, `agApplyClaudeAccount` after the custom env,
     `agQuotaResumeOnBackup` after the fresh-session retry, `agBackupLoop` at start),
@@ -954,7 +961,7 @@ the backup; a rejected resume is a normal quota failure.
   - `server/pkg/protocol/messages.go` (`AGCapabilities` on the ack, the same line as
     the claim filter patch)
   - `ag-patches/claude-backup-setup.sh` (new), `ag-patches/test.sh`
-    (`AG_GO_MIN_TESTS` 159)
+    (`AG_GO_MIN_TESTS` 163)
 
 - Upstream:
   - Status: `fork-only`. It encodes one subscriber's two-account setup.

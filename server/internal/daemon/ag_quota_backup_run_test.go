@@ -120,8 +120,8 @@ func TestAGPatchBackupResumeInPlace(t *testing.T) {
 		if h == nil || !h.Held {
 			t.Fatalf("health = %+v, want the primary held", h)
 		}
-		if r.d.agBackup.resuming != 0 {
-			t.Fatalf("resume slot leaked: %d", r.d.agBackup.resuming)
+		if n := len(r.d.agBackup.slots); n != 0 {
+			t.Fatalf("backup slot leaked: %d", n)
 		}
 	})
 
