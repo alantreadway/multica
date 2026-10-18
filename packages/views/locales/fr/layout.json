@@ -76,6 +76,8 @@
     "hover_runtimes_header": "Runtimes en drainage",
     "hover_runtime_draining": "{{name}} · {{running}} en cours",
     "hover_runtime_draining_unknown": "{{name}} · drainage",
-    "hover_runtime_drained": "{{name}} · drainé"
+    "hover_runtime_drained": "{{name}} · drainé",
+    "backup_urgent": "Compte de secours · urgent uniquement",
+    "quota_hold": "Claude en pause jusqu'à {{time}}"
   }
 }

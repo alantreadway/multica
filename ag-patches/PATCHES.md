@@ -55,6 +55,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Claude pacing: 80% knee, weekly curve, EWMA cap (daemon) | `fork-only` | [#6011](https://github.com/multica-ai/multica/pull/6011) (adaptive admission, open), [#8331](https://github.com/multica-ai/multica/pull/8331) (static caps, closed unmerged), [#7015](https://github.com/multica-ai/multica/issues/7015), [#4205](https://github.com/multica-ai/multica/issues/4205) (ask for static caps) |
 | Claude quota report and runtime backup setting (daemon + backend) | `fork-only` (the report alone is a `candidate` only if it lines up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (plan quota per runtime, open), [#6000](https://github.com/multica-ai/multica/issues/6000) (the request, open) |
 | Backup Claude account failover, urgent only (daemon) | `fork-only` | [#5282](https://github.com/multica-ai/multica/pull/5282), [#8579](https://github.com/multica-ai/multica/pull/8579) (fallback runtime, open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC), [#5704](https://github.com/multica-ai/multica/issues/5704), [#5618](https://github.com/multica-ai/multica/issues/5618) (resume after an account switch, fixed by [#5715](https://github.com/multica-ai/multica/pull/5715)) |
+| Runtime quota section and sidebar warning (web) | `fork-only` (the Runtimes-page section alone could line up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (open); sidebar line: none found |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -1494,6 +1495,61 @@ the backup; a rejected resume is a normal quota failure.
     Last checked 2026-10-18.
   - Fit: provider fallback is on upstream's radar; switching accounts under a
     personal subscription is operator tooling and unlikely to be accepted.
+### Runtime quota section and sidebar warning (web)
+
+The Runtimes detail page gets a "Claude quota" card under Usage for any runtime
+that carries `metadata.ag_quota`: both windows (5-hour, 7-day) as a bar with the
+utilisation and reset time, the current cap ("Running up to 3 of 5") and any
+hold ("On hold until 21:10"), then the backup account: status (not found, found
+but invalid with the reason, or ready), a switch, the `backup_max_concurrent`
+input and one help line ("Only urgent issues run on the backup."). The switch
+and input are disabled unless the backup is valid, the input also while the
+switch is off, and both for anyone who cannot edit the runtime. Saves go to
+`PUT /api/runtimes/{id}/ag-settings` with both fields; the form awaits the server
+and shows server state again on failure, with a toast. The hold and cap are
+hidden while the runtime is offline (stale once heartbeats stop).
+
+The sidebar status row (`agent-status-indicator.tsx`) gets one more line while any
+online runtime is on the backup account ("Backup account · urgent only") or, if
+none is, held ("Claude on hold until 21:10", earliest end across runtimes, local
+time). Backup wins when both apply. The row then links to Runtimes. It reads the
+same cached runtime list as the drain line: no new request.
+
+The saved setting is read from `metadata.ag_settings`, which the PUT writes at
+once, in preference to the `ag_quota.backup` echo, which only catches up on the
+daemon's next report (up to about a minute on the WebSocket path). A missing or
+malformed `ag_quota` shows no section and no sidebar line.
+
+The AG refreshes (`daemon:register` with `action` `quota`, `drain` or
+`ag_settings`) are not registrations, so `ConnectRemoteDialog` now ignores them;
+before, a quota report would have completed "Connect a computer" falsely.
+Frontend only: rollback is switching the web image back.
+
+- Test prefix: `AG patch:` (`quota-section.test.tsx`, `runtime-detail-quota.test.tsx`,
+  `connect-remote-dialog.ag-quota.test.tsx`, `locales/ag-quota.test.ts`,
+  `layout/agent-status-indicator.test.tsx` and core `runtimes/ag-quota.test.ts`, all in `ag-patches/test.sh`)
+- Files:
+  - `packages/core/runtimes/ag-quota.ts`, `ag-quota.test.ts` (new: schema,
+    sidebar state, refresh filter, save mutation); `packages/core/package.json`
+    (one export); `packages/core/api/client.ts` (`updateAGRuntimeSettings`)
+  - `packages/views/runtimes/components/quota-section.tsx`, `quota-section.test.tsx`,
+    `runtime-detail-quota.test.tsx`, `connect-remote-dialog.ag-quota.test.tsx` (new)
+  - `packages/views/runtimes/components/runtime-detail.tsx` (one import, one JSX line),
+    `connect-remote-dialog.tsx` (one import, one guard line)
+  - `packages/views/layout/agent-status-indicator.tsx`, `agent-status-indicator.test.tsx`
+  - `packages/views/locales/*/runtimes.json` (`quota` group), `*/layout.json`
+    (`agent_status.backup_urgent`, `quota_hold`), `locales/ag-quota.test.ts` (new)
+
+- Upstream:
+  - Status: `fork-only`. Needs the quota report and settings patch above.
+  - Overlap: [#7413](https://github.com/multica-ai/multica/pull/7413) and
+    [#8679](https://github.com/multica-ai/multica/pull/8679) (plan usage on the
+    Runtimes page, open); the sidebar line has no upstream counterpart. Last
+    checked 2026-10-18.
+  - Fit: plan usage on the Runtimes page is a plausible product feature; the
+    backup switch and the sidebar warning are operator tooling for subscription
+    users. The `ConnectRemoteDialog` filter is generic and would go upstream with
+    any change that publishes non-registration `daemon:register` events.
 
 ## Tooling (not a patch)
 

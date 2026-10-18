@@ -2410,6 +2410,17 @@ export class ApiClient {
     });
   }
 
+  // AG patch: backup account setting for a Claude runtime (see runtimes/ag-quota.ts).
+  async updateAGRuntimeSettings(
+    runtimeId: string,
+    body: { backup_enabled: boolean; backup_max_concurrent: number },
+  ): Promise<{ backup_enabled: boolean; backup_max_concurrent: number }> {
+    return this.fetch(`/api/runtimes/${runtimeId}/ag-settings`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  }
+
   // Custom runtime profiles (MUL-3284). All workspace-scoped: the caller
   // passes the workspace id the same way the runtimes list resolves it.
 
