@@ -483,7 +483,7 @@ func TestAGPatchBackupEnvSwap(t *testing.T) {
 	})
 }
 
-// claimShapes reduces the recorded batch claims to runtime ids, max_tasks and filter.
+// agClaimShape is a recorded batch claim reduced to runtime ids, max_tasks and filter.
 type agClaimShape struct {
 	Runtimes []string
 	Max      int

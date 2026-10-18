@@ -120,6 +120,7 @@ func (d *Daemon) agQuotaObserver(task Task, provider string, agentEnv map[string
 	}
 	account := agQuotaAccountKey(agentEnv)
 	done = d.agPaceRunStart(task.ID, account, d.agQuotaNow())
+	d.agBackupSlotDone(task.ID) // AG patch: backup account (the run is counted now)
 	return func(raw json.RawMessage) {
 		ev, err := agent.AGParseRateLimitEvent(raw)
 		if err != nil {
@@ -281,7 +282,8 @@ func (d *Daemon) agQuotaDefaultWindows() map[string]agQuotaWindow {
 }
 
 // agQuotaClaim is the pollLoop's batch claim. While Claude is held it leaves
-// Claude runtimes out; with none left it returns an empty result without
+// Claude runtimes out, unless a valid, enabled backup account can take urgent
+// issues (ag_quota_backup.go); with none left it returns an empty result without
 // calling the server. Otherwise Claude runtimes may claim at most cap - active
 // tasks (see ag_quota_pace.go); the rest of the slots go to the other runtimes.
 func (d *Daemon) agQuotaClaim(ctx context.Context, daemonID string, runtimeIDs []string, maxTasks int) (claimTasksResult, error) {

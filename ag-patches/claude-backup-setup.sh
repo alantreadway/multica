@@ -18,6 +18,10 @@ set -euo pipefail
 
 primary="${MULTICA_AG_CLAUDE_PRIMARY_DIR:-$HOME/.claude}"
 backup="${MULTICA_AG_CLAUDE_BACKUP_DIR:-$HOME/.claude-backup}"
+case "$backup" in # the daemon expands a leading ~ as well
+  "~") backup="$HOME" ;;
+  "~/"*) backup="$HOME/${backup#"~/"}" ;;
+esac
 
 if [ ! -d "$primary" ]; then
   echo "error: primary config dir $primary does not exist; log in to Claude Code there first" >&2
@@ -35,7 +39,10 @@ conflicts=0
 
 # .claude.json: the default account keeps it at ~/.claude.json, a custom
 # CLAUDE_CONFIG_DIR keeps it inside the dir.
-if [ -e "$backup/.claude.json" ] || [ -L "$backup/.claude.json" ]; then
+if [ -L "$backup/.claude.json" ]; then
+  echo "conflict: $backup/.claude.json is a symlink; it holds the login (oauthAccount) and must be a per-account copy; left alone" >&2
+  conflicts=$((conflicts + 1))
+elif [ -e "$backup/.claude.json" ]; then
   echo "kept   .claude.json (already in $backup)"
 else
   src=""
