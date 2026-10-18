@@ -52,6 +52,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Label row: show all labels, Compact/Full display (web) | `candidate` | none found; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`) |
 | Copy (Slack) comment menu item | `candidate` | none open; upstream ships the Slack mrkdwn formatter server-side (`server/internal/integrations/slack/mrkdwn.go`) |
 | 1d and Yesterday periods on usage pages (web) | `candidate` (runtime `1d`), `fork-only` (Yesterday) | none open (searched 2026-10-19); related merged [#2837](https://github.com/multica-ai/multica/pull/2837), [#6194](https://github.com/multica-ai/multica/pull/6194) |
+| Claude pacing: 80% knee, weekly curve, EWMA cap (daemon) | `fork-only` | [#6011](https://github.com/multica-ai/multica/pull/6011) (adaptive admission, open), [#8331](https://github.com/multica-ai/multica/pull/8331) (static caps, closed unmerged), [#7015](https://github.com/multica-ai/multica/issues/7015), [#4205](https://github.com/multica-ai/multica/issues/4205) (ask for static caps) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -1225,6 +1226,68 @@ right after `1d`.
     windows on the dashboard).
   - Fit: small and additive. It touches upstream files at the period state, the
     window filters, the KPI label strings and three query options.
+### Claude pacing: 80% knee, weekly curve, EWMA cap (daemon)
+
+Builds on the quota tracker above. From the daemon's own Claude account's 5-hour
+and 7-day windows it derives a cap C on Claude runs in flight, and the batch
+claim starts at most `C - active` more. `active` counts Claude runs on this
+account (running ones, tasks claimed but not yet started, and during a handoff
+overlap the predecessor's); runs on an agent's own `CLAUDE_CONFIG_DIR` are
+tracked per account but do not count. C limits new claims only; running tasks
+are never touched, and it is read every claim cycle, so no restart is needed.
+
+- Session: full `MULTICA_DAEMON_MAX_CONCURRENT_TASKS` while 5h utilisation is
+  below 80%; above that `n = (0.95 - u) / (T * b)` runs, to land on 95% at the reset.
+- Weekly: full max while utilisation is at or under the linear curve
+  `c = min(elapsed fraction of 7d, 0.97)`; over it `n = (0.97 - u) / (T * b)`.
+- `b` is the burn per run in fraction/hour: an EWMA (alpha 0.3) of du/dt over
+  the time-weighted mean active runs (at least 1), sampled when utilisation
+  changes or 15 minutes after the last sample. A negative du is dropped; a
+  sample with no change and under 0.05 runs on average is skipped so idle time
+  does not decay the estimate.
+- C = clamp(floor(min(n_5h, n_7d)), 1, Max). C moves one step toward that at most
+  every 10 minutes (the first step after a quiet period is immediate). When a
+  window rolls over or a hold clears, C jumps straight to the target.
+- Split claim: with headroom `h = C - active` below the free slots, Claude
+  runtimes claim with `max_tasks = h`, then the other runtimes claim the
+  remaining slots; the two results are merged. No headroom drops the Claude
+  runtimes from the claim, like a hold.
+- `/health` gains `ag_quota.active_claude` and `ag_quota.effective_cap`. Utilisation
+  and resets come from the shared `ag_quota.json`; burn estimates and C are
+  per process.
+- Handoff: the successor is the only daemon that claims during an overlap. It
+  adds the predecessor's `ag_quota.active_claude`, read from the `/health` it
+  already polls, to its own count: the last known value when the read fails,
+  all of the predecessor's tasks when it never reported one (an older build),
+  and only its own once the overlap ends.
+
+Fail policy: no windows or no state is Max; where the formula applies and the
+burn is unknown C holds its position; an expired window constrains nothing; C
+never goes below 1, so a lone run keeps refreshing utilisation. The maths takes
+the account as a parameter (`agPaceEvaluate`), so a backup account can reuse it.
+
+- Test prefix: `TestAGPatch` / `AG patch:` (`TestAGPatchPace*`; worked examples
+  A-H from the design as table tests)
+- Files:
+  - `server/internal/daemon/ag_quota_pace.go`, `ag_quota_pace_test.go` (new)
+  - `server/internal/daemon/ag_quota.go` (`agQuotaClaim` applies C,
+    `agQuotaObserver` also returns a `done` func, the observe hook, `/health`),
+    `ag_handoff.go` (reads the predecessor's `ag_quota` block in the overlap
+    step), `daemon.go` (the `agPace` field; the observer hook is now
+    `defer d.agQuotaWire(...)()`)
+  - `ag_quota_test.go`, `ag_quota_edge_test.go` (the observer's second return value)
+  - `ag-patches/test.sh` (`AG_GO_MIN_TESTS`)
+
+- Upstream:
+  - Status: `fork-only`.
+  - Overlap: [#6011](https://github.com/multica-ai/multica/pull/6011) (adaptive
+    admission, open) is the nearest. [#8331](https://github.com/multica-ai/multica/pull/8331)
+    (static per-provider caps) was closed unmerged; [#7015](https://github.com/multica-ai/multica/issues/7015)
+    and [#4205](https://github.com/multica-ai/multica/issues/4205) ask for static
+    caps. Last checked 2026-10-18.
+  - Fit: pacing against a subscription's rolling windows is operator tooling
+    for self-hosters. Upstream has so far preferred static caps or generic
+    admission control over provider-specific quota maths.
 
 ## Tooling (not a patch)
 

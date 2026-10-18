@@ -662,6 +662,7 @@ type Daemon struct {
 
 	agDrain agDrainState // AG patch: drain mode, guarded by claimMu (see ag_drain.go)
 	agQuota agQuotaState // AG patch: Claude quota tracker and hold (see ag_quota.go)
+	agPace  agPaceState  // AG patch: Claude pacing (see ag_quota_pace.go)
 
 	agSlotDir string                      // AG patch: slot dir override for tests (see ag_slotlock.go)
 	agSlots   atomic.Pointer[agTaskSlots] // AG patch: set by pollLoop (see ag_slotlock.go)
@@ -8656,7 +8657,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		ClaudeSettingsPath:     env.ClaudeSettingsPath,
 		QwenpawWorkspace:       env.QwenpawWorkspace,
 	}
-	execOpts.AGOnRateLimit = d.agQuotaObserver(task, provider, agentEnv) // AG patch: quota
+	defer d.agQuotaWire(&execOpts, task, provider, agentEnv)() // AG patch: quota
 	// Some providers do not reliably load the per-task runtime config files we
 	// write into the task workdir:
 	//   - openclaw is pinned to the task workdir via the per-task config we
