@@ -86,7 +86,7 @@ DO UPDATE SET
     runtime_mode = EXCLUDED.runtime_mode,
     status = EXCLUDED.status,
     device_info = EXCLUDED.device_info,
-    metadata = EXCLUDED.metadata,
+    metadata = EXCLUDED.metadata || jsonb_strip_nulls(jsonb_build_object('ag_settings', agent_runtime.metadata -> 'ag_settings')), -- AG patch: keep the runtime setting
     owner_id = COALESCE(EXCLUDED.owner_id, agent_runtime.owner_id),
     last_seen_at = now(),
     updated_at = now()
@@ -120,7 +120,7 @@ DO UPDATE SET
     provider = EXCLUDED.provider,
     status = EXCLUDED.status,
     device_info = EXCLUDED.device_info,
-    metadata = EXCLUDED.metadata,
+    metadata = EXCLUDED.metadata || jsonb_strip_nulls(jsonb_build_object('ag_settings', agent_runtime.metadata -> 'ag_settings')), -- AG patch: keep the runtime setting
     owner_id = COALESCE(EXCLUDED.owner_id, agent_runtime.owner_id),
     last_seen_at = now(),
     updated_at = now()
@@ -262,6 +262,30 @@ SET metadata = metadata - 'ag_drain',
     updated_at = now()
 WHERE id = $1
   AND (metadata -> 'ag_drain') IS NOT NULL;
+
+-- name: SetAgentRuntimeAGQuota :one
+-- AG patch: Claude quota report. changed is 1 when the stored report was
+-- replaced and 0 when it already matched. ag_settings is the runtime's stored
+-- setting (NULL when none), read in the same statement so a WebSocket lease can
+-- refresh its copy for free.
+WITH upd AS (
+    UPDATE agent_runtime AS u
+    SET metadata = u.metadata || jsonb_build_object('ag_quota', @quota::jsonb),
+        updated_at = now()
+    WHERE u.id = $1
+      AND (u.metadata -> 'ag_quota') IS DISTINCT FROM @quota::jsonb
+    RETURNING 1
+)
+SELECT (SELECT count(*) FROM upd)::bigint AS changed,
+       (SELECT r.metadata -> 'ag_settings' FROM agent_runtime AS r WHERE r.id = $1)::jsonb AS ag_settings;
+
+-- name: SetAgentRuntimeAGSettings :execrows
+-- AG patch: runtime backup setting. Rows affected is 0 when it is unchanged.
+UPDATE agent_runtime
+SET metadata = metadata || jsonb_build_object('ag_settings', @settings::jsonb),
+    updated_at = now()
+WHERE id = $1
+  AND (metadata -> 'ag_settings') IS DISTINCT FROM @settings::jsonb;
 
 -- name: SelectStaleOnlineRuntimes :many
 -- Lists online runtimes whose last_seen_at exceeds the stale window. The
