@@ -305,3 +305,40 @@ func TestAGPatchClaimFilterMissDoesNotMarkTheRuntimeEmpty(t *testing.T) {
 		t.Fatalf("unfiltered poll claimed %v, want %s", got, hiddenTask)
 	}
 }
+
+// ClaimAgentTask re-checks the filter, so the claim-level tests above pass even
+// if the candidate query ignores it. This pins the candidate query itself.
+func TestAGPatchClaimFilterCandidateQueryAppliesTheFilter(t *testing.T) {
+	f := newAGClaimFilterFixture(t)
+	q := db.New(f.pool)
+	ids := []pgtype.UUID{util.MustParseUUID(f.filteredRT), util.MustParseUUID(f.plainRT)}
+
+	_, urgentTask := f.queueIssueTask(t, f.filteredAg, f.filteredRT, "urgent")
+	_, highTask := f.queueIssueTask(t, f.filteredAg, f.filteredRT, "high")
+	issuelessTask := f.queueIssuelessTask(t, f.filteredAg, f.filteredRT)
+	_, plainTask := f.queueIssueTask(t, f.plainAg, f.plainRT, "none")
+
+	candidates := func(ctx context.Context) map[string]bool {
+		t.Helper()
+		rows, err := q.ListQueuedClaimCandidatesByRuntimes(ctx, db.ListQueuedClaimCandidatesByRuntimesParams{
+			RuntimeIds:    ids,
+			AgClaimFilter: agclaim.From(ctx).JSON(),
+		})
+		if err != nil {
+			t.Fatalf("list candidates: %v", err)
+		}
+		return claimedIDs(rows)
+	}
+
+	got := candidates(f.filterCtx(t, "urgent", f.filteredRT))
+	if len(got) != 2 || !got[urgentTask] || !got[plainTask] {
+		t.Fatalf("filtered candidates = %v, want the urgent task %s and the unfiltered runtime's %s only", got, urgentTask, plainTask)
+	}
+	if got[highTask] || got[issuelessTask] {
+		t.Errorf("filtered candidates = %v, include a high or issue-less task on the filtered runtime", got)
+	}
+
+	if got := candidates(f.ctx); len(got) != 4 {
+		t.Fatalf("unfiltered candidates = %v, want all four queued tasks", got)
+	}
+}
