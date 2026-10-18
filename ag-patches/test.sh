@@ -78,6 +78,7 @@ pnpm --filter @multica/views exec vitest run \
 pnpm --filter @multica/core exec vitest run \
   runtimes/ag-drain.test.ts \
   runtimes/ag-quota.test.ts \
+  runtimes/ag-quota.api.test.ts \
   issues/stores/tree-view-store.test.ts \
   issues/stores/tree-layout-store.test.ts \
   issues/stores/tree-layout-store.persist.test.ts \

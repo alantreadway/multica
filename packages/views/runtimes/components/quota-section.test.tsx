@@ -305,4 +305,56 @@ describe("AG patch: QuotaSection", () => {
     await waitFor(() => expect(toastError).toHaveBeenCalled());
     expect(screen.getByRole("switch")).not.toBeChecked();
   });
+
+  it("AG patch: a window over 100% shows the real figure with a full bar", () => {
+    renderSection(
+      makeRuntime({
+        ...base,
+        windows: { five_hour: { utilization: 1.12, resets_at: at(21, 10) } },
+      }),
+    );
+    expect(screen.getByText(/112%/)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "5-hour" })).toHaveAttribute(
+      "aria-valuenow",
+      "100",
+    );
+  });
+
+  it("AG patch: the controls lock while a save is in flight", async () => {
+    let finish: (v: unknown) => void = () => {};
+    updateSettings.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const user = userEvent.setup();
+    renderSection(makeRuntime(base));
+    await user.click(screen.getByRole("switch"));
+    await waitFor(() =>
+      expect(screen.getByRole("switch")).toHaveAttribute("aria-disabled", "true"),
+    );
+    finish({ backup_enabled: true, backup_max_concurrent: 2 });
+    await waitFor(() =>
+      expect(screen.getByRole("switch")).not.toHaveAttribute("aria-disabled", "true"),
+    );
+  });
+
+  it("AG patch: refetches the runtimes after a save, success or failure", async () => {
+    const user = userEvent.setup();
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    const view = (
+      <QueryClientProvider client={qc}>
+        <QuotaSection runtime={makeRuntime(base)} canEdit />
+      </QueryClientProvider>
+    );
+    const { unmount } = renderWithI18n(view);
+    await user.click(screen.getByRole("switch"));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(1));
+    expect(invalidate.mock.calls[0]![0]).toEqual({ queryKey: ["runtimes", "ws-1"] });
+    unmount();
+
+    updateSettings.mockRejectedValue(new Error("boom"));
+    renderWithI18n(view);
+    await user.click(screen.getByRole("switch"));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+  });
 });
