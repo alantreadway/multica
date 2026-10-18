@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sets up the backup Claude account's config dir for the daemon's quota failover
-# (see PATCHES.md, "Backup account failover"). Safe to run again.
+# (see PATCHES.md, "Backup Claude account failover, urgent only"). Safe to run again.
 #
 #   ag-patches/claude-backup-setup.sh
 #
