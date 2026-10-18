@@ -865,7 +865,7 @@ unpatched server ignores `ag_quota` and sends no `ag_settings`.
 
 ### Runtime quota section and sidebar warning (web)
 
-The Runtimes detail page gets a "Claude quota" card under Usage for any runtime
+The Runtimes detail page gets a "Claude quota" card under Usage for a Claude runtime
 that carries `metadata.ag_quota`: both windows (5-hour, 7-day) as a bar with the
 utilisation and reset time, the current cap ("Running up to 3 of 5") and any
 hold ("On hold until 21:10"), then the backup account: status (not found, found
@@ -895,9 +895,9 @@ Frontend only: rollback is switching the web image back.
 
 - Test prefix: `AG patch:` (`quota-section.test.tsx`, `runtime-detail-quota.test.tsx`,
   `connect-remote-dialog.ag-quota.test.tsx`, `locales/ag-quota.test.ts`,
-  `layout/agent-status-indicator.test.tsx` and core `runtimes/ag-quota.test.ts`, all in `ag-patches/test.sh`)
+  `layout/agent-status-indicator.test.tsx` and core `runtimes/ag-quota.test.ts` and `ag-quota.api.test.ts`, all in `ag-patches/test.sh`)
 - Files:
-  - `packages/core/runtimes/ag-quota.ts`, `ag-quota.test.ts` (new: schema,
+  - `packages/core/runtimes/ag-quota.ts`, `ag-quota.test.ts`, `ag-quota.api.test.ts` (new: schema,
     sidebar state, refresh filter, save mutation); `packages/core/package.json`
     (one export); `packages/core/api/client.ts` (`updateAGRuntimeSettings`)
   - `packages/views/runtimes/components/quota-section.tsx`, `quota-section.test.tsx`,
