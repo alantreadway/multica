@@ -46,7 +46,8 @@ func (h *Handler) agApplyQuotaReport(ctx context.Context, runtimeID pgtype.UUID,
 	if lease != nil {
 		lease.SetAGQuota(next)
 	}
-	if changed && workspaceID != "" {
+	// A write that only moved observed_at is not worth a workspace-wide refetch.
+	if changed && workspaceID != "" && agquota.Material(memo, next.Report) {
 		h.PublishRuntimeRefresh(workspaceID, "system", "", "quota")
 	}
 	return next

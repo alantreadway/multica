@@ -113,8 +113,12 @@ func TestAGPatchBackupSettingSpecCases(t *testing.T) {
 				defer wg.Done()
 				for j := 0; j < 200; j++ {
 					f.d.agApplySettings("rt-claude", &protocol.AGRuntimeSettings{BackupEnabled: j%2 == 0, BackupMaxConcurrent: 1 + i})
-					_ = f.d.agBackupSetting("rt-claude")
-					_ = f.d.agQuotaReport("rt-claude")
+					if s := f.d.agBackupSetting("rt-claude"); s.BackupMaxConcurrent < 1 || s.BackupMaxConcurrent > 8 {
+						t.Errorf("read a setting nobody wrote: %+v", s)
+					}
+					if r := f.d.agQuotaReport("rt-claude"); r == nil || r.Max != 5 {
+						t.Errorf("read an incomplete report: %+v", r)
+					}
 				}
 			}(i)
 		}
