@@ -300,6 +300,10 @@ func (d *Daemon) AGEnableOverlap(p AGPredecessor) {
 type agPredecessorHealth struct {
 	PID           int      `json:"pid"`
 	ActiveTaskIDs []string `json:"active_task_ids"`
+	// AGQuota is absent from a predecessor built before pacing.
+	AGQuota *struct {
+		ActiveClaude *int `json:"active_claude"`
+	} `json:"ag_quota"`
 }
 
 func agFetchPredecessorHealth(ctx context.Context, port int) (agPredecessorHealth, error) {
@@ -355,6 +359,9 @@ func (d *Daemon) agOverlapStep(ctx context.Context, failures *int) bool {
 	case healthOK:
 		*failures = 0
 		d.agShrinkPredecessorTasks(h.ActiveTaskIDs)
+		if h.AGQuota != nil {
+			d.agPaceSetPredecessor(h.AGQuota.ActiveClaude) // AG patch: pacing
+		}
 	case ctx.Err() != nil:
 		return true
 	default:
