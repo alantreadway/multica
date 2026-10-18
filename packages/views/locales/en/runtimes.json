@@ -472,5 +472,28 @@
     "table_cache_r": "Cache R",
     "table_cache_w": "Cache W",
     "no_data": "No usage data yet"
+  },
+  "quota": {
+    "title": "Claude quota",
+    "five_hour": "5-hour",
+    "seven_day": "7-day",
+    "resets": "resets {{time}}",
+    "hold": "On hold until {{time}}",
+    "cap": "Running up to {{cap}} of {{max}}",
+    "on_backup": "Running on backup",
+    "backup_title": "Backup account",
+    "backup_ready": "Ready",
+    "backup_not_found": "Not found",
+    "backup_invalid": "Found but invalid",
+    "reason": {
+      "not_logged_in": "Not logged in",
+      "same_account": "Same account as the primary",
+      "check_failed": "Check failed",
+      "unknown": "Unknown reason"
+    },
+    "backup_enable": "Use backup account",
+    "backup_urgent_only": "Only urgent issues run on the backup.",
+    "backup_max": "Max concurrent",
+    "save_failed": "Couldn't save the backup setting"
   }
 }

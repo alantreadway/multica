@@ -75,6 +75,8 @@
     "hover_runtimes_header": "排空中的运行时",
     "hover_runtime_draining": "{{name}} · {{running}} 个运行中",
     "hover_runtime_draining_unknown": "{{name}} · 排空中",
-    "hover_runtime_drained": "{{name}} · 已排空"
+    "hover_runtime_drained": "{{name}} · 已排空",
+    "backup_urgent": "备用账号 · 仅限紧急",
+    "quota_hold": "Claude 暂停至 {{time}}"
   }
 }

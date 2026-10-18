@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspacePresenceMap } from "@multica/core/agents";
 import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import { runtimeDrainState } from "@multica/core/runtimes/ag-drain";
+import { quotaSidebarState } from "@multica/core/runtimes/ag-quota";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { cn } from "@multica/ui/lib/utils";
 import {
@@ -20,9 +21,11 @@ import {
 import { WorkingAgentsHoverContent } from "../issues/components/workspace-agent-working-chip";
 import { AppLink } from "../navigation";
 import { useT } from "../i18n";
+import { useLocale } from "../i18n/use-locale";
 
 // AG patch: sidebar agent status. One compact row above Analytics: how many
-// agents are working, plus a drain marker while a patched daemon is draining.
+// agents are working, plus a drain marker while a patched daemon is draining
+// and a quota line while a runtime is on the backup account or on hold.
 // It reads only queries the workspace presence prefetch already keeps warm, so
 // it adds no requests and no polling.
 
@@ -35,6 +38,7 @@ interface DrainingRuntime {
 
 export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
   const { t } = useT("layout");
+  const locale = useLocale();
   const p = useWorkspacePaths();
   const { byAgent, loading } = useWorkspacePresenceMap(wsId);
   // Same key as the presence hook's runtime read, so this is a cache hit.
@@ -65,6 +69,8 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
     }
     return out;
   }, [runtimes]);
+
+  const quota = useMemo(() => quotaSidebarState(runtimes ?? []), [runtimes]);
 
   if (!wsId) return null;
 
@@ -103,9 +109,22 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
     }
   }
 
+  // Backup wins over a hold: it is the state that changes what runs.
+  const quotaLabel = quota.backup
+    ? t(($) => $.agent_status.backup_urgent)
+    : quota.holdUntil
+      ? t(($) => $.agent_status.quota_hold, {
+          time: new Intl.DateTimeFormat(locale, {
+            hour: "2-digit",
+            minute: "2-digit",
+            hourCycle: "h23",
+          }).format(quota.holdUntil),
+        })
+      : null;
+
   const trigger = (
     <SidebarMenuButton
-      render={<AppLink href={isDraining ? p.runtimes() : p.agents()} />}
+      render={<AppLink href={isDraining || quotaLabel ? p.runtimes() : p.agents()} />}
       aria-label={unknown ? t(($) => $.agent_status.unknown) : undefined}
       className="h-auto py-1.5 hover:bg-sidebar-accent/70"
     >
@@ -145,6 +164,15 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
               )}
             />
             <span className="truncate">{drainLabel}</span>
+          </span>
+        )}
+        {quotaLabel && (
+          <span
+            data-testid="agent-status-quota"
+            className="flex items-center gap-1.5 truncate text-caption text-warning"
+          >
+            <span className="size-1.5 shrink-0 rounded-full bg-warning" />
+            <span className="truncate">{quotaLabel}</span>
           </span>
         )}
       </span>
