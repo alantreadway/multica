@@ -113,6 +113,11 @@ describe("AG patch: RuntimeDetail quota section", () => {
     expect(screen.getByText("Running up to 3 of 5")).toBeInTheDocument();
   });
 
+  it("AG patch: a non-Claude runtime shows no quota section even with a report", () => {
+    renderDetail(makeRuntime({ provider: "codex", metadata: quota }));
+    expect(screen.queryByText("Claude quota")).not.toBeInTheDocument();
+  });
+
   it("AG patch: shows no quota section without a report", () => {
     renderDetail(makeRuntime({ metadata: {} }));
     expect(screen.queryByText("Claude quota")).not.toBeInTheDocument();
