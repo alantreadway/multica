@@ -3046,6 +3046,35 @@ describe("IssueDetail (shared)", () => {
       expect(bareRow?.textContent).not.toContain("/");
     });
 
+    it("AG patch: sub-issue rows show every label as a wrapping Full row, with no +N", async () => {
+      const names = ["backend", "auth", "billing", "urgent-fix", "regression"];
+      mockApiObj.listChildIssues.mockResolvedValue({
+        issues: [
+          subIssue({
+            id: "child-1",
+            number: 11,
+            identifier: "TES-11",
+            title: "Fix login flow",
+            labels: names.map((name, i) => label(`l${i}`, name)),
+          }),
+        ],
+      });
+
+      renderIssueDetail();
+
+      const rowLink = (await screen.findByText("Fix login flow")).closest("a")!;
+      for (const name of names) {
+        expect(within(rowLink).getByText(name)).toBeInTheDocument();
+      }
+      expect(rowLink.textContent).not.toMatch(/\+\d/);
+      const labelRow = rowLink.querySelector<HTMLElement>('[data-slot="ag-label-row"]')!;
+      // The sub-issue display preference stays a boolean and renders Full.
+      expect(labelRow.dataset.display).toBe("full");
+      expect(labelRow.className).toContain("flex-wrap");
+      expect(labelRow.className).not.toContain("overflow-hidden");
+      expect(Array.from(labelRow.children).map((c) => c.getAttribute("aria-label"))).toEqual(names);
+    });
+
     it("hides fields the user toggled off in the display preference", async () => {
       useSubIssueDisplayStore.setState({
         rowProperties: {

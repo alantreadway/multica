@@ -957,6 +957,7 @@ the rows roll back and the server's error shows as a toast. See README
     is `PUT` and takes a namespace, because labels have three of them.
   - Fit: a small additive feature with a migration, so it goes through a Feature
     Request first. `VISION.md` says nothing about labels.
+
 ### Deferred retry until quota reset (backend)
 
 A task killed by a provider usage-window limit (`provider_quota_limit`) comes
@@ -1055,6 +1056,13 @@ card property is `Off / Compact / Full` instead of on/off.
   may truncate the same way; left as a follow-up.
 
 - Test prefix: `AG patch:`
+- Tests: `packages/core/issues/stores/ag-label-display.test.ts` (migration across
+  the issues, my-issues, surface and saved-view-seed paths),
+  `packages/views/labels/ag-label-row.test.tsx`,
+  `issues/components/ag-label-surfaces.test.tsx` (board card, list row),
+  `issue-property-pills.test.tsx`, `issues-header.label-display.test.tsx`, and
+  `AG patch:` cases in `save-view-dialog.test.tsx`, `table-view-editing.test.tsx`
+  and `issue-detail.test.tsx`. All are listed in `ag-patches/test.sh`.
 - Files:
   - `packages/core/issues/stores/ag-label-display.ts`
   - `packages/views/labels/ag-label-row.tsx`
