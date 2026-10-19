@@ -15,7 +15,7 @@ import type {
   Label,
   ListLabelsResponse,
 } from "../types";
-import { useAttachLabel, useDetachLabel } from "./mutations";
+import { useAttachLabel, useDetachLabel, useReorderLabels } from "./mutations";
 import { labelKeys } from "./queries";
 
 vi.mock("../hooks", () => ({ useWorkspaceId: () => "ws-1" }));
@@ -209,5 +209,54 @@ describe("issue label mutations", () => {
     );
     expect(qc.getQueryState(labelKey)?.isInvalidated).toBe(true);
     qc.clear();
+  });
+});
+
+describe("useReorderLabels", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const seed = (qc: QueryClient) =>
+    qc.setQueryData<ListLabelsResponse>(labelKeys.list("ws-1", "issue"), {
+      labels: [
+        { ...labelA, position: 0 },
+        { ...labelB, position: 1 },
+      ],
+      total: 2,
+    });
+
+  it("reorders the cached list optimistically", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    seed(qc);
+    const write = deferred<ListLabelsResponse>();
+    setApiInstance({ reorderLabels: vi.fn(() => write.promise) } as unknown as ApiClient);
+    const { result } = renderHook(() => useReorderLabels(), { wrapper: wrapper(qc) });
+
+    act(() =>
+      result.current.mutate({ resource_type: "issue", label_ids: [labelB.id, labelA.id] }),
+    );
+    await waitFor(() =>
+      expect(
+        qc.getQueryData<ListLabelsResponse>(labelKeys.list("ws-1", "issue"))?.labels.map((l) => l.id),
+      ).toEqual([labelB.id, labelA.id]),
+    );
+    await act(async () => {
+      write.resolve({ labels: [], total: 0 });
+    });
+  });
+
+  it("rolls back to the previous order when the server rejects it", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    seed(qc);
+    const before = qc.getQueryData<ListLabelsResponse>(labelKeys.list("ws-1", "issue"));
+    setApiInstance({
+      reorderLabels: vi.fn(() => Promise.reject(new Error("label list is out of date"))),
+    } as unknown as ApiClient);
+    const { result } = renderHook(() => useReorderLabels(), { wrapper: wrapper(qc) });
+
+    await act(async () => {
+      result.current.mutate({ resource_type: "issue", label_ids: [labelB.id, labelA.id] });
+    });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(qc.getQueryData<ListLabelsResponse>(labelKeys.list("ws-1", "issue"))).toEqual(before);
   });
 });
