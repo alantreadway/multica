@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import type { ReactNode } from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { AgentRuntime } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
@@ -125,6 +125,7 @@ vi.mock("./custom-pricing-dialog", () => ({
 }));
 
 import { UsageSection } from "./usage-section";
+import { addDaysIso, todayIso } from "../utils";
 
 const RUNTIME: AgentRuntime = {
   id: "r-1",
@@ -335,5 +336,76 @@ describe("UsageSection — KPI row layout", () => {
     expect(classes).toContain("divide-y");
     expect(classes).toContain("sm:divide-x");
     expect(classes).toContain("sm:divide-y-0");
+  });
+});
+
+describe("AG patch: 1d and Yesterday periods", () => {
+  const rowOn = (daysAgo: number, input: number) => ({
+    runtime_id: "r-1",
+    date: addDaysIso(todayIso(VIEWER_TZ), -daysAgo),
+    provider: "anthropic",
+    model: "claude-sonnet-4-6",
+    input_tokens: input,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+  });
+
+  beforeEach(() => {
+    usageOverride.rows = [rowOn(0, 1_000), rowOn(1, 4_000), rowOn(5, 9_000)];
+    runtimeUsageByAgentOptions.mockClear();
+  });
+
+  afterEach(() => {
+    usageOverride.rows = null;
+  });
+
+  it("AG patch: offers the same ranges as Analytics plus Yesterday", () => {
+    render(<UsageSection runtime={RUNTIME} />, { wrapper: Wrapper });
+    for (const name of ["1d", "Yesterday", "7d", "30d", "90d"]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
+  });
+
+  it("AG patch: 1d counts today only", () => {
+    render(<UsageSection runtime={RUNTIME} />, { wrapper: Wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "1d" }));
+
+    expect(screen.getByText("Tokens · 1D")).toBeInTheDocument();
+    const flows = Array.from(document.querySelectorAll("number-flow-react"));
+    expect(flows.at(-1)).toHaveAttribute("aria-label", "1K");
+  });
+
+  it("AG patch: Yesterday counts yesterday only and says so", () => {
+    render(<UsageSection runtime={RUNTIME} />, { wrapper: Wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "Yesterday" }));
+
+    expect(screen.getByText("Cost · Yesterday")).toBeInTheDocument();
+    expect(screen.getByText("Tokens · Yesterday")).toBeInTheDocument();
+    const flows = Array.from(document.querySelectorAll("number-flow-react"));
+    expect(flows.at(-1)).toHaveAttribute("aria-label", "4K");
+  });
+
+  it("AG patch: points to Analytics for per-agent cost on a single day", () => {
+    render(<UsageSection runtime={RUNTIME} />, { wrapper: Wrapper });
+    expect(
+      screen.queryByText("Per-agent cost for a single day is on the Analytics page."),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Yesterday" }));
+
+    expect(
+      screen.getByText("Per-agent cost for a single day is on the Analytics page."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/agents? on this runtime/)).not.toBeInTheDocument();
+  });
+
+  it("AG patch: switching to Weekly from Yesterday falls back to the weekly default", () => {
+    render(<UsageSection runtime={RUNTIME} />, { wrapper: Wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "Yesterday" }));
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
+
+    expect(screen.queryByRole("button", { name: "Yesterday" })).not.toBeInTheDocument();
+    expect(screen.getByText("Cost · 90D")).toBeInTheDocument();
   });
 });

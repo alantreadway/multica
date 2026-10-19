@@ -31,7 +31,6 @@ import {
   aggregateCostByModel,
   collectUnmappedModels,
   pctChange,
-  sliceWindow,
   type CostByKey,
 } from "../utils";
 import { KpiCard } from "./shared";
@@ -45,15 +44,23 @@ import {
 } from "./charts";
 import { CustomPricingDialog } from "./custom-pricing-dialog";
 import { useT } from "../../i18n";
+import {
+  agPeriodDays,
+  agWithYesterday,
+  YESTERDAY,
+  type AgPeriod,
+} from "../../common/ag_period";
+import { agIsSingleDay, agSlicePeriod } from "../ag_slice-period";
 
 // Single source of truth for the period selector. KPIs, the When-chart, the
 // Cost-by tabs, and the CSV export all read from the same `days` value so
 // the labels ("· 30D") and the data slice never disagree.
 //
-// `dims` declares which dimensions each range is allowed in. 7 days at the
-// weekly grain is one bar, so 7d is daily-only; 180d is weekly-only because
-// 180 daily bars are visually unreadable.
+// `dims` declares which dimensions each range is allowed in. 1 or 7 days at
+// the weekly grain is one bar, so 1d and 7d are daily-only; 180d is
+// weekly-only because 180 daily bars are visually unreadable.
 const TIME_RANGES = [
+  { label: "1d", days: 1, dims: ["daily"] as const },
   { label: "7d", days: 7, dims: ["daily"] as const },
   { label: "30d", days: 30, dims: ["daily", "weekly"] as const },
   { label: "90d", days: 90, dims: ["daily", "weekly"] as const },
@@ -136,7 +143,8 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
     runtimeUsageOptions(runtimeId, 180, tz),
   );
   const [dim, setDim] = useState<Exclude<WhenTab, "heatmap">>("daily");
-  const [days, setDays] = useState<TimeRange>(30);
+  const [period, setPeriod] = useState<AgPeriod<TimeRange>>(30);
+  const days = agPeriodDays(period) as TimeRange;
   // Subscribe so the KPI cards (which call estimateCost at render-time, not
   // through a memo) re-evaluate when the user saves a custom rate. The
   // aggregate sub-components (WhenChart, CostByBlock, ActivityHeatmap) each
@@ -151,7 +159,11 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
   // prev") then compares like-for-like ranges instead of "this period vs
   // all of history". Tz-aware so the cutoff lands on the same calendar
   // boundary the backend used when bucketing rows.
-  const { filtered, prevFiltered } = sliceWindow(usage, days, tz);
+  const { filtered, prevFiltered } = agSlicePeriod(usage, period, tz);
+  const periodLabel =
+    period === YESTERDAY
+      ? t(($) => $.usage.ag_period_yesterday)
+      : t(($) => $.usage.ag_period_days, { days });
 
   const allowedRanges = rangesForDim(dim);
   const handleDimChange = (next: Exclude<WhenTab, "heatmap">) => {
@@ -160,7 +172,7 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
       (r) => r.days === days,
     );
     if (!stillAllowed) {
-      setDays(DEFAULT_DAYS_BY_DIM[next]);
+      setPeriod(DEFAULT_DAYS_BY_DIM[next]);
     }
   };
   const totals = computeTotals(filtered);
@@ -205,12 +217,15 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
             {t(($) => $.usage.period_label)}
           </span>
           <Segmented
-            value={days}
-            onChange={setDays}
-            options={allowedRanges.map((r) => ({
-              label: r.label,
-              value: r.days,
-            }))}
+            value={period}
+            onChange={setPeriod}
+            options={agWithYesterday(
+              allowedRanges.map((r) => ({
+                label: r.label as string,
+                value: r.days,
+              })),
+              { label: t(($) => $.usage.ag_period_yesterday) },
+            )}
           />
         </div>
       </div>
@@ -232,7 +247,7 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
           orientation so the row still reads as one grouped card. */}
       <div className="grid grid-cols-1 divide-y rounded-lg border bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <KpiCard
-          label={t(($) => $.usage.kpi_cost_label, { days })}
+          label={t(($) => $.usage.kpi_cost_label, { period: periodLabel })}
           value={
             <CurrencyNumberFlow
               value={totals.cost}
@@ -260,7 +275,7 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
           }
         />
         <KpiCard
-          label={t(($) => $.usage.kpi_cache_label, { days })}
+          label={t(($) => $.usage.kpi_cache_label, { period: periodLabel })}
           value={
             <CurrencyNumberFlow
               value={totals.cacheSavings}
@@ -281,7 +296,7 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
           }
         />
         <KpiCard
-          label={t(($) => $.usage.kpi_tokens_label, { days })}
+          label={t(($) => $.usage.kpi_tokens_label, { period: periodLabel })}
           value={
             <CompactNumberFlow
               value={tokensTotal}
@@ -313,7 +328,13 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
       />
 
       {/* Layer 3 — WHO/WHAT burned the spend. */}
-      <CostByBlock runtimeId={runtimeId} days={days} usage={filtered} tz={tz} />
+      <CostByBlock
+        runtimeId={runtimeId}
+        days={days}
+        usage={filtered}
+        tz={tz}
+        agentUnavailable={agIsSingleDay(period)}
+      />
 
       {/* Layer 4 — Folded raw view. The Heatmap used to live here too; it
           was promoted into the WHEN chart's toggle, leaving only the
@@ -650,11 +671,15 @@ function CostByBlock({
   days,
   usage,
   tz,
+  agentUnavailable = false,
 }: {
   runtimeId: string;
   days: number;
   usage: RuntimeUsage[];
   tz: string;
+  /** AG patch: the period is one calendar day, which the per-agent rollup
+   *  cannot be narrowed to. */
+  agentUnavailable?: boolean;
 }) {
   const { t } = useT("runtimes");
   const [tab, setTab] = useState<"agent" | "model">("agent");
@@ -666,7 +691,7 @@ function CostByBlock({
   // by-model derives from the daily cache the parent already has — free.
   const { data: byAgentRows = [] } = useQuery({
     ...runtimeUsageByAgentOptions(runtimeId, days, tz),
-    enabled: tab === "agent",
+    enabled: tab === "agent" && !agentUnavailable,
   });
 
   const wsId = useWorkspaceId();
@@ -683,7 +708,9 @@ function CostByBlock({
 
   const caption =
     tab === "agent"
-      ? t(($) => $.usage.cost_by_caption_agent, { count: byAgent.length })
+      ? agentUnavailable
+        ? null
+        : t(($) => $.usage.cost_by_caption_agent, { count: byAgent.length })
       : t(($) => $.usage.cost_by_caption_model, { count: byModel.length });
 
   return (
@@ -711,7 +738,12 @@ function CostByBlock({
       <div className="pt-4">
         {tab === "agent" && (
           <CostByList
-            rows={byAgent}
+            rows={agentUnavailable ? [] : byAgent}
+            emptyHint={
+              agentUnavailable
+                ? t(($) => $.usage.ag_cost_by_agent_single_day)
+                : undefined
+            }
             renderKey={(key) => {
               const agent = agents.find((a) => a.id === key);
               return (

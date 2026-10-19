@@ -10,13 +10,17 @@
     "all_projects": "Tous les projets",
     "period_label": "Période"
   },
+  "ag_period": {
+    "days": "{{days}} j",
+    "yesterday": "Hier"
+  },
   "kpi": {
-    "cost_label": "Coût · {{days}} j",
-    "tokens_label": "Tokens · {{days}} j",
+    "cost_label": "Coût · {{period}}",
+    "tokens_label": "Tokens · {{period}}",
     "tokens_hint": "Entrée {{input}} · Sortie {{output}}",
-    "run_time_label": "Temps d'exécution · {{days}} j",
+    "run_time_label": "Temps d'exécution · {{period}}",
     "run_time_hint": "Sur {{tasks}} exécutions",
-    "tasks_label": "Exécutions · {{days}} j",
+    "tasks_label": "Exécutions · {{period}}",
     "tasks_hint": "{{failed}} en échec"
   },
   "dim": {
@@ -46,10 +50,10 @@
     "partial_label": "{{range}} (partiel · {{covered}} / 7 jours)"
   },
   "errors": {
-    "kpi_failed_label": "Exécutions en échec · {{days}} j",
+    "kpi_failed_label": "Exécutions en échec · {{period}}",
     "kpi_failed_hint": "Sur {{total}} exécutions",
-    "kpi_rate_label": "Taux d'échec · {{days}} j",
-    "kpi_agents_label": "Agents touchés · {{days}} j",
+    "kpi_rate_label": "Taux d'échec · {{period}}",
+    "kpi_agents_label": "Agents touchés · {{period}}",
     "kpi_agents_hint": "Pire : {{name}} · {{count}}",
     "tooltip_rate": "Taux d'erreur",
     "class": {

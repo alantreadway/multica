@@ -65,7 +65,11 @@ pnpm --filter @multica/views exec vitest run \
   issues/components/ag_slack-copy.test.tsx \
   issues/components/ag_comment-share-items.test.tsx \
   issues/components/ag_comment-card-slack-copy.test.tsx \
-  issues/components/ag_clipboard-rich.test.ts
+  issues/components/ag_clipboard-rich.test.ts \
+  dashboard/components/dashboard-page.test.tsx \
+  runtimes/components/usage-section.test.tsx \
+  runtimes/ag_slice-period.test.ts \
+  locales/ag-period.test.ts
 
 pnpm --filter @multica/core exec vitest run \
   runtimes/ag-drain.test.ts \
@@ -76,7 +80,8 @@ pnpm --filter @multica/core exec vitest run \
   labels/mutations.test.tsx \
   api/client.test.ts \
   issues/stores/ag-label-display.test.ts \
-  issues/queries.test.ts
+  issues/queries.test.ts \
+  dashboard/ag_closed-window.test.ts
 
 pnpm --filter @multica/views typecheck
 

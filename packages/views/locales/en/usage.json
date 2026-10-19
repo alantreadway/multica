@@ -10,13 +10,17 @@
     "all_projects": "All projects",
     "period_label": "Period"
   },
+  "ag_period": {
+    "days": "{{days}}D",
+    "yesterday": "Yesterday"
+  },
   "kpi": {
-    "cost_label": "Cost · {{days}}D",
-    "tokens_label": "Tokens · {{days}}D",
+    "cost_label": "Cost · {{period}}",
+    "tokens_label": "Tokens · {{period}}",
     "tokens_hint": "Input {{input}} · Output {{output}}",
-    "run_time_label": "Run time · {{days}}D",
+    "run_time_label": "Run time · {{period}}",
     "run_time_hint": "Across {{tasks}} runs",
-    "tasks_label": "Runs · {{days}}D",
+    "tasks_label": "Runs · {{period}}",
     "tasks_hint": "{{failed}} failed"
   },
   "dim": {
@@ -46,10 +50,10 @@
     "partial_label": "{{range}} (partial · {{covered}} / 7 days)"
   },
   "errors": {
-    "kpi_failed_label": "Failed runs · {{days}}D",
+    "kpi_failed_label": "Failed runs · {{period}}",
     "kpi_failed_hint": "Of {{total}} runs",
-    "kpi_rate_label": "Failure rate · {{days}}D",
-    "kpi_agents_label": "Agents affected · {{days}}D",
+    "kpi_rate_label": "Failure rate · {{period}}",
+    "kpi_agents_label": "Agents affected · {{period}}",
     "kpi_agents_hint": "Worst {{name}} · {{count}}",
     "tooltip_rate": "Error rate",
     "class": {
