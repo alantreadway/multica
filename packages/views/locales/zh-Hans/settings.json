@@ -599,8 +599,10 @@
     "empty": "暂无 {{scope}} 标签",
     "no_results": "没有匹配的标签",
     "save_failed": "无法保存标签",
+    "reorder_failed": "无法保存新的顺序",
     "actions": {
       "open": "{{name}} 的操作",
+      "reorder": "调整 {{name}} 的顺序",
       "edit": "编辑",
       "delete": "删除"
     },

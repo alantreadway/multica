@@ -9,12 +9,16 @@ vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "workspace-1",
 }));
 
-const queried = vi.hoisted(() => ({ keys: [] as unknown[][] }));
+const queried = vi.hoisted(() => ({
+  keys: [] as unknown[][],
+  // One stable array per render, like a real query result.
+  data: [] as unknown[],
+}));
 vi.mock("@tanstack/react-query", () => ({
   queryOptions: <T,>(options: T) => options,
   useQuery: (options: { queryKey: unknown[] }) => {
     queried.keys.push(options.queryKey);
-    return { data: [], isLoading: false };
+    return { data: queried.data, isLoading: false };
   },
 }));
 
@@ -29,12 +33,27 @@ vi.mock("@multica/core/labels", () => ({
   useCreateLabel: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateLabel: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteLabel: () => ({ mutate: vi.fn(), isPending: false }),
+  useReorderLabels: () => ({ mutate: vi.fn(), isPending: false }),
 }));
+
+const label = (id: string, name: string, position: number) => ({
+  id,
+  workspace_id: "workspace-1",
+  resource_type: "issue",
+  name,
+  description: "",
+  color: "#3b82f6",
+  position,
+  usage_count: 0,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+});
 
 describe("Label catalogs", () => {
   afterEach(() => {
     cleanup();
     queried.keys = [];
+    queried.data = [];
   });
 
   // Agent labels were removed from the product (MUL-5600) even though the
@@ -61,5 +80,24 @@ describe("Label catalogs", () => {
 
     expect(queried.keys).toContainEqual(["labels", "workspace-1", "list", "skill"]);
     expect(screen.getByRole("button", { name: /New label/ })).toBeInTheDocument();
+  });
+
+  it("offers a drag handle per label, but not while the list is filtered", async () => {
+    queried.data = [label("l1", "bug", 0), label("l2", "feature", 1)];
+    const user = userEvent.setup();
+    renderWithI18n(<LabelManager scope="issue" />);
+
+    expect(screen.getByRole("button", { name: "Reorder bug" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reorder feature" })).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox"), "bug");
+    expect(screen.queryByRole("button", { name: /Reorder/ })).toBeNull();
+  });
+
+  it("has nothing to reorder with a single label", () => {
+    queried.data = [label("l1", "bug", 0)];
+    renderWithI18n(<LabelManager scope="issue" />);
+
+    expect(screen.queryByRole("button", { name: /Reorder/ })).toBeNull();
   });
 });

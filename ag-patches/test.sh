@@ -53,6 +53,8 @@ pnpm --filter @multica/views exec vitest run \
   common/actor-issues-panel.test.tsx \
   projects/components/project-detail.test.tsx \
   settings/components/issue-statuses-tab.test.tsx \
+  settings/components/labels-tab.test.tsx \
+  labels/label-manager.reorder.test.tsx \
   runtimes/components/drain-badge.test.tsx \
   runtimes/components/runtime-list-drain.test.tsx \
   runtimes/components/runtime-detail-drain.test.tsx \
@@ -65,6 +67,9 @@ pnpm --filter @multica/core exec vitest run \
   issues/stores/tree-view-store.test.ts \
   issues/stores/tree-layout-store.test.ts \
   issues/stores/tree-layout-store.persist.test.ts \
+  issues/queries.test.ts \
+  labels/mutations.test.tsx \
+  api/client.test.ts \
   issues/stores/ag-label-display.test.ts \
   issues/queries.test.ts
 

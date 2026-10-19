@@ -880,6 +880,7 @@ type IssueLabel struct {
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 	ResourceType string             `json:"resource_type"`
 	Description  string             `json:"description"`
+	Position     int32              `json:"position"`
 }
 
 type IssuePrAutomation struct {
