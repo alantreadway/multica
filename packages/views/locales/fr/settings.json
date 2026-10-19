@@ -610,8 +610,10 @@
     "empty": "Aucune étiquette {{scope}} pour l'instant",
     "no_results": "Aucune étiquette correspondante",
     "save_failed": "Impossible d'enregistrer l'étiquette",
+    "reorder_failed": "Impossible d'enregistrer le nouvel ordre",
     "actions": {
       "open": "Actions pour {{name}}",
+      "reorder": "Réorganiser {{name}}",
       "edit": "Modifier",
       "delete": "Supprimer"
     },

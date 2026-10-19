@@ -610,8 +610,10 @@
     "empty": "No {{scope}} labels yet",
     "no_results": "No matching labels",
     "save_failed": "Couldn't save label",
+    "reorder_failed": "Couldn't save the new order",
     "actions": {
       "open": "Actions for {{name}}",
+      "reorder": "Reorder {{name}}",
       "edit": "Edit",
       "delete": "Delete"
     },

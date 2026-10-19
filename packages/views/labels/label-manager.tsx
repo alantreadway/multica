@@ -1,14 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MoreHorizontal, Pencil, Plus, Search, Tag, Trash2 } from "lucide-react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical, MoreHorizontal, Pencil, Plus, Search, Tag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
   labelListOptions,
   useCreateLabel,
   useDeleteLabel,
+  useReorderLabels,
   useUpdateLabel,
 } from "@multica/core/labels";
 import type { Label, LabelResourceType } from "@multica/core/types";
@@ -56,6 +74,9 @@ interface LabelDraft {
   color: string;
 }
 
+// Stable reference: `order` resyncs from `labels` in an effect.
+const NO_LABELS: Label[] = [];
+
 const EMPTY_DRAFT: LabelDraft = {
   name: "",
   description: "",
@@ -78,20 +99,57 @@ export function LabelManager({ scope }: { scope: LabelScope }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Label | null>(null);
 
-  const { data: labels = [], isLoading } = useQuery(
+  const { data: labels = NO_LABELS, isLoading } = useQuery(
     labelListOptions(wsId, resourceType),
+  );
+  // Local order so a drop reads as instant before the optimistic cache write
+  // settles; resynced whenever the server list changes.
+  const [order, setOrder] = useState(labels);
+  useEffect(() => setOrder(labels), [labels]);
+  const reorder = useReorderLabels();
+  const saving = useRef(false);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
   const filteredLabels = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return labels;
-    return labels.filter(
+    if (!normalized) return order;
+    return order.filter(
       (label) =>
         label.name.toLowerCase().includes(normalized) ||
         (label.description ?? "").toLowerCase().includes(normalized),
     );
-  }, [labels, query]);
+  }, [order, query]);
 
   const scopeLabel = t(($) => $.labels.scopes[resourceType]);
+
+  // A filtered list hides labels, so a drop there could not describe the whole
+  // order. Reordering is only offered on the full list.
+  const canReorder = !query.trim() && order.length > 1;
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id || saving.current) return;
+    const from = order.findIndex((l) => l.id === active.id);
+    const to = order.findIndex((l) => l.id === over.id);
+    if (from < 0 || to < 0) return;
+    const next = arrayMove(order, from, to);
+    saving.current = true;
+    setOrder(next);
+    reorder.mutate(
+      { resource_type: resourceType, label_ids: next.map((l) => l.id) },
+      {
+        onError: (error) => {
+          setOrder(labels);
+          toast.error(
+            error instanceof Error ? error.message : t(($) => $.labels.reorder_failed),
+          );
+        },
+        onSettled: () => {
+          saving.current = false;
+        },
+      },
+    );
+  };
 
   return (
     <>
@@ -113,7 +171,7 @@ export function LabelManager({ scope }: { scope: LabelScope }) {
         </div>
 
         <div className="overflow-hidden rounded-lg border border-surface-border bg-card">
-          <div className="hidden grid-cols-[minmax(11rem,1fr)_minmax(12rem,1.4fr)_6rem_7rem_2rem] gap-4 border-b border-surface-border bg-muted/20 px-4 py-2.5 text-caption font-medium text-muted-foreground md:grid">
+          <div className="hidden grid-cols-[minmax(11rem,1fr)_minmax(12rem,1.4fr)_6rem_7rem_2rem] gap-4 border-b border-surface-border bg-muted/20 py-2.5 pl-10 pr-4 text-caption font-medium text-muted-foreground md:grid">
             <span>{t(($) => $.labels.columns.name)}</span>
             <span>{t(($) => $.labels.columns.description)}</span>
             <span>{t(($) => $.labels.columns.usage)}</span>
@@ -135,57 +193,29 @@ export function LabelManager({ scope }: { scope: LabelScope }) {
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-surface-border">
-              {filteredLabels.map((label) => (
-                <div
-                  key={label.id}
-                  className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(11rem,1fr)_minmax(12rem,1.4fr)_6rem_7rem_2rem] md:items-center md:gap-4"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span
-                      className="size-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: label.color }}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={filteredLabels.map((l) => l.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="divide-y divide-surface-border">
+                  {filteredLabels.map((label) => (
+                    <LabelRow
+                      key={label.id}
+                      label={label}
+                      locale={locale}
+                      canReorder={canReorder}
+                      onEdit={() => setEditing(label)}
+                      onDelete={() => setPendingDelete(label)}
                     />
-                    <span className="truncate text-body font-medium">{label.name}</span>
-                  </div>
-                  <p className="min-w-0 truncate text-caption text-muted-foreground md:text-body">
-                    {label.description || "—"}
-                  </p>
-                  <span className="text-caption tabular-nums text-muted-foreground md:text-body">
-                    {t(($) => $.labels.usage_count, { count: label.usage_count ?? 0 })}
-                  </span>
-                  <span className="text-caption text-muted-foreground">
-                    {new Date(label.updated_at).toLocaleDateString(locale)}
-                  </span>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={t(($) => $.labels.actions.open, { name: label.name })}
-                        >
-                          <MoreHorizontal className="size-4" />
-                        </Button>
-                      }
-                    />
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => setEditing(label)}>
-                        <Pencil className="size-4" />
-                        {t(($) => $.labels.actions.edit)}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onClick={() => setPendingDelete(label)}
-                      >
-                        <Trash2 className="size-4" />
-                        {t(($) => $.labels.actions.delete)}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </SortableContext>
+            </DndContext>
           )}
         </div>
       </div>
@@ -206,6 +236,88 @@ export function LabelManager({ scope }: { scope: LabelScope }) {
         onClose={() => setPendingDelete(null)}
       />
     </>
+  );
+}
+
+function LabelRow({
+  label,
+  locale,
+  canReorder,
+  onEdit,
+  onDelete,
+}: {
+  label: Label;
+  locale: string;
+  canReorder: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useT("settings");
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: label.id,
+    disabled: !canReorder,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={`flex items-center gap-2 bg-card py-3 pl-2 pr-4 motion-reduce:transition-none! ${isDragging ? "relative z-10 shadow-[var(--surface-shadow)]" : ""}`}
+    >
+      {canReorder ? (
+        <button
+          type="button"
+          aria-label={t(($) => $.labels.actions.reorder, { name: label.name })}
+          className="flex size-6 shrink-0 touch-none items-center justify-center rounded-md cursor-grab text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring active:cursor-grabbing [@media(pointer:coarse)]:size-11"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-4" />
+        </button>
+      ) : (
+        <span className="size-6 shrink-0 [@media(pointer:coarse)]:size-11" />
+      )}
+      <div className="grid min-w-0 flex-1 gap-2 md:grid-cols-[minmax(11rem,1fr)_minmax(12rem,1.4fr)_6rem_7rem_2rem] md:items-center md:gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className="size-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: label.color }}
+          />
+          <span className="truncate text-body font-medium">{label.name}</span>
+        </div>
+        <p className="min-w-0 truncate text-caption text-muted-foreground md:text-body">
+          {label.description || "—"}
+        </p>
+        <span className="text-caption tabular-nums text-muted-foreground md:text-body">
+          {t(($) => $.labels.usage_count, { count: label.usage_count ?? 0 })}
+        </span>
+        <span className="text-caption text-muted-foreground">
+          {new Date(label.updated_at).toLocaleDateString(locale)}
+        </span>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t(($) => $.labels.actions.open, { name: label.name })}
+              >
+                <MoreHorizontal className="size-4" />
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onEdit}>
+              <Pencil className="size-4" />
+              {t(($) => $.labels.actions.edit)}
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onClick={onDelete}>
+              <Trash2 className="size-4" />
+              {t(($) => $.labels.actions.delete)}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
   );
 }
 
