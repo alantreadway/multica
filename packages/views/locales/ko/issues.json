@@ -233,6 +233,9 @@
     "card_due_date": "마감일",
     "card_project": "프로젝트",
     "card_labels": "라벨",
+    "labels_off": "끔",
+    "labels_compact": "간단히",
+    "labels_full": "전체",
     "card_child_progress": "하위 태스크 진행률",
     "show_sub_issues": "하위 태스크 표시"
   },

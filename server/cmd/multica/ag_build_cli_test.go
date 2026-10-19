@@ -253,6 +253,7 @@ func TestAGPatchBuildCLI(t *testing.T) {
 			"run --rm",
 			":/src -w /src/server",
 			"-v multica-ag-gomod:/go/pkg/mod",
+			"-v multica-ag-gocache:/root/.cache/go-build",
 			"-e CGO_ENABLED -e GOOS -e GOARCH",
 			"golang:1.26.9 go build",
 			"-buildvcs=false",

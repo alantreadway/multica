@@ -45,8 +45,10 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Claude quota tracker and auto-hold (daemon) | `fork-only` (the `rate_limit_event` parsing alone is a `candidate`) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255), #8965 (closed), #8969 (withdrawn) |
 | PR snapshot fields and `pull-requests link` | `fork-only` | [#8145](https://github.com/multica-ai/multica/pull/8145) (open, same CLI commands, different design) |
 | Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (open, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) |
+| Label ordering (backend + web) | `candidate` | none found (searched 2026-10-19) |
 | Deferred retry until quota reset (backend) | `fork-only` | [#7887](https://github.com/multica-ai/multica/issues/7887) (closed not_planned), [#8949](https://github.com/multica-ai/multica/pull/8949) (rejected), [#9159](https://github.com/multica-ai/multica/issues/9159), [#8964](https://github.com/multica-ai/multica/pull/8964) (open) |
 | Copy (Slack) comment menu item | `candidate` | none open; upstream ships the Slack mrkdwn formatter server-side (`server/internal/integrations/slack/mrkdwn.go`) |
+| Label row: show all labels, Compact/Full display (web) | `candidate` | none found; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -869,6 +871,94 @@ a backend image from `ag-patches/build-backend.sh` and a CLI from
     is a card feature, not an API for gates, and an unmotivated migration is
     hard to land. Offer nothing; watch #8145 and #9279.
 
+### Label ordering (backend + web)
+
+A workspace sets the order its labels appear in, by dragging rows in Manage
+labels. Until now labels were sorted by `LOWER(name)` with no order field.
+Status: in review (PR against `ag/v0.6.2`).
+
+`issue_label` gains `position INTEGER NOT NULL DEFAULT 0` (migration `574`).
+Position is per `(workspace_id, resource_type)`, so reordering issue labels
+never touches agent or skill labels. The migration backfills each namespace in
+its current alphabetical order (`ROW_NUMBER() OVER (PARTITION BY workspace_id,
+resource_type ORDER BY LOWER(name), id) - 1`), so nothing moves until someone
+reorders. There is no index and no foreign key. `CreateLabel` appends: its
+position is the namespace's `MAX(position) + 1` (0 for the first). Two
+concurrent creates can share a position; the name tie-break keeps their order
+stable, and nothing locks for it.
+
+Every query that returns a workspace's labels or an object's labels orders by
+`position`, then `LOWER(name)`: `ListLabels`, `ListLabelsByIssue`,
+`ListLabelsForIssues`, `ListLabelsByAgent`, `ListLabelsForAgents`,
+`ListLabelsBySkill` and `ListLabelsForSkills` (the batched ones keep their
+leading `issue_id` / `agent_id` / `skill_id` key). Label responses carry
+`position`.
+
+`PUT /api/labels/order` takes `{ "resource_type": "...", "label_ids": [...] }`,
+the full ordered list for one namespace, and returns `{ "labels": [...],
+"total": n }`. It has the same access as `UpdateLabel` (workspace membership).
+One transaction row-locks the namespace, checks the list, rewrites `position` to
+`0..n-1` and commits; it then publishes one `label:updated` carrying the
+`resource_type` and the new order, which the existing realtime handler already
+turns into a refetch. It fails closed with nothing written: 400 for a malformed
+body, an unknown `resource_type`, a bad UUID or a duplicate id; 409 when the
+list isn't exactly the namespace's current labels (an unknown or foreign id, or
+a label created or deleted since the client fetched). It is its own endpoint,
+not a field on `UpdateLabel`, because the order changes many rows at once and
+must be atomic.
+
+Web: `LabelSchema.position` is `z.number().optional().default(0)` and
+`EMPTY_LABEL.position` is 0, so a server without the field parses and everything
+sits at 0, which keeps the server's name order. `useReorderLabels` patches the
+labels cache optimistically (renumbering `0..n-1`), rolls back and shows a toast
+on error (the server's message, else "Couldn't save the new order"), and
+invalidates the label, issue and skill label queries on settle.
+Manage labels gets a drag handle per row (`@dnd-kit/sortable`, pointer and
+keyboard sensors), offered only on the unfiltered list and only within the
+catalog being managed. Strings are in the five locales.
+
+Needs a backend image: the web image alone has nothing to talk to. A patched web
+image on a stock backend shows the handles, but a drop fails (the stock server
+reads `PUT /api/labels/order` as an update of label `order` and answers 400), so
+the rows roll back and the server's error shows as a toast. See README
+"Label ordering" for deploy and rollback.
+
+- Test prefix: none. The tests use ordinary names so the change reads as a
+  normal upstream feature (`label_order*_test.go` in the handler and router packages,
+  `label-manager.reorder.test.tsx`).
+  The Go tests are DB-backed (they skip without Postgres) and `ag-patches/test.sh`
+  does not run them, so `AG_GO_MIN_TESTS` is unchanged. Run them with a migrated
+  test database:
+  `cd server && DATABASE_URL=postgres://... go test ./internal/handler ./cmd/server -run 'Label' -count=1`.
+  The web tests (`label-manager.reorder.test.tsx`, `labels-tab.test.tsx`,
+  `labels/mutations.test.tsx`, `api/client.test.ts`) run in `ag-patches/test.sh`
+  and under `pnpm test`
+- Files:
+  - `server/migrations/574_label_position.up.sql`, `.down.sql` (new)
+  - `server/pkg/db/queries/issue_label.sql`; `server/pkg/db/generated/issue_label.sql.go`
+    and `models.go` regenerated with sqlc
+  - `server/internal/handler/label.go` (`Position` on `LabelResponse`,
+    `ReorderLabels`), `server/cmd/server/router.go` (one route)
+  - `server/internal/handler/label_order_test.go`, `label_order_api_test.go`,
+    `server/cmd/server/label_order_router_test.go` (new)
+  - `packages/core/types/label.ts`, `packages/core/types/index.ts`,
+    `packages/core/api/schemas.ts`, `packages/core/api/client.ts` (`reorderLabels`),
+    `packages/core/labels/mutations.ts` (`useReorderLabels`), `index.ts`,
+    with `client.test.ts` and `mutations.test.tsx`
+  - `packages/views/labels/label-manager.tsx`, `label-manager.reorder.test.tsx`
+    (new), `packages/views/settings/components/labels-tab.test.tsx`
+  - `packages/views/locales/{en,fr,ja,ko,zh-Hans}/settings.json`
+
+- Upstream:
+  - Status: `candidate`. Migration, queries, handler and UI only; no fork glue.
+  - Overlap: none. Searched upstream issues and PRs, open and closed, for label
+    reorder, order, position and sort on 2026-10-19 and found nothing about
+    ordering labels. The issue-status catalog has a reorder endpoint
+    (`PATCH /api/issue-statuses/reorder`), which is the nearest precedent; ours
+    is `PUT` and takes a namespace, because labels have three of them.
+  - Fit: a small additive feature with a migration, so it goes through a Feature
+    Request first. `VISION.md` says nothing about labels.
+
 ### Deferred retry until quota reset (backend)
 
 A task killed by a provider usage-window limit (`provider_quota_limit`) comes
@@ -989,6 +1079,77 @@ pasted `text/html` into rich text, so the item writes one `ClipboardItem` with
     copy-comment and clipboard-html found no overlap.
   - Fit: small, frontend-only, and builds on upstream's Slack work. It touches
     upstream files only at the two menu sites, one import and five locale files.
+
+### Label row: show all labels, Compact/Full display (web)
+
+Frontend only. Every surface that drew a capped label list now draws all of
+them, wrapping, through one component (`AgLabelRow`), and the per-view Labels
+card property is `Off / Compact / Full` instead of on/off.
+
+- Board card (was cap 2), list row (cap 3), table cell (cap 2) and the
+  sub-issue row in issue detail (cap 2): the `slice()` caps and the `+N`
+  counter are gone and the row wraps. Order is whatever the server returns.
+- `compact` is an outlined chip with a colour dot and `text-micro` text;
+  `full` is the existing filled `LabelChip`. Table and sub-issue rows always
+  use `full`.
+- `CardProperties.labels` is `"off" | "compact" | "full"`. A fresh view
+  defaults to `off` (as before). Persisted values are normalised on read:
+  `true` -> `full`, `false` -> `off`, missing or unknown -> the default. That
+  runs in `mergeViewStatePersisted`, which the issues, my-issues, surface and
+  saved-view seeding paths all use, so a saved view's server-stored
+  `display.cardProperties.labels` boolean needs no server change.
+  `isLegacyCardDefault` in `surface-view-store.ts` counts `"off"` as off.
+- The Display popover and the save-view dialog get an Off / Compact / Full
+  chooser (`AgLabelDisplayControl`) in place of the Labels toggle. Locale keys
+  `display.labels_off|compact|full` in all five locales.
+- Sub-issue rows keep their separate boolean (`sub-issue-display-store.ts`)
+  and render the full style.
+- Detail-header pill (`issue-property-pills.tsx`): the label pill passes
+  `max-w-full flex-wrap overflow-visible rounded-xl` to `PillButton` so four
+  chips wrap instead of truncating at `max-w-56`. `PillButton`'s base class is
+  untouched.
+- List rows use `min-h` instead of a fixed `h` and Virtuoso measures each row,
+  so a row whose labels wrap onto a second line grows rather than overlapping
+  its neighbours. One-line rows stay at `--issue-row-height`.
+- Rollback: the stored value is a string. On the base image (boolean) a stored
+  `"off"` is truthy, so labels show for views that had them off, saved views
+  included, until the toggle is flipped. Switching the web image back is
+  otherwise safe.
+- Not changed: `create-issue.tsx` uses `LabelPicker` in a `PillButton` too and
+  may truncate the same way; left as a follow-up.
+
+- Test prefix: `AG patch:`
+- Tests: `packages/core/issues/stores/ag-label-display.test.ts` (migration across
+  the issues, my-issues, surface and saved-view-seed paths),
+  `packages/views/labels/ag-label-row.test.tsx`,
+  `issues/components/ag-label-surfaces.test.tsx` (board card, list row),
+  `issue-property-pills.test.tsx`, `issues-header.label-display.test.tsx`, and
+  `AG patch:` cases in `save-view-dialog.test.tsx`, `table-view-editing.test.tsx`
+  and `issue-detail.test.tsx`. All are listed in `ag-patches/test.sh`.
+- Files:
+  - `packages/core/issues/stores/ag-label-display.ts`
+  - `packages/views/labels/ag-label-row.tsx`
+  - `packages/views/labels/ag-label-display-control.tsx`
+  - one-line hooks in `board-card.tsx`, `list-row.tsx`, `table-view.tsx`,
+    `issue-detail.tsx`, `issue-property-pills.tsx`, `issues-header.tsx`,
+    `save-view-dialog.tsx`, `view-store.ts`, `surface-view-store.ts`
+  - locale `issues.json` (en, fr, ja, ko, zh-Hans)
+
+- Upstream:
+  - Status: `candidate`. Nothing proposed; offer it as a Feature Request first.
+  - Overlap: no upstream PR or issue covers the label display (searched
+    2026-10-19). Open PRs that edit `board-card.tsx` and are likely to conflict at
+    rebase: [#8784](https://github.com/multica-ai/multica/pull/8784) (linked PR status),
+    [#9266](https://github.com/multica-ai/multica/pull/9266) (sub-issue nesting),
+    [#8925](https://github.com/multica-ai/multica/pull/8925) (agents-working count),
+    [#9335](https://github.com/multica-ai/multica/pull/9335) and
+    [#9336](https://github.com/multica-ai/multica/pull/9336) (token and geometry
+    refactor). Merged [#1233](https://github.com/multica-ai/multica/pull/1233),
+    [#1743](https://github.com/multica-ai/multica/pull/1743) and
+    [#5721](https://github.com/multica-ai/multica/pull/5721) introduced the capped chips this replaces.
+  - Fit: small and additive, frontend only, no schema change; the persisted
+    boolean migrates client-side. The Off/Compact/Full enum is the part
+    upstream may want shaped differently.
 
 ## Tooling (not a patch)
 

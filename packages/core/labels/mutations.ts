@@ -78,6 +78,52 @@ export function useUpdateLabel() {
   });
 }
 
+/**
+ * Optimistic drag-to-reorder of one label catalog. The new order is predictable
+ * and a failure (including a 409 because the catalog changed under us) rolls
+ * back to the snapshot and refetches. The response is not installed: a late
+ * whole-list snapshot would overwrite concurrent edits the refetch already saw.
+ */
+export function useReorderLabels() {
+  const qc = useQueryClient();
+  const wsId = useWorkspaceId();
+  return useMutation({
+    mutationFn: ({
+      resource_type,
+      label_ids,
+    }: {
+      resource_type: LabelResourceType;
+      label_ids: string[];
+    }) => api.reorderLabels({ resource_type, label_ids }),
+    onMutate: async ({ resource_type, label_ids }) => {
+      const listKey = labelKeys.list(wsId, resource_type);
+      await qc.cancelQueries({ queryKey: listKey });
+      const prev = qc.getQueryData<ListLabelsResponse>(listKey);
+      const index = new Map(label_ids.map((id, i) => [id, i]));
+      qc.setQueryData<ListLabelsResponse>(listKey, (old) =>
+        old
+          ? {
+              ...old,
+              labels: old.labels
+                .map((l) => (index.has(l.id) ? { ...l, position: index.get(l.id)! } : l))
+                .sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
+            }
+          : old,
+      );
+      return { prev, listKey };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev && ctx.listKey) qc.setQueryData(ctx.listKey, ctx.prev);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: labelKeys.all(wsId) });
+      // Issue and skill rows embed their labels in position order.
+      qc.invalidateQueries({ queryKey: issueKeys.all(wsId) });
+      qc.invalidateQueries({ queryKey: workspaceKeys.skills(wsId) });
+    },
+  });
+}
+
 export function useDeleteLabel() {
   const qc = useQueryClient();
   const wsId = useWorkspaceId();

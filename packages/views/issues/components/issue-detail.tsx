@@ -88,7 +88,7 @@ import { LabelPicker } from "./pickers/label-picker";
 import { CustomPropertyValueEditor, CustomPropertyValueDisplay } from "./pickers/custom-property-picker";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { IssueActionsDropdown, useIssueActions, IssueActionsContextMenu, IssueContextMenuProvider } from "../actions";
-import { LabelChip } from "../../labels/label-chip";
+import { AgLabelRow } from "../../labels/ag-label-row";
 import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
 import { SubIssuesAgentWorkingChip } from "./sub-issues-agent-working-chip";
 import { ProjectPicker } from "../../projects/components/project-picker";
@@ -951,16 +951,7 @@ function SubIssueRow({
               {child.title}
             </span>
             {labels.length > 0 && (
-              <span className="hidden max-w-[200px] shrink-0 items-center gap-1 overflow-hidden md:inline-flex">
-                {labels.slice(0, 2).map((label) => (
-                  <LabelChip key={label.id} label={label} />
-                ))}
-                {labels.length > 2 && (
-                  <span className="text-micro text-muted-foreground">
-                    +{labels.length - 2}
-                  </span>
-                )}
-              </span>
+              <AgLabelRow labels={labels} display="full" className="hidden md:flex shrink-0 max-w-[260px]" />
             )}
             {customPropsWithValue.length > 0 && (
               <span className="hidden max-w-[260px] shrink-0 items-center gap-1 overflow-hidden md:inline-flex">

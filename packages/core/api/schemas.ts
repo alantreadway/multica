@@ -459,6 +459,9 @@ export const LabelSchema = z.object({
   name: z.string(),
   description: z.string().optional().default(""),
   color: z.string(),
+  // Servers that predate label ordering omit this; everything at 0 keeps the
+  // server's own (name) order.
+  position: z.number().optional().default(0),
   usage_count: z.number().optional().default(0),
   created_at: z.string(),
   updated_at: z.string(),
@@ -471,6 +474,7 @@ export const EMPTY_LABEL: Label = {
   name: "",
   description: "",
   color: "#6b7280",
+  position: 0,
   usage_count: 0,
   created_at: "",
   updated_at: "",

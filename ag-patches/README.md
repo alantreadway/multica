@@ -10,7 +10,9 @@ with one additive migration, and add CLI commands: see
 [GitHub PR snapshot fields](#github-pr-snapshot-fields-and-pull-requests-link). Each part has its own rollback: for the web
 image, removing one env var ([Roll back](#roll-back)); for the CLI, pointing the
 daemon back at the stock binary ([Daemon/CLI patch](#daemoncli-patch)); for the
-backend, switching the image back to stock.
+backend, switching the image back to stock. Label ordering adds a column too, so
+it needs a backend image as well as the web image: see
+[Label ordering](#label-ordering).
 
 - Patch branch: `ag/<tag>` (for example `ag/v0.6.2`), based on upstream tag `<tag>`.
 - Web image: `multica-web-ag:<tag>-ag.<n>`, also tagged `multica-web-ag:<tag>`.
@@ -125,7 +127,7 @@ docker compose -f docker-compose.selfhost.yml -f docker-compose.isolated.yml up 
 
 Roll back: remove that line and run the same `up -d backend`. The drain badge
 changes nothing in the schema; the PR snapshot fields add migration `573`, which
-is additive and stays behind harmlessly (see that section). The stock backend ignores the `ag_drain` key in
+is additive and stays behind harmlessly (see that section); label ordering adds `574`, same story (see "Label ordering"). The stock backend ignores the `ag_drain` key in
 `agent_runtime.metadata` and never clears it. Registration overwrites `metadata`
 wholesale, so a runtime that re-registers loses the key. Until then, a runtime
 that was draining at rollback keeps it, and a patched web image keeps showing
@@ -328,7 +330,9 @@ It runs `ag-patches/test.sh`, then cross-compiles `./cmd/multica`
 (`CGO_ENABLED=0 GOOS=darwin GOARCH=arm64`, ldflags `-X main.version=<tag>-ag.<n>`
 and the commit, as in the `Makefile`) with local `go` if present, else in a
 `golang:<version from server/go.mod>` container, to
-`dist/multica-<tag>-ag.<n>-darwin-arm64`. `--skip-tests` skips the guard.
+`dist/multica-<tag>-ag.<n>-darwin-arm64`. The container keeps Go's module and
+build caches in the `multica-ag-gomod` and `multica-ag-gocache` volumes; they
+are shared by every container run, so pruning them makes the next build cold. `--skip-tests` skips the guard.
 `AG_FORCE_DOCKER=1` uses the container even when `go` is installed. `--rev`
 defaults to 1 and is shared with `build-web.sh`: both builds of one release use
 the same number, and the script refuses a `--rev` whose `ag/<tag>-ag.<n>` tag
@@ -442,6 +446,70 @@ psql "$DATABASE_URL" -c "DELETE FROM schema_migrations WHERE version = '573_ag_g
 
 The patched CLI needs no rollback; keep using `multica` to avoid `link` and
 `unlink`.
+
+## Label ordering
+
+Backend and web patch. Manage labels gets a drag handle per row, so a workspace
+sets the order its labels appear in. The order is stored per workspace and label
+type (issue, agent, skill) and every label list follows it, falling back to name
+for labels that share a position. What it does and the endpoint's failure rules
+are in [`PATCHES.md`](./PATCHES.md).
+
+### Deploy
+
+It needs the server half: the web image alone has nothing to save the order to.
+
+1. Backend: `ag-patches/build-backend.sh --rev N`, then switch as in "Backend
+   image". The backend's migrate step applies `574_label_position` on start: one
+   `position` column on `issue_label` (default 0, no index, no foreign key),
+   backfilled in each workspace's current alphabetical order, so no label moves
+   until someone drags one.
+2. Web: `ag-patches/build-web.sh --rev N`, then switch as in "Switch the
+   self-host to the patched frontend".
+
+Switch the backend first. A patched web image on a stock backend still shows the
+drag handles, but a drop fails (the stock server answers 400) and the rows roll
+back with an error toast. Stock web on the patched backend is fine: it ignores
+`position` and the lists simply arrive in the saved order.
+
+### Roll back
+
+Switch the images back (remove `MULTICA_BACKEND_IMAGE` and `MULTICA_WEB_IMAGE`
+from `.env` and `up -d backend frontend`). The extra column is harmless to the
+stock backend: it never reads or writes `position`, its lists sort by name, its
+inserts take the default 0, and its migrate step does not mind a recorded
+migration it has no file for. Rolling back leaves behind:
+
+- The `position` column and the saved order. Nothing reads them while stock runs.
+- Labels created on the stock backend sit at position 0. If you switch back to
+  the patched backend they list first, by name, ahead of the ordered labels; drag
+  them into place once.
+
+Rolling back the web image alone leaves the saved order in effect, since the
+patched backend still sorts by it. It only removes the drag handles.
+
+To drop the column anyway (only with the stock backend running, and no patched
+backend to come back to; this loses the saved order):
+
+```sh
+psql "$DATABASE_URL" -f server/migrations/574_label_position.down.sql
+psql "$DATABASE_URL" -c "DELETE FROM schema_migrations WHERE version = '574_label_position'"
+```
+
+The `down` migration has not been run in testing.
+
+### Tests
+
+The Go tests (`label_order*_test.go` in `server/internal/handler` and
+`server/cmd/server`) are DB-backed and have ordinary names, not `TestAGPatch*`,
+so `ag-patches/test.sh` does not run them and `AG_GO_MIN_TESTS` is unchanged. Run
+them against a migrated test database before a PR that touches labels:
+
+```sh
+cd server && DATABASE_URL=postgres://... go test ./internal/handler ./cmd/server -run 'Label' -count=1
+```
+
+The web tests run with `pnpm test`.
 
 ## Rebase onto a new upstream tag
 

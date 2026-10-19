@@ -126,6 +126,7 @@ import type {
   IssuePropertiesResponse,
   CreateLabelRequest,
   UpdateLabelRequest,
+  ReorderLabelsRequest,
   ListLabelsResponse,
   ListIssueStatusesResponse,
   IssueStatusCategory,
@@ -4113,6 +4114,16 @@ export class ApiClient {
     });
     return parseWithFallback(raw, LabelSchema, EMPTY_LABEL, {
       endpoint: "PUT /api/labels/{id}",
+    });
+  }
+
+  async reorderLabels(data: ReorderLabelsRequest): Promise<ListLabelsResponse> {
+    const raw = await this.fetch<unknown>(`/api/labels/order`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(raw, ListLabelsResponseSchema, EMPTY_LIST_LABELS_RESPONSE, {
+      endpoint: "PUT /api/labels/order",
     });
   }
 
