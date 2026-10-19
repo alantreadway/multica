@@ -75,6 +75,8 @@
     "hover_runtimes_header": "드레인 중인 런타임",
     "hover_runtime_draining": "{{name}} · {{running}}개 실행 중",
     "hover_runtime_draining_unknown": "{{name}} · 드레인 중",
-    "hover_runtime_drained": "{{name}} · 드레인 완료"
+    "hover_runtime_drained": "{{name}} · 드레인 완료",
+    "backup_urgent": "백업 계정 · 긴급만",
+    "quota_hold": "Claude {{time}}까지 보류 중"
   }
 }

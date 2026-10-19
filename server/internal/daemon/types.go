@@ -77,6 +77,7 @@ type ProjectWorkflowData struct {
 type Task struct {
 	// StartClaimSupported gates retries when talking to older servers.
 	StartClaimSupported  bool                   `json:"start_claim_supported,omitempty"`
+	AGIssuePriority      string                 `json:"ag_issue_priority,omitempty"` // AG patch: backup account, live issue priority at claim
 	DispatchedAt         string                 `json:"dispatched_at,omitempty"`
 	ID                   string                 `json:"id"`
 	AgentID              string                 `json:"agent_id"`

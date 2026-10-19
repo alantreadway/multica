@@ -303,11 +303,11 @@ func (c *Client) claimTasksWithHints(ctx context.Context, daemonID string, runti
 	reqCtx, cancel := context.WithTimeout(ctx, batchClaimRequestTimeout)
 	defer cancel()
 	var resp claimTasksResult
-	if err := c.postJSON(reqCtx, "/api/daemon/tasks/claim", map[string]any{
+	if err := c.postJSON(reqCtx, "/api/daemon/tasks/claim", agClaimBody(ctx, map[string]any{ // AG patch: backup account
 		"daemon_id":   daemonID,
 		"runtime_ids": runtimeIDs,
 		"max_tasks":   maxTasks,
-	}, &resp); err != nil {
+	}), &resp); err != nil {
 		return claimTasksResult{}, err
 	}
 	return resp, nil
@@ -333,6 +333,7 @@ func isBatchClaimUnsupported(err error) bool {
 // claimed yet; otherwise the partial result is returned and the next poll
 // retries the rest.
 func (c *Client) claimTasksLegacy(ctx context.Context, runtimeIDs []string, maxTasks int) ([]*Task, error) {
+	runtimeIDs = agLegacyClaimIDs(ctx, runtimeIDs) // AG patch: backup account
 	if maxTasks <= 0 {
 		return nil, nil
 	}
@@ -742,12 +743,21 @@ func (c *Client) SendHeartbeat(ctx context.Context, runtimeID string) (*Heartbea
 // SendHeartbeatWithDrain is SendHeartbeat plus the AG patch drain report, which
 // an older server ignores. A nil report is omitted.
 func (c *Client) SendHeartbeatWithDrain(ctx context.Context, runtimeID string, drain *protocol.DaemonDrainReport) (*HeartbeatResponse, error) {
+	return c.SendHeartbeatWithReports(ctx, runtimeID, drain, nil)
+}
+
+// SendHeartbeatWithReports is SendHeartbeatWithDrain plus the AG patch Claude
+// quota report, which an older server ignores. A nil report is omitted.
+func (c *Client) SendHeartbeatWithReports(ctx context.Context, runtimeID string, drain *protocol.DaemonDrainReport, quota *protocol.DaemonQuotaReport) (*HeartbeatResponse, error) {
 	body := map[string]any{
 		"runtime_id":            runtimeID,
 		"supports_batch_import": true,
 	}
 	if drain != nil {
 		body["ag_drain"] = drain
+	}
+	if quota != nil {
+		body["ag_quota"] = quota
 	}
 	var resp HeartbeatResponse
 	if err := c.postJSON(ctx, "/api/daemon/heartbeat", body, &resp); err != nil {

@@ -112,10 +112,16 @@ function renderIndicator(runtimes: AgentRuntime[] = [], wsId: string | null = "w
 }
 
 beforeEach(() => {
+  // "Today" is pinned so the quota hold's same-day rule is deterministic.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 9, 18, 12, 0));
   setPresence({});
   runtimeFetch.mockClear();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("AG patch: AgentStatusIndicator", () => {
   it("AG patch: shows agents, running and queued counts with a pulsing dot", () => {
@@ -338,5 +344,81 @@ describe("AG patch: AgentStatusIndicator", () => {
     rerender(ui());
     expect(screen.getByText("No agents running")).toBeInTheDocument();
     expect(screen.getByTestId("agent-status-dot")).not.toHaveClass("animate-pulse");
+  });
+
+  describe("quota line", () => {
+    const at = (h: number, m: number) => new Date(2026, 9, 18, h, m).toISOString();
+    const quota = (q: Record<string, unknown>) => ({ ag_quota: q });
+
+    it("AG patch: shows the backup warning and links to Runtimes", () => {
+      renderIndicator([makeRuntime({ metadata: quota({ account: "backup" }) })]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        "Backup account · urgent only",
+      );
+      expect(screen.getByRole("link")).toHaveAttribute("href", "/acme/runtimes");
+    });
+
+    it("AG patch: shows a quota hold in local time", () => {
+      renderIndicator([
+        makeRuntime({ metadata: quota({ hold: { until: at(21, 10) } }) }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        "Claude on hold until 21:10",
+      );
+    });
+
+    it("AG patch: shows the day for a hold that ends on a later day", () => {
+      renderIndicator([
+        makeRuntime({
+          metadata: quota({
+            hold: { until: new Date(2026, 9, 22, 9, 0).toISOString() },
+          }),
+        }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        /Claude on hold until .*Thu.*09:00/,
+      );
+    });
+
+    it("AG patch: the backup warning wins over a hold", () => {
+      renderIndicator([
+        makeRuntime({
+          metadata: quota({ account: "backup", hold: { until: at(21, 10) } }),
+        }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        "Backup account · urgent only",
+      );
+      expect(screen.queryByText(/on hold/)).not.toBeInTheDocument();
+    });
+
+    it("AG patch: shows nothing for a healthy, missing or malformed report", () => {
+      for (const metadata of [
+        {},
+        quota({ account: "primary", effective_cap: 3 }),
+        quota({ account: 7, hold: "soon" }),
+        { ag_quota: "bad" },
+      ]) {
+        const { unmount } = renderIndicator([makeRuntime({ metadata })]);
+        expect(screen.queryByTestId("agent-status-quota")).not.toBeInTheDocument();
+        expect(screen.getByRole("link")).toHaveAttribute("href", "/acme/agents");
+        unmount();
+      }
+    });
+
+    it("AG patch: ignores an offline runtime's stale report", () => {
+      renderIndicator([
+        makeRuntime({ status: "offline", metadata: quota({ account: "backup" }) }),
+      ]);
+      expect(screen.queryByTestId("agent-status-quota")).not.toBeInTheDocument();
+    });
+
+    it("AG patch: sits beside the drain line", () => {
+      renderIndicator([
+        makeRuntime({ metadata: { ...draining(2), ...quota({ account: "backup" }) } }),
+      ]);
+      expect(screen.getByTestId("agent-status-drain")).toBeInTheDocument();
+      expect(screen.getByTestId("agent-status-quota")).toBeInTheDocument();
+    });
   });
 });

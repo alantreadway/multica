@@ -128,6 +128,8 @@ func (d *Daemon) agTrackTask(id string) {
 }
 
 func (d *Daemon) agUntrackTask(id string) {
+	d.agBackupSlotDone(id)     // AG patch: backup account
+	d.agPaceReleaseClaimed(id) // AG patch: pacing (before the handoff lock: lock order is pace, then handoff)
 	d.agHandoff.mu.Lock()
 	defer d.agHandoff.mu.Unlock()
 	delete(d.agHandoff.taskIDs, id)
@@ -300,6 +302,11 @@ func (d *Daemon) AGEnableOverlap(p AGPredecessor) {
 type agPredecessorHealth struct {
 	PID           int      `json:"pid"`
 	ActiveTaskIDs []string `json:"active_task_ids"`
+	// AGQuota is absent from a predecessor built before pacing.
+	AGQuota *struct {
+		ActiveClaude *int `json:"active_claude"`
+		EffectiveCap *int `json:"effective_cap"`
+	} `json:"ag_quota"`
 }
 
 func agFetchPredecessorHealth(ctx context.Context, port int) (agPredecessorHealth, error) {
@@ -355,6 +362,9 @@ func (d *Daemon) agOverlapStep(ctx context.Context, failures *int) bool {
 	case healthOK:
 		*failures = 0
 		d.agShrinkPredecessorTasks(h.ActiveTaskIDs)
+		if h.AGQuota != nil {
+			d.agPaceSetPredecessor(h.AGQuota.ActiveClaude, h.AGQuota.EffectiveCap) // AG patch: pacing
+		}
 	case ctx.Err() != nil:
 		return true
 	default:
