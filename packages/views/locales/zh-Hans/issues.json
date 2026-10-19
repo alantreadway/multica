@@ -233,6 +233,9 @@
     "card_due_date": "截止日期",
     "card_project": "项目",
     "card_labels": "标签",
+    "labels_off": "关闭",
+    "labels_compact": "紧凑",
+    "labels_full": "完整",
     "card_child_progress": "子任务进度",
     "show_sub_issues": "显示子任务"
   },
