@@ -777,7 +777,48 @@ describe("ApiClient label response schemas", () => {
       client.detachLabelFromResource("agent", "agent-1", "label-1"),
     ).resolves.toEqual({ labels: [] });
 
-    expect(fetchMock).toHaveBeenCalledTimes(10);
+    await expect(
+      client.reorderLabels({ resource_type: "issue", label_ids: ["label-1"] }),
+    ).resolves.toEqual({ labels: [], total: 0 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(11);
+  });
+
+  it("defaults label position to 0 when an older server omits it", async () => {
+    const label = {
+      id: "label-1",
+      workspace_id: "ws-1",
+      name: "bug",
+      color: "#ef4444",
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ labels: [label, { ...label, id: "label-2", position: 3 }], total: 2 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ApiClient("https://api.example.test");
+    const list = await client.listLabels();
+    expect(list.labels.map((l) => l.position)).toEqual([0, 3]);
+
+    const reordered = await client.reorderLabels({
+      resource_type: "issue",
+      label_ids: ["label-2", "label-1"],
+    });
+    expect(reordered.labels.map((l) => l.position)).toEqual([0, 3]);
+    const call = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(call[0]).toBe("https://api.example.test/api/labels/order");
+    expect(call[1].method).toBe("PUT");
+    expect(JSON.parse(call[1].body as string)).toEqual({
+      resource_type: "issue",
+      label_ids: ["label-2", "label-1"],
+    });
   });
 });
 

@@ -15,6 +15,8 @@ export interface Label {
   description?: string;
   /** Normalized lowercase hex color, e.g. `#3b82f6`. */
   color: string;
+  /** Position within the workspace's labels of this resource type, ascending. */
+  position?: number;
   usage_count?: number;
   created_at: string;
   updated_at: string;
@@ -31,6 +33,12 @@ export interface UpdateLabelRequest {
   name?: string;
   description?: string;
   color?: string;
+}
+
+export interface ReorderLabelsRequest {
+  resource_type: LabelResourceType;
+  /** Every label of the resource type, in the new order. */
+  label_ids: string[];
 }
 
 export interface ListLabelsResponse {

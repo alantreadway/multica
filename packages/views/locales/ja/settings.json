@@ -603,8 +603,10 @@
     "empty": "{{scope}} ラベルはまだありません",
     "no_results": "一致するラベルがありません",
     "save_failed": "ラベルを保存できませんでした",
+    "reorder_failed": "新しい順序を保存できませんでした",
     "actions": {
       "open": "{{name}} の操作",
+      "reorder": "{{name}} を並べ替え",
       "edit": "編集",
       "delete": "削除"
     },
