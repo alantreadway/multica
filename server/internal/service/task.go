@@ -4863,6 +4863,7 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 	// is normalised too, and before the retry pre-compute below so the upgraded
 	// reason is what decides retry eligibility.
 	failureReason = taskfailure.NormalizeDaemonReason(failureReason, errMsg).String()
+	failureReason = agQuotaFailureReason(ctx, failureReason)
 
 	// Pre-compute the auto-retry so the retry child can be created inside the
 	// SAME transaction as the fail (MUL-4351). Doing it atomically closes the
@@ -4881,7 +4882,7 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 		if parent, perr := s.Queries.GetAgentTask(ctx, taskID); perr != nil {
 			slog.Warn("fail task auto-retry: load parent failed",
 				"task_id", util.UUIDToString(taskID), "error", perr)
-		} else if retryEligible(failureReason, parent) {
+		} else if retryEligible(failureReason, agWithFailText(parent, errMsg)) {
 			wantRetry = true
 			// Persist the reason-aware effective budget into the child so the
 			// retry chain self-describes (e.g. provider_network → max_attempts=3),
@@ -4893,6 +4894,7 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 			if delay := retryDelayForAttempt(failureReason, parent.Attempt); delay > 0 {
 				retryFireAt = pgtype.Timestamptz{Time: time.Now().Add(delay), Valid: true}
 			}
+			retryFireAt.Time = agQuotaFireAt(ctx, failureReason, errMsg, time.Now(), retryFireAt.Time)
 			if agent, aerr := s.Queries.GetAgent(ctx, parent.AgentID); aerr != nil {
 				// Best-effort: a missing overlay is not retry-fatal — the child
 				// simply runs without the Composio overlay.
@@ -5301,6 +5303,9 @@ func retryAttemptCeiling(reason string, taskMaxAttempts int32) int32 {
 	if reason == string(taskfailure.ReasonAgentProviderNetwork) && taskMaxAttempts < providerNetworkMaxAttempts {
 		return providerNetworkMaxAttempts
 	}
+	if n, ok := agQuotaRetryCeiling(reason, taskMaxAttempts); ok {
+		return n
+	}
 	return taskMaxAttempts
 }
 
@@ -5313,6 +5318,9 @@ func retryAttemptCeiling(reason string, taskMaxAttempts int32) int32 {
 func retryDelayForAttempt(reason string, failedAttempt int32) time.Duration {
 	if reason == string(taskfailure.ReasonRuntimeOffline) {
 		return runtimeOfflineRetryDeferral
+	}
+	if d, ok := agQuotaRetryDelay(reason); ok {
+		return d
 	}
 	if reason == string(taskfailure.ReasonAgentProviderNetwork) &&
 		failedAttempt >= providerNetworkMaxAttempts-1 {
@@ -5397,6 +5405,7 @@ func retryEligible(failureReason string, t db.AgentTaskQueue) bool {
 		t.Attempt < retryAttemptCeiling(failureReason, t.MaxAttempts) &&
 		!t.AutopilotRunID.Valid &&
 		!IsTriageTask(t) &&
+		!agQuotaRetryBlocked(failureReason, t.Error.String) &&
 		(t.IssueID.Valid || t.ChatSessionID.Valid || isSourceContextQuickCreateTask(t))
 }
 
@@ -5500,6 +5509,7 @@ func (s *TaskService) MaybeRetryFailedTask(ctx context.Context, parent db.AgentT
 	if delay := retryDelayForAttempt(reason, parent.Attempt); delay > 0 {
 		retryFireAt = pgtype.Timestamptz{Time: time.Now().Add(delay), Valid: true}
 	}
+	retryFireAt.Time = agQuotaFireAt(ctx, reason, parent.Error.String, time.Now(), retryFireAt.Time)
 	// Same advisory slot check as FailTask's path, for the same reason: skip the
 	// work when a successor is already visible. Losing the race is handled by
 	// CreateRetryTask yielding the slot, which this caller reads as "no retry".
