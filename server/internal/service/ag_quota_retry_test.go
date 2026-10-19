@@ -201,3 +201,137 @@ func TestAGPatchQuotaFailBillingAndOverride(t *testing.T) {
 		}
 	})
 }
+
+// The daemon's time is held to the same rules as a parsed one: slack added, a
+// past time clamped to now, anything beyond eight days treated as unknown (it
+// does not fall back to the text, which the daemon already had a chance to
+// read).
+func TestAGPatchQuotaFireAtDaemonTime(t *testing.T) {
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) context.Context {
+		return AGWithRetryNotBefore(context.Background(), now.Add(d).Format(time.RFC3339))
+	}
+	plusOne := time.FixedZone("BST", 3600)
+	cases := []struct {
+		name string
+		ctx  context.Context
+		want time.Time
+	}{
+		{"past daemon time fires in two minutes", at(-6 * time.Hour), now.Add(2 * time.Minute)},
+		{"exactly now fires in two minutes", at(0), now.Add(2 * time.Minute)},
+		{"daemon time beyond eight days is unknown", at(8*24*time.Hour + time.Second), now.Add(time.Hour)},
+		{"daemon time at the eight day edge is kept", at(8 * 24 * time.Hour), now.Add(8*24*time.Hour + 2*time.Minute)},
+		{"offset timestamps are the same instant", AGWithRetryNotBefore(context.Background(), now.Add(time.Hour).In(plusOne).Format(time.RFC3339)), now.Add(time.Hour + 2*time.Minute)},
+	}
+	for _, tc := range cases {
+		// The text names a different reset, so a fallback to it would show.
+		text := fmt.Sprintf("usage limit reached|%d", now.Add(5*time.Hour).Unix())
+		if got := agQuotaFireAt(tc.ctx, agQuotaReason, text, now, time.Time{}); !got.Equal(tc.want) {
+			t.Errorf("%s: fire_at = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Only provider_quota_limit is touched: other retryable reasons keep their
+// delay and ceiling, and the billing exclusion does not leak onto them.
+func TestAGPatchQuotaLeavesOtherReasonsAlone(t *testing.T) {
+	if got := retryDelayForAttempt(string(taskfailure.ReasonRuntimeOffline), 1); got != runtimeOfflineRetryDeferral {
+		t.Errorf("runtime_offline delay = %s, want %s", got, runtimeOfflineRetryDeferral)
+	}
+	if got := retryAttemptCeiling(string(taskfailure.ReasonRuntimeOffline), 2); got != 2 {
+		t.Errorf("runtime_offline ceiling = %d, want 2", got)
+	}
+	if got := retryAttemptCeiling(agQuotaReason, 5); got != 5 {
+		t.Errorf("quota ceiling with max_attempts=5 = %d, want it left at 5", got)
+	}
+	task := db.AgentTaskQueue{
+		Attempt:     1,
+		MaxAttempts: 2,
+		IssueID:     pgtype.UUID{Bytes: [16]byte{1}, Valid: true},
+		Error:       pgtype.Text{String: "out of credits", Valid: true},
+	}
+	if !retryEligible(string(taskfailure.ReasonRuntimeOffline), task) {
+		t.Error("runtime_offline with billing-like text must stay retryable")
+	}
+	if retryEligible("agent_error", task) {
+		t.Error("an unlisted reason must stay non-retryable")
+	}
+}
+
+// Autopilot is covered above; Triage and the link requirement stay as they are.
+func TestAGPatchQuotaRetryEligibilityLinks(t *testing.T) {
+	base := db.AgentTaskQueue{Attempt: 1, MaxAttempts: 2, Error: pgtype.Text{String: "usage limit reached|1760000000", Valid: true}}
+	withIssue := base
+	withIssue.IssueID = pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
+	withChat := base
+	withChat.ChatSessionID = pgtype.UUID{Bytes: [16]byte{3}, Valid: true}
+	triage := withIssue
+	triage.Context = []byte(`{"type":"` + TriageContextType + `"}`)
+	cases := []struct {
+		name string
+		task db.AgentTaskQueue
+		want bool
+	}{
+		{"issue task retries", withIssue, true},
+		{"chat task retries", withChat, true},
+		{"no issue or chat link", base, false},
+		{"triage task is excluded", triage, false},
+	}
+	for _, tc := range cases {
+		if got := retryEligible(agQuotaReason, tc.task); got != tc.want {
+			t.Errorf("%s: retryEligible = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// DB-backed: run with DATABASE_URL set (ag-patches/test.sh does not).
+func TestAGPatchQuotaFailAtCeilingDoesNotRetry(t *testing.T) {
+	svc, parentID, _, _ := agQuotaFixture(t)
+	pool := newResolveOriginatorPool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET attempt = 3, max_attempts = 3 WHERE id = $1`, parentID); err != nil {
+		t.Fatalf("raise attempt: %v", err)
+	}
+	text := fmt.Sprintf("Claude AI usage limit reached|%d", time.Now().Add(time.Hour).Unix())
+	if _, err := svc.FailTask(ctx, parentID, text, "src-session", "/tmp/src-workdir", "", "", false, "", ""); err != nil {
+		t.Fatalf("FailTask: %v", err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM agent_task_queue WHERE parent_task_id = $1`, parentID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("retry children at attempt 3 = %d, want 0", n)
+	}
+}
+
+// DB-backed: run with DATABASE_URL set (ag-patches/test.sh does not). The
+// sweeper path has no daemon time in hand and reads the stored error text.
+func TestAGPatchQuotaSweeperRetryUsesStoredResetText(t *testing.T) {
+	svc, parentID, _, _ := agQuotaFixture(t)
+	pool := newResolveOriginatorPool(t)
+	ctx := context.Background()
+	reset := time.Now().Add(4 * time.Hour).Truncate(time.Second)
+	text := fmt.Sprintf("Claude AI usage limit reached|%d", reset.Unix())
+	if _, err := pool.Exec(ctx, `UPDATE agent_task_queue SET status = 'failed', failure_reason = $2, error = $3 WHERE id = $1`,
+		parentID, agQuotaReason, text); err != nil {
+		t.Fatalf("mark parent failed: %v", err)
+	}
+	parent, err := svc.Queries.GetAgentTask(ctx, parentID)
+	if err != nil {
+		t.Fatalf("load parent: %v", err)
+	}
+	child, err := svc.MaybeRetryFailedTask(ctx, parent)
+	if err != nil || child == nil {
+		t.Fatalf("MaybeRetryFailedTask = %v, %v; want a deferred child", child, err)
+	}
+	if child.Status != "deferred" || !child.FireAt.Valid {
+		t.Fatalf("child = status:%q fire_at_valid:%v, want deferred with fire_at", child.Status, child.FireAt.Valid)
+	}
+	if want := reset.Add(2 * time.Minute); child.FireAt.Time.Sub(want).Abs() > time.Second {
+		t.Errorf("fire_at = %v, want %v", child.FireAt.Time, want)
+	}
+	if child.SessionID.String != "src-session" {
+		t.Errorf("child session = %q, want the parent's", child.SessionID.String)
+	}
+}
