@@ -12,6 +12,7 @@ import {
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { useT } from "../../i18n";
 import { ALL_PROJECTS, TIME_RANGES, type TimeRange } from "./dashboard-shared";
+import { agParsePeriod, agWithYesterday, type AgPeriod } from "../../common/ag_period";
 
 type DashboardProject = { id: string; title: string; icon: string | null };
 
@@ -31,11 +32,17 @@ export function TimeRangeFilter({
   days,
   onChange,
 }: {
-  days: TimeRange;
-  onChange: (days: TimeRange) => void;
+  days: AgPeriod<TimeRange>;
+  onChange: (days: AgPeriod<TimeRange>) => void;
 }) {
   const { t } = useT("usage");
-  const current = TIME_RANGES.find((r) => r.days === days) ?? TIME_RANGES[2];
+  const options = agWithYesterday(
+    TIME_RANGES.map((r) => ({ label: r.label as string, value: r.days })),
+    { label: t(($) => $.ag_period.yesterday) },
+  );
+  const current =
+    options.find((o) => o.value === days) ??
+    options.find((o) => o.value === 30)!;
 
   return (
     <DropdownMenu>
@@ -56,12 +63,12 @@ export function TimeRangeFilter({
       <DropdownMenuContent align="end" className="w-auto min-w-32">
         <DropdownMenuRadioGroup
           value={String(days)}
-          onValueChange={(value) => onChange(Number(value) as TimeRange)}
+          onValueChange={(value) => onChange(agParsePeriod<TimeRange>(value))}
         >
-          {TIME_RANGES.map((range) => (
+          {options.map((range) => (
             <DropdownMenuRadioItem
-              key={range.days}
-              value={String(range.days)}
+              key={range.value}
+              value={String(range.value)}
               className="tabular-nums"
             >
               {range.label}
