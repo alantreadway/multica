@@ -456,5 +456,28 @@
     "table_cache_r": "キャッシュ R",
     "table_cache_w": "キャッシュ W",
     "no_data": "まだ使用量データがありません"
+  },
+  "quota": {
+    "title": "Claude クォータ",
+    "five_hour": "5 時間",
+    "seven_day": "7 日間",
+    "resets": "{{time}} にリセット",
+    "hold": "{{time}} まで保留中",
+    "cap": "最大 {{max}} 件中 {{cap}} 件まで実行",
+    "on_backup": "バックアップで実行中",
+    "backup_title": "バックアップアカウント",
+    "backup_ready": "利用可能",
+    "backup_not_found": "見つかりません",
+    "backup_invalid": "見つかりましたが無効です",
+    "reason": {
+      "not_logged_in": "ログインしていません",
+      "same_account": "プライマリと同じアカウントです",
+      "check_failed": "確認に失敗しました",
+      "unknown": "理由不明"
+    },
+    "backup_enable": "バックアップアカウントを使用",
+    "backup_urgent_only": "バックアップでは緊急のタスクのみ実行されます。",
+    "backup_max": "最大同時実行数",
+    "save_failed": "バックアップ設定を保存できませんでした"
   }
 }

@@ -47,12 +47,19 @@ pnpm --filter @multica/views exec vitest run \
   runtimes/components/drain-badge.test.tsx \
   runtimes/components/runtime-list-drain.test.tsx \
   runtimes/components/runtime-detail-drain.test.tsx \
+  runtimes/ag-quota-format.test.ts \
+  runtimes/components/quota-section.test.tsx \
+  runtimes/components/runtime-detail-quota.test.tsx \
+  runtimes/components/connect-remote-dialog.ag-quota.test.tsx \
   locales/ag-drain.test.ts \
+  locales/ag-quota.test.ts \
   locales/ag-tree.test.ts \
   layout/agent-status-indicator.test.tsx
 
 pnpm --filter @multica/core exec vitest run \
   runtimes/ag-drain.test.ts \
+  runtimes/ag-quota.test.ts \
+  runtimes/ag-quota.api.test.ts \
   issues/stores/tree-view-store.test.ts \
   issues/stores/tree-layout-store.test.ts \
   issues/stores/tree-layout-store.persist.test.ts \

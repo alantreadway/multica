@@ -472,5 +472,28 @@
     "table_cache_r": "Cache L",
     "table_cache_w": "Cache É",
     "no_data": "Aucune donnée de consommation pour l'instant"
+  },
+  "quota": {
+    "title": "Quota Claude",
+    "five_hour": "5 heures",
+    "seven_day": "7 jours",
+    "resets": "réinitialisation {{time}}",
+    "hold": "En pause jusqu'à {{time}}",
+    "cap": "Jusqu'à {{cap}} sur {{max}} en parallèle",
+    "on_backup": "Sur le compte de secours",
+    "backup_title": "Compte de secours",
+    "backup_ready": "Prêt",
+    "backup_not_found": "Introuvable",
+    "backup_invalid": "Trouvé mais invalide",
+    "reason": {
+      "not_logged_in": "Non connecté",
+      "same_account": "Même compte que le principal",
+      "check_failed": "Échec de la vérification",
+      "unknown": "Raison inconnue"
+    },
+    "backup_enable": "Utiliser le compte de secours",
+    "backup_urgent_only": "Seules les tâches urgentes s'exécutent sur le compte de secours.",
+    "backup_max": "Simultanéité max.",
+    "save_failed": "Impossible d'enregistrer le réglage du compte de secours"
   }
 }

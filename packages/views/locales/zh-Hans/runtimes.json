@@ -456,5 +456,28 @@
     "table_cache_r": "缓存读",
     "table_cache_w": "缓存写",
     "no_data": "还没有使用数据"
+  },
+  "quota": {
+    "title": "Claude 配额",
+    "five_hour": "5 小时",
+    "seven_day": "7 天",
+    "resets": "{{time}} 重置",
+    "hold": "暂停至 {{time}}",
+    "cap": "最多同时运行 {{cap}} / {{max}}",
+    "on_backup": "正在使用备用账号",
+    "backup_title": "备用账号",
+    "backup_ready": "就绪",
+    "backup_not_found": "未找到",
+    "backup_invalid": "已找到但无效",
+    "reason": {
+      "not_logged_in": "未登录",
+      "same_account": "与主账号相同",
+      "check_failed": "检查失败",
+      "unknown": "原因未知"
+    },
+    "backup_enable": "使用备用账号",
+    "backup_urgent_only": "备用账号上只运行紧急任务。",
+    "backup_max": "最大并发数",
+    "save_failed": "无法保存备用账号设置"
   }
 }
