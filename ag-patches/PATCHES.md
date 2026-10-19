@@ -45,6 +45,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Claude quota tracker and auto-hold (daemon) | `fork-only` (the `rate_limit_event` parsing alone is a `candidate`) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255), #8965 (closed), #8969 (withdrawn) |
 | PR snapshot fields and `pull-requests link` | `fork-only` | [#8145](https://github.com/multica-ai/multica/pull/8145) (open, same CLI commands, different design) |
 | Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (open, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) |
+| Label ordering (backend + web) | `candidate` | none found (searched 2026-10-19) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -866,6 +867,92 @@ a backend image from `ag-patches/build-backend.sh` and a CLI from
   - Fit: the extra fields are small and additive, but upstream's snapshot
     is a card feature, not an API for gates, and an unmotivated migration is
     hard to land. Offer nothing; watch #8145 and #9279.
+
+### Label ordering (backend + web)
+
+A workspace sets the order its labels appear in, by dragging rows in Manage
+labels. Until now labels were sorted by `LOWER(name)` with no order field.
+Status: in review (PR against `ag/v0.6.2`).
+
+`issue_label` gains `position INTEGER NOT NULL DEFAULT 0` (migration `574`).
+Position is per `(workspace_id, resource_type)`, so reordering issue labels
+never touches agent or skill labels. The migration backfills each namespace in
+its current alphabetical order (`ROW_NUMBER() OVER (PARTITION BY workspace_id,
+resource_type ORDER BY LOWER(name), id) - 1`), so nothing moves until someone
+reorders. There is no index and no foreign key. `CreateLabel` appends: its
+position is the namespace's `MAX(position) + 1` (0 for the first). Two
+concurrent creates can share a position; the name tie-break keeps their order
+stable, and nothing locks for it.
+
+Every query that returns a workspace's labels or an object's labels orders by
+`position`, then `LOWER(name)`: `ListLabels`, `ListLabelsByIssue`,
+`ListLabelsForIssues`, `ListLabelsByAgent`, `ListLabelsForAgents`,
+`ListLabelsBySkill` and `ListLabelsForSkills` (the batched ones keep their
+leading `issue_id` / `agent_id` / `skill_id` key). Label responses carry
+`position`.
+
+`PUT /api/labels/order` takes `{ "resource_type": "...", "label_ids": [...] }`,
+the full ordered list for one namespace, and returns `{ "labels": [...],
+"total": n }`. It has the same access as `UpdateLabel` (workspace membership).
+One transaction row-locks the namespace, checks the list, rewrites `position` to
+`0..n-1` and commits; it then publishes one `label:updated` carrying the
+`resource_type` and the new order, which the existing realtime handler already
+turns into a refetch. It fails closed with nothing written: 400 for a malformed
+body, an unknown `resource_type`, a bad UUID or a duplicate id; 409 when the
+list isn't exactly the namespace's current labels (an unknown or foreign id, or
+a label created or deleted since the client fetched). It is its own endpoint,
+not a field on `UpdateLabel`, because the order changes many rows at once and
+must be atomic.
+
+Web: `LabelSchema.position` is `z.number().optional().default(0)` and
+`EMPTY_LABEL.position` is 0, so a server without the field parses and everything
+sits at 0, which keeps the server's name order. `useReorderLabels` patches the
+labels cache optimistically (renumbering `0..n-1`), rolls back and shows a toast
+on error (the server's message, else "Couldn't save the new order"), and
+invalidates the label, issue and skill label queries on settle.
+Manage labels gets a drag handle per row (`@dnd-kit/sortable`, pointer and
+keyboard sensors), offered only on the unfiltered list and only within the
+catalog being managed. Strings are in the five locales.
+
+Needs a backend image: the web image alone has nothing to talk to. A patched web
+image on a stock backend shows the handles, but a drop fails (the stock server
+reads `PUT /api/labels/order` as an update of label `order` and answers 400), so
+the rows roll back and the server's error shows as a toast. See README
+"Label ordering" for deploy and rollback.
+
+- Test prefix: none. The tests use ordinary names so the change reads as a
+  normal upstream feature (`label_order*_test.go` in the handler and router packages,
+  `label-manager.reorder.test.tsx`).
+  The Go tests are DB-backed (they skip without Postgres) and `ag-patches/test.sh`
+  does not run them, so `AG_GO_MIN_TESTS` is unchanged. Run them with a migrated
+  test database:
+  `cd server && DATABASE_URL=postgres://... go test ./internal/handler ./cmd/server -run 'Label' -count=1`.
+  The web tests run under `pnpm test`
+- Files:
+  - `server/migrations/574_label_position.up.sql`, `.down.sql` (new)
+  - `server/pkg/db/queries/issue_label.sql`; `server/pkg/db/generated/issue_label.sql.go`
+    and `models.go` regenerated with sqlc
+  - `server/internal/handler/label.go` (`Position` on `LabelResponse`,
+    `ReorderLabels`), `server/cmd/server/router.go` (one route)
+  - `server/internal/handler/label_order_test.go`, `label_order_api_test.go`,
+    `server/cmd/server/label_order_router_test.go` (new)
+  - `packages/core/types/label.ts`, `packages/core/types/index.ts`,
+    `packages/core/api/schemas.ts`, `packages/core/api/client.ts` (`reorderLabels`),
+    `packages/core/labels/mutations.ts` (`useReorderLabels`), `index.ts`,
+    with `client.test.ts` and `mutations.test.tsx`
+  - `packages/views/labels/label-manager.tsx`, `label-manager.reorder.test.tsx`
+    (new), `packages/views/settings/components/labels-tab.test.tsx`
+  - `packages/views/locales/{en,fr,ja,ko,zh-Hans}/settings.json`
+
+- Upstream:
+  - Status: `candidate`. Migration, queries, handler and UI only; no fork glue.
+  - Overlap: none. Searched upstream issues and PRs, open and closed, for label
+    reorder, order, position and sort on 2026-10-19 and found nothing about
+    ordering labels. The issue-status catalog has a reorder endpoint
+    (`PATCH /api/issue-statuses/reorder`), which is the nearest precedent; ours
+    is `PUT` and takes a namespace, because labels have three of them.
+  - Fit: a small additive feature with a migration, so it goes through a Feature
+    Request first. `VISION.md` says nothing about labels.
 
 ## Tooling (not a patch)
 
