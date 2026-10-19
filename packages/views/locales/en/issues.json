@@ -602,6 +602,7 @@
     "save_action": "Save",
     "cancel_edit": "Cancel",
     "copy_action": "Copy",
+    "copy_slack_action": "Copy (Slack)",
     "copy_link_action": "Copy link",
     "link_copied": "Link copied",
     "link_copy_failed": "Failed to copy link",
