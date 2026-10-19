@@ -7,12 +7,13 @@ import { LabelChip } from "./label-chip";
 
 /**
  * AG patch: the one place issue surfaces (board card, list row, table cell,
- * sub-issue row, detail-header pill) draw an issue's labels. Every label is
+ * sub-issue row) draw an issue's labels. Every label is
  * shown, in the order the server returned them, and the row wraps instead of
  * clipping or collapsing into a `+N` counter.
  *
  * `compact` is an outlined chip with a colour dot; `full` is the filled
- * `LabelChip`; `off` renders nothing.
+ * `LabelChip`; `off` renders nothing. The compact chip's fixed overhead (padding,
+ * dot, gap) must stay under `LabelChip`'s 16px so it is narrower for any name.
  */
 export function AgLabelRow({
   labels,
@@ -48,13 +49,15 @@ export function AgLabelRow({
 function AgCompactLabelChip({ label }: { label: Label }) {
   return (
     <span
-      className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-full border border-border px-1.5 py-px text-micro text-foreground"
+      // The outline is an inset ring, so it adds no width: overhead is
+      // px-1 (8px) + size-1 dot (4px) + gap-0.5 (2px) = 14px.
+      className="inline-flex min-w-0 max-w-full items-center gap-0.5 rounded-full px-1 py-px text-micro text-foreground ring-1 ring-inset ring-border"
       aria-label={label.name}
       title={label.name}
     >
       <span
         aria-hidden
-        className="size-1.5 shrink-0 rounded-full"
+        className="size-1 shrink-0 rounded-full"
         style={{ backgroundColor: label.color }}
       />
       <span className="truncate max-w-[12rem]">{label.name}</span>

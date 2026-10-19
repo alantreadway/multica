@@ -47,7 +47,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (open, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) |
 | Label ordering (backend + web) | `candidate` | none found (searched 2026-10-19) |
 | Deferred retry until quota reset (backend) | `fork-only` | [#7887](https://github.com/multica-ai/multica/issues/7887) (closed not_planned), [#8949](https://github.com/multica-ai/multica/pull/8949) (rejected), [#9159](https://github.com/multica-ai/multica/issues/9159), [#8964](https://github.com/multica-ai/multica/pull/8964) (open) |
-| Label row: show all labels, Compact/Full display (web) | `candidate` | none found; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925) (open, edit `board-card.tsx`) |
+| Label row: show all labels, Compact/Full display (web) | `candidate` | none found; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -1052,6 +1052,13 @@ card property is `Off / Compact / Full` instead of on/off.
   `max-w-full flex-wrap overflow-visible rounded-xl` to `PillButton` so four
   chips wrap instead of truncating at `max-w-56`. `PillButton`'s base class is
   untouched.
+- List rows use `min-h` instead of a fixed `h` and Virtuoso measures each row,
+  so a row whose labels wrap onto a second line grows rather than overlapping
+  its neighbours. One-line rows stay at `--issue-row-height`.
+- Rollback: the stored value is a string. On the base image (boolean) a stored
+  `"off"` is truthy, so labels show for views that had them off, saved views
+  included, until the toggle is flipped. Switching the web image back is
+  otherwise safe.
 - Not changed: `create-issue.tsx` uses `LabelPicker` in a `PillButton` too and
   may truncate the same way; left as a follow-up.
 

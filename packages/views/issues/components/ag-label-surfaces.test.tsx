@@ -129,6 +129,16 @@ const SURFACES = [
 const labelRow = (container: HTMLElement) =>
   container.querySelector<HTMLElement>('[data-slot="ag-label-row"]');
 
+describe("AG patch: list row height with wrapped labels", () => {
+  it("lets the row grow (min-h) instead of fixing its height", () => {
+    view.labels = "full";
+    const { container } = renderRow(makeIssue(4));
+    const row = container.querySelector<HTMLElement>('[data-slot="issue-list-row"]')!;
+    expect(row.className).toContain("min-h-[var(--issue-row-height)]");
+    expect(row.className).not.toMatch(/(?:^|\s)h-\[var\(--issue-row-height\)\]/);
+  });
+});
+
 describe.each(SURFACES)("AG patch: %s labels", (_name, renderSurface) => {
   beforeEach(() => {
     vi.clearAllMocks();
