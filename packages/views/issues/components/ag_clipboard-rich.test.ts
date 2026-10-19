@@ -5,7 +5,7 @@ const html = "<p><strong>hi</strong> there</p>";
 const text = "*hi* there";
 
 class FakeClipboardItem {
-  constructor(public items: Record<string, Blob>) {}
+  constructor(public items: Record<string, Blob | Promise<Blob>>) {}
 }
 
 function stubClipboard(write: ReturnType<typeof vi.fn> | undefined) {
@@ -43,13 +43,42 @@ describe("AG patch: copyRich", () => {
       expect(write).toHaveBeenCalledTimes(1);
       const items = write.mock.calls[0]![0] as FakeClipboardItem[];
       expect(items).toHaveLength(1);
-      const blobs = items[0]!.items;
-      expect(Object.keys(blobs).sort()).toEqual(["text/html", "text/plain"]);
-      expect(blobs["text/html"]!.type).toBe("text/html");
-      expect(blobs["text/plain"]!.type).toBe("text/plain");
-      expect(await blobs["text/html"]!.text()).toBe(html);
-      expect(await blobs["text/plain"]!.text()).toBe(text);
+      const entries = items[0]!.items;
+      expect(Object.keys(entries).sort()).toEqual(["text/html", "text/plain"]);
+      const blobs = { "text/html": await entries["text/html"]!, "text/plain": await entries["text/plain"]! };
+      expect(blobs["text/html"].type).toBe("text/html");
+      expect(blobs["text/plain"].type).toBe("text/plain");
+      expect(await blobs["text/html"].text()).toBe(html);
+      expect(await blobs["text/plain"].text()).toBe(text);
       // The fallback must not run when the async API succeeds.
+      expect(exec).not.toHaveBeenCalled();
+    });
+
+    it("starts the write before a pending html resolves (Safari needs it inside the click)", async () => {
+      const write = vi.fn().mockResolvedValue(undefined);
+      stubClipboard(write);
+      stubExecCommand(() => true);
+      let resolveHtml!: (h: string) => void;
+      const pending = new Promise<string>((r) => (resolveHtml = r));
+
+      const done = copyRich({ html: pending, text });
+
+      // Synchronously after the call, before the HTML exists.
+      expect(write).toHaveBeenCalledTimes(1);
+      const entries = (write.mock.calls[0]![0] as FakeClipboardItem[])[0]!.items;
+      resolveHtml(html);
+      await expect(done).resolves.toBe(true);
+      expect(await (await entries["text/html"]!).text()).toBe(html);
+    });
+
+    it("returns false when a pending html rejects", async () => {
+      const write = vi.fn(async (items: FakeClipboardItem[]) => {
+        await items[0]!.items["text/html"];
+      });
+      stubClipboard(write);
+      const exec = stubExecCommand(() => true);
+
+      await expect(copyRich({ html: Promise.reject(new Error("render")), text })).resolves.toBe(false);
       expect(exec).not.toHaveBeenCalled();
     });
 

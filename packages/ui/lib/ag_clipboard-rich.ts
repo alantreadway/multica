@@ -7,13 +7,17 @@
  * `contenteditable` holding the HTML and runs `document.execCommand('copy')`,
  * which carries the HTML too. Focus is restored afterwards, as `copyText` does.
  *
- * @returns `true` on success, `false` on failure.
+ * `html` may be a pending string: the write then starts synchronously inside
+ * the click and the item resolves when the HTML is ready. Safari rejects a
+ * clipboard write that happens after an await (see `copyImage`).
+ *
+ * @returns `true` on success, `false` on failure (including a rejected `html`).
  */
 export async function copyRich({
   html,
   text,
 }: {
-  html: string;
+  html: string | Promise<string>;
   text: string;
 }): Promise<boolean> {
   if (
@@ -24,7 +28,9 @@ export async function copyRich({
     try {
       await navigator.clipboard.write([
         new ClipboardItem({
-          "text/html": new Blob([html], { type: "text/html" }),
+          "text/html": Promise.resolve(html).then(
+            (h) => new Blob([h], { type: "text/html" }),
+          ),
           "text/plain": new Blob([text], { type: "text/plain" }),
         }),
       ]);
@@ -36,9 +42,16 @@ export async function copyRich({
 
   if (typeof document === "undefined") return false;
 
+  let resolvedHtml: string;
+  try {
+    resolvedHtml = await html;
+  } catch {
+    return false;
+  }
+
   const holder = document.createElement("div");
   holder.contentEditable = "true";
-  holder.innerHTML = html;
+  holder.innerHTML = resolvedHtml;
   // Keep it out of layout and view, but selectable (opacity 0, not display: none).
   holder.style.position = "fixed";
   holder.style.top = "0";
