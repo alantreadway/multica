@@ -855,3 +855,77 @@ describe("DashboardPage — leaderboard density", () => {
     });
   });
 });
+
+describe("AG patch: Yesterday period", () => {
+  beforeEach(() => {
+    queryKeys.length = 0;
+    dashboardDataRef.current = true;
+    manyAgentsRef.current = false;
+    restrictedBucketRef.current = false;
+    runtimeMeteredCountRef.current = undefined;
+    tzRef.current = "UTC";
+    cleanup();
+  });
+
+  async function pickPeriod(
+    user: ReturnType<typeof userEvent.setup>,
+    name: string,
+  ) {
+    await user.click(screen.getByRole("button", { name: "Period" }));
+    await user.click(await screen.findByRole("menuitemradio", { name }));
+  }
+
+  it("AG patch: offers Yesterday right after 1d", async () => {
+    const user = userEvent.setup();
+    renderDashboard();
+    await user.click(screen.getByRole("button", { name: "Period" }));
+    const items = (await screen.findAllByRole("menuitemradio")).map(
+      (item) => item.textContent,
+    );
+    expect(items).toEqual(["1d", "Yesterday", "7d", "30d", "90d", "180d"]);
+  });
+
+  it("AG patch: labels the KPIs Yesterday and drops today's rows", async () => {
+    const user = userEvent.setup();
+    const { container } = renderDashboard();
+    expect(screen.getByText("Cost · 30D")).toBeInTheDocument();
+
+    await pickPeriod(user, "Yesterday");
+
+    expect(screen.getByText("Cost · Yesterday")).toBeInTheDocument();
+    expect(screen.getByText("Runs · Yesterday")).toBeInTheDocument();
+    // The daily fixture only has rows dated today.
+    const flows = Array.from(container.querySelectorAll("number-flow-react"));
+    expect(flows[0]).toHaveAttribute("aria-label", "$0.00");
+  });
+
+  it("AG patch: asks the per-agent rollups for a window that ends yesterday", async () => {
+    const user = userEvent.setup();
+    renderDashboard();
+    queryKeys.length = 0;
+
+    await pickPeriod(user, "Yesterday");
+
+    const windowPart = (kind: string) =>
+      queryKeys
+        .filter((k) => k[0] === "dashboard" && k[2] === kind)
+        .map((k) => k[3])
+        .at(-1);
+    expect(windowPart("by-agent")).toBe("1-1");
+    expect(windowPart("agent-runtime")).toBe("1-1");
+    expect(windowPart("failures-by-agent")).toBe("1-1");
+  });
+
+  it("AG patch: keeps 1d on today's rows", async () => {
+    const user = userEvent.setup();
+    renderDashboard();
+
+    await pickPeriod(user, "1d");
+
+    expect(screen.getByText("Cost · 1D")).toBeInTheDocument();
+    const byAgent = queryKeys
+      .filter((k) => k[0] === "dashboard" && k[2] === "by-agent")
+      .at(-1);
+    expect(byAgent?.[3]).toBe(1);
+  });
+});
