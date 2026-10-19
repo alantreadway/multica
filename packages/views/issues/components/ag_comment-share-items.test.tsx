@@ -34,6 +34,18 @@ import { CopySlackMenuItem } from "./ag_comment-share-items";
 
 const ctx = { origin: "https://app.example", workspaceSlug: "acme" };
 
+// copyRich reports false for a rejected html promise, as the real one does.
+function rejectingCopyRich() {
+  mocks.copyRich.mockImplementation(async ({ html }: { html: Promise<string> }) => {
+    try {
+      await html;
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
 function click() {
   fireEvent.click(screen.getByRole("menuitem", { name: "Copy (Slack)" }));
 }
@@ -59,9 +71,19 @@ describe("AG patch: CopySlackMenuItem", () => {
     await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledTimes(1));
     expect(mocks.renderSlackHtml).toHaveBeenCalledWith("**x**", ctx);
     expect(mocks.slackPlainText).toHaveBeenCalledWith("**x**", ctx);
-    expect(mocks.copyRich).toHaveBeenCalledWith({ html: "<p>html</p>", text: "mrkdwn" });
+    const arg = mocks.copyRich.mock.calls[0]![0] as { html: Promise<string>; text: string };
+    expect(arg.text).toBe("mrkdwn");
+    await expect(arg.html).resolves.toBe("<p>html</p>");
     expect(mocks.copyText).not.toHaveBeenCalled();
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Copied");
+  });
+
+  it("calls copyRich inside the click, before the render promise resolves", () => {
+    mocks.renderSlackHtml.mockReturnValue(new Promise(() => {}));
+    renderWithI18n(<CopySlackMenuItem content="x" />);
+    click();
+
+    expect(mocks.copyRich).toHaveBeenCalledTimes(1);
   });
 
   it("shows no toast when every clipboard path fails", async () => {
@@ -76,11 +98,11 @@ describe("AG patch: CopySlackMenuItem", () => {
 
   it("falls back to copying the mrkdwn text when HTML rendering throws", async () => {
     mocks.renderSlackHtml.mockRejectedValue(new Error("render failed"));
+    rejectingCopyRich();
     renderWithI18n(<CopySlackMenuItem content="x" />);
     click();
 
     await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalledTimes(1));
-    expect(mocks.copyRich).not.toHaveBeenCalled();
     expect(mocks.copyText).toHaveBeenCalledWith("mrkdwn");
   });
 
@@ -89,6 +111,7 @@ describe("AG patch: CopySlackMenuItem", () => {
       throw new Error("convert failed");
     });
     mocks.renderSlackHtml.mockRejectedValue(new Error("render failed"));
+    rejectingCopyRich();
     renderWithI18n(<CopySlackMenuItem content="**raw**" />);
     click();
 
@@ -98,6 +121,7 @@ describe("AG patch: CopySlackMenuItem", () => {
   it("shows no toast when the render fallback copy fails as well", async () => {
     mocks.renderSlackHtml.mockRejectedValue(new Error("render failed"));
     mocks.copyText.mockResolvedValue(false);
+    rejectingCopyRich();
     renderWithI18n(<CopySlackMenuItem content="x" />);
     click();
 

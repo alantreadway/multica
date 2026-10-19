@@ -948,13 +948,15 @@ pasted `text/html` into rich text, so the item writes one `ClipboardItem` with
   when the menu opens so the write stays inside the click's user-gesture
   window). Member and agent mentions become `@Name` text; issue mentions an
   absolute link labelled with the identifier; relative and attachment URLs are
-  absolutised against the app origin (`useAppOrigin`); images become links;
+  absolutised against the app origin (`useAppOrigin`); editor attachments
+  (`!file[name](url)`) become plain links; images become links;
   headings become bold paragraphs; tables become a pipe-table code block;
   `mermaid` and `html` fences stay code blocks; task-list boxes become ☑/☐.
 - Plain text: a TS port of `formatMrkdwn` (Hermes Agent, MIT; attribution kept in
   the file header), run after mentions and relative links are flattened.
 - `copyRich({ html, text })` in `packages/ui/lib/ag_clipboard-rich.ts`: the
-  `ClipboardItem` path, else a hidden `contenteditable` selected and copied with
+  `ClipboardItem` path (written synchronously in the click, with the HTML as a
+  pending value, since Safari rejects a write after an await), else a hidden `contenteditable` selected and copied with
   `execCommand('copy')` (plain `http://`). `clipboard.ts` is untouched.
 - Fails soft: if rendering throws it copies the mrkdwn text with `copyText`; if
   every clipboard path fails there is no toast. **Copy** is unchanged.
@@ -983,7 +985,8 @@ pasted `text/html` into rich text, so the item writes one `ClipboardItem` with
   - Status: `candidate`.
   - Overlap: none open for a Slack-formatted copy. Upstream already ships the
     Slack mrkdwn formatter server-side for its Slack integration, which this
-    patch ports. Not re-searched for this entry.
+    patch ports. A search of upstream PRs and issues for copy-slack,
+    copy-comment and clipboard-html found no overlap.
   - Fit: small, frontend-only, and builds on upstream's Slack work. It touches
     upstream files only at the two menu sites, one import and five locale files.
 
