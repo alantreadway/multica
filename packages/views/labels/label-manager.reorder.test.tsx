@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { act, cleanup, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, within } from "@testing-library/react";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { renderWithI18n } from "../test/i18n";
 import { LabelManager } from "./label-manager";
@@ -64,6 +64,10 @@ const drop = (active: string, over: string | null) =>
   act(() => {
     state.onDragEnd!({ active: { id: active }, over: over ? { id: over } : null } as DragEndEvent);
   });
+
+// dnd-kit attaches its keyboard listeners and measures rows on timers, so a
+// keyboard drag needs real time to pass between keys.
+const tick = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 50)));
 
 // Row order as the user sees it: the reorder handle names, top to bottom.
 const visibleOrder = () =>
@@ -184,5 +188,51 @@ describe("Manage labels drag-to-reorder", () => {
 
     const handle = screen.getByRole("button", { name: "Reorder beta" });
     expect(within(handle.parentElement!).getByText("beta")).toBeInTheDocument();
+  });
+
+  it("makes each handle a focusable sortable control", () => {
+    renderWithI18n(<LabelManager scope="issue" />);
+
+    for (const name of ["alpha", "beta", "gamma"]) {
+      const handle = screen.getByRole("button", { name: `Reorder ${name}` });
+      expect(handle).toHaveAttribute("aria-roledescription", "sortable");
+      expect(handle).toHaveAttribute("tabindex", "0");
+      expect(handle).toHaveAttribute("aria-describedby");
+    }
+  });
+
+  it("offers no handles while the list is filtered", () => {
+    renderWithI18n(<LabelManager scope="issue" />);
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "alp" } });
+
+    expect(screen.queryByRole("button", { name: /^Reorder / })).not.toBeInTheDocument();
+  });
+
+  it("reorders from the keyboard: Space, arrow, Space", async () => {
+    renderWithI18n(<LabelManager scope="issue" />);
+    // jsdom lays nothing out, so give the rows stacked rects for dnd-kit's
+    // keyboard coordinate getter to step between.
+    for (const [i, name] of ["alpha", "beta", "gamma"].entries()) {
+      const row = screen.getByRole("button", { name: `Reorder ${name}` }).parentElement!;
+      row.getBoundingClientRect = () =>
+        ({ top: i * 50, bottom: i * 50 + 50, left: 0, right: 300, width: 300, height: 50, x: 0, y: i * 50 }) as DOMRect;
+    }
+    const handle = screen.getByRole("button", { name: "Reorder alpha" });
+    handle.focus();
+
+    fireEvent.keyDown(handle, { code: "Space", key: " " });
+    await tick();
+    fireEvent.keyDown(document, { code: "ArrowDown", key: "ArrowDown" });
+    await tick();
+    fireEvent.keyDown(document, { code: "Space", key: " " });
+    await tick();
+
+    expect(state.mutate).toHaveBeenCalledTimes(1);
+    expect(state.mutate.mock.calls[0]![0]).toEqual({
+      resource_type: "issue",
+      label_ids: ["b", "a", "c"],
+    });
+    expect(visibleOrder()).toEqual(["beta", "alpha", "gamma"]);
   });
 });
