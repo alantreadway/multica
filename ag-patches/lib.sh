@@ -86,6 +86,8 @@ ag_guard_tests() {
 # ag_go <go args...>: run `go` from server/ with local go, or in a golang
 # container matching server/go.mod when go is not installed (or
 # AG_FORCE_DOCKER is set). Variables named in AG_GO_ENV are passed through.
+# The container shares the module and build caches through named volumes so
+# repeat runs only recompile what changed.
 ag_go() {
   if [ -z "${AG_FORCE_DOCKER:-}" ] && command -v go >/dev/null 2>&1; then
     (cd server && go "$@")
@@ -97,6 +99,7 @@ ag_go() {
     docker run --rm \
       -v "$PWD":/src -w /src/server \
       -v multica-ag-gomod:/go/pkg/mod \
+      -v multica-ag-gocache:/root/.cache/go-build \
       ${envargs[@]+"${envargs[@]}"} \
       "golang:${go_version}" go "$@"
   else
