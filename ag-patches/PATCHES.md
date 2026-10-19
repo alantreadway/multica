@@ -1241,6 +1241,7 @@ branches. They do not touch product code. Landed in
 | --- | --- | --- | --- | --- | --- |
 | `ag/v0.6.2-ag.1` | `c59bdb71d0713897e19371e4d11d4c316c56c71b` | `multica-web-ag:v0.6.2-ag.1` | none (stock backend) | none (stock) | 2026-10-14 |
 | `ag/v0.6.2-ag.2` | `0ae4d6edc3c9651e1cfb5d2c711d062469828ab7` | `multica-web-ag:v0.6.2-ag.2` | `multica-backend-ag:v0.6.2-ag.2` | `dist/multica-v0.6.2-ag.2-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-16 |
+| `ag/v0.6.3-ag.1` | `d19013ab84e81751d031bb894f374ccae6afbffe` | `multica-web-ag:v0.6.3-ag.1` | `multica-backend-ag:v0.6.3-ag.1` | `dist/multica-v0.6.3-ag.1-darwin-arm64` | 2026-10-19 |
 
 The CLI column is the `dist/multica-<tag>-ag.<n>-darwin-arm64` binary from
 `ag-patches/build-cli.sh`; `none (stock)` means the daemon runs the upstream
@@ -1250,3 +1251,8 @@ The CLI column is the `dist/multica-<tag>-ag.<n>-darwin-arm64` binary from
 backend and web run it (upgraded from stock v0.6.0 to v0.6.2 on 2026-10-16). The
 launchd daemon still runs Homebrew `multica` until its plist is pointed at
 `multica-ag`, so the Runtimes page shows no drain badge until then.
+
+`v0.6.3-ag.1` is the first build on `v0.6.3`, with every patch merged into
+`ag/v0.6.2` up to PR #30. It is built but not yet deployed: the self-host still
+runs `v0.6.2-ag.2`, which has none of the fork migrations, so the upgrade applies
+upstream's `573`–`582` and the fork's `9001` and `9002` for the first time.
