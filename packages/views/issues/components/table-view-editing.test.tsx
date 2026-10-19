@@ -434,6 +434,42 @@ describe("TableView cell editors under data refresh", () => {
     });
   });
 
+  it("AG patch: the label cell shows every label, wrapping, with no +N", async () => {
+    const names = ["Bug", "Frontend", "Needs design", "Customer-reported", "Regression"];
+    serverIssues = [
+      {
+        ...makeIssue("l", "Many labels", "todo"),
+        labels: names.map((name, i) => ({
+          id: `label-${i}`,
+          workspace_id: "ws-1",
+          name,
+          color: "#3b82f6",
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        })),
+      },
+    ];
+
+    renderWithI18n(
+      <QueryClientProvider client={queryClient}>
+        <Harness
+          childProgressMap={new Map()}
+          surfaceKey={`test-label-cell-${Math.floor(Math.random() * 1e9)}`}
+        />
+      </QueryClientProvider>,
+    );
+
+    const row = (await screen.findByText("MUL-l")).closest("tr")!;
+    for (const name of names) {
+      expect(within(row).getByText(name)).toBeInTheDocument();
+    }
+    expect(row.textContent).not.toMatch(/\+\d/);
+    const labelRow = row.querySelector<HTMLElement>('[data-slot="ag-label-row"]')!;
+    expect(labelRow.dataset.display).toBe("full");
+    expect(labelRow.className).toContain("flex-wrap");
+    expect(Array.from(labelRow.children).map((c) => c.getAttribute("aria-label"))).toEqual(names);
+  });
+
   it("uses the preferred peek for both titles and row space; Shift opens the full page instead", async () => {
     useIssueOpeningStore.getState().setOpenMode("peek");
     serverIssues = [makeIssue("a", "Alpha task", "todo")];
