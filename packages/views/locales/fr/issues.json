@@ -237,6 +237,9 @@
     "card_due_date": "Date d'échéance",
     "card_project": "Projet",
     "card_labels": "Étiquettes",
+    "labels_off": "Masqué",
+    "labels_compact": "Compact",
+    "labels_full": "Complet",
     "card_child_progress": "Avancement des sous-tâches",
     "show_sub_issues": "Afficher les sous-tâches"
   },

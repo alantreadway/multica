@@ -233,6 +233,9 @@
     "card_due_date": "期限",
     "card_project": "プロジェクト",
     "card_labels": "ラベル",
+    "labels_off": "オフ",
+    "labels_compact": "コンパクト",
+    "labels_full": "フル",
     "card_child_progress": "サブタスクの進捗",
     "show_sub_issues": "サブタスクを表示"
   },

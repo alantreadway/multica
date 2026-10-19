@@ -47,6 +47,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (open, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) |
 | Label ordering (backend + web) | `candidate` | none found (searched 2026-10-19) |
 | Deferred retry until quota reset (backend) | `fork-only` | [#7887](https://github.com/multica-ai/multica/issues/7887) (closed not_planned), [#8949](https://github.com/multica-ai/multica/pull/8949) (rejected), [#9159](https://github.com/multica-ai/multica/issues/9159), [#8964](https://github.com/multica-ai/multica/pull/8964) (open) |
+| Label row: show all labels, Compact/Full display (web) | `candidate` | none found; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925) (open, edit `board-card.tsx`) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -1021,6 +1022,63 @@ migration.
     (GLM-only, same `fire_at` mechanism). Checked 2026-10-17.
   - Fit: upstream said no to this behaviour, so it stays ours. Watch #8964; if
     it lands, rebase onto its mechanism.
+
+### Label row: show all labels, Compact/Full display (web)
+
+Frontend only. Every surface that drew a capped label list now draws all of
+them, wrapping, through one component (`AgLabelRow`), and the per-view Labels
+card property is `Off / Compact / Full` instead of on/off.
+
+- Board card (was cap 2), list row (cap 3), table cell (cap 2) and the
+  sub-issue row in issue detail (cap 2): the `slice()` caps and the `+N`
+  counter are gone and the row wraps. Order is whatever the server returns.
+- `compact` is an outlined chip with a colour dot and `text-micro` text;
+  `full` is the existing filled `LabelChip`. Table and sub-issue rows always
+  use `full`.
+- `CardProperties.labels` is `"off" | "compact" | "full"`. A fresh view
+  defaults to `off` (as before). Persisted values are normalised on read:
+  `true` -> `full`, `false` -> `off`, missing or unknown -> the default. That
+  runs in `mergeViewStatePersisted`, which the issues, my-issues, surface and
+  saved-view seeding paths all use, so a saved view's server-stored
+  `display.cardProperties.labels` boolean needs no server change.
+  `isLegacyCardDefault` in `surface-view-store.ts` counts `"off"` as off.
+- The Display popover and the save-view dialog get an Off / Compact / Full
+  chooser (`AgLabelDisplayControl`) in place of the Labels toggle. Locale keys
+  `display.labels_off|compact|full` in all five locales.
+- Sub-issue rows keep their separate boolean (`sub-issue-display-store.ts`)
+  and render the full style.
+- Detail-header pill (`issue-property-pills.tsx`): the label pill passes
+  `max-w-full flex-wrap overflow-visible rounded-xl` to `PillButton` so four
+  chips wrap instead of truncating at `max-w-56`. `PillButton`'s base class is
+  untouched.
+- Not changed: `create-issue.tsx` uses `LabelPicker` in a `PillButton` too and
+  may truncate the same way; left as a follow-up.
+
+- Test prefix: `AG patch:`
+- Files:
+  - `packages/core/issues/stores/ag-label-display.ts`
+  - `packages/views/labels/ag-label-row.tsx`
+  - `packages/views/labels/ag-label-display-control.tsx`
+  - one-line hooks in `board-card.tsx`, `list-row.tsx`, `table-view.tsx`,
+    `issue-detail.tsx`, `issue-property-pills.tsx`, `issues-header.tsx`,
+    `save-view-dialog.tsx`, `view-store.ts`, `surface-view-store.ts`
+  - locale `issues.json` (en, fr, ja, ko, zh-Hans)
+
+- Upstream:
+  - Status: `candidate`. Nothing proposed; offer it as a Feature Request first.
+  - Overlap: no upstream PR or issue covers the label display (searched
+    2026-10-19). Open PRs that edit `board-card.tsx` and are likely to conflict at
+    rebase: [#8784](https://github.com/multica-ai/multica/pull/8784) (linked PR status),
+    [#9266](https://github.com/multica-ai/multica/pull/9266) (sub-issue nesting),
+    [#8925](https://github.com/multica-ai/multica/pull/8925) (agents-working count),
+    [#9335](https://github.com/multica-ai/multica/pull/9335) and
+    [#9336](https://github.com/multica-ai/multica/pull/9336) (token and geometry
+    refactor). Merged [#1233](https://github.com/multica-ai/multica/pull/1233),
+    [#1743](https://github.com/multica-ai/multica/pull/1743) and
+    [#5721](https://github.com/multica-ai/multica/pull/5721) introduced the capped chips this replaces.
+  - Fit: small and additive, frontend only, no schema change; the persisted
+    boolean migrates client-side. The Off/Compact/Full enum is the part
+    upstream may want shaped differently.
 
 ## Tooling (not a patch)
 
