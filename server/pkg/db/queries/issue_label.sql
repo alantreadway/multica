@@ -9,15 +9,21 @@ SELECT l.*,
 FROM issue_label l
 WHERE l.workspace_id = sqlc.arg('workspace_id')::uuid
   AND l.resource_type = sqlc.arg('resource_type')::text
-ORDER BY LOWER(name) ASC;
+ORDER BY position ASC, LOWER(name) ASC;
 
 -- name: GetLabel :one
 SELECT * FROM issue_label
 WHERE id = $1 AND workspace_id = $2;
 
 -- name: CreateLabel :one
-INSERT INTO issue_label (workspace_id, resource_type, name, description, color)
-VALUES ($1, $2, $3, $4, $5)
+-- New labels go last in their (workspace, resource type) namespace. Two
+-- concurrent creates can land on the same position; the name tie-break in the
+-- list queries keeps their order stable, so no locking here.
+INSERT INTO issue_label (workspace_id, resource_type, name, description, color, position)
+VALUES ($1, $2, $3, $4, $5, (
+    SELECT COALESCE(MAX(position) + 1, 0) FROM issue_label
+    WHERE workspace_id = $1 AND resource_type = $2
+))
 RETURNING *;
 
 -- name: UpdateLabel :one
@@ -28,6 +34,25 @@ UPDATE issue_label SET
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
 RETURNING *;
+
+-- name: LockLabelIDsForReorder :many
+-- Row-locks one namespace so a reorder sees a stable set of labels and a
+-- concurrent create/delete waits for it.
+SELECT id FROM issue_label
+WHERE workspace_id = sqlc.arg('workspace_id')::uuid
+  AND resource_type = sqlc.arg('resource_type')::text
+ORDER BY id
+FOR UPDATE;
+
+-- name: SetLabelPositions :exec
+-- Rewrites position to the 1-based array ordinality minus one. Callers have
+-- already verified label_ids is exactly the namespace's current set.
+UPDATE issue_label l
+SET position = o.ord - 1
+FROM unnest(sqlc.arg('label_ids')::uuid[]) WITH ORDINALITY AS o(id, ord)
+WHERE l.id = o.id
+  AND l.workspace_id = sqlc.arg('workspace_id')::uuid
+  AND l.resource_type = sqlc.arg('resource_type')::text;
 
 -- name: DeleteLabel :one
 -- :one RETURNING id so the handler distinguishes pgx.ErrNoRows (→ 404) from
@@ -155,7 +180,7 @@ JOIN issue_to_label il ON il.label_id = l.id
 WHERE il.issue_id = sqlc.arg('issue_id')::uuid
   AND l.workspace_id = sqlc.arg('workspace_id')::uuid
   AND l.resource_type = 'issue'
-ORDER BY LOWER(l.name) ASC;
+ORDER BY l.position ASC, LOWER(l.name) ASC;
 
 -- name: ListLabelsForIssues :many
 -- Bulk variant: fetch labels for many issues in one round-trip so the issue
@@ -167,7 +192,7 @@ JOIN issue_to_label il ON il.label_id = l.id
 WHERE il.issue_id = ANY(sqlc.arg('issue_ids')::uuid[])
   AND l.workspace_id = sqlc.arg('workspace_id')::uuid
   AND l.resource_type = 'issue'
-ORDER BY il.issue_id, LOWER(l.name) ASC;
+ORDER BY il.issue_id, l.position ASC, LOWER(l.name) ASC;
 
 -- name: ListLabelsByAgent :many
 SELECT l.*
@@ -176,7 +201,7 @@ JOIN agent_to_label atl ON atl.label_id = l.id
 WHERE atl.agent_id = sqlc.arg('agent_id')::uuid
   AND l.workspace_id = sqlc.arg('workspace_id')::uuid
   AND l.resource_type = 'agent'
-ORDER BY LOWER(l.name) ASC;
+ORDER BY l.position ASC, LOWER(l.name) ASC;
 
 -- name: ListLabelsForAgents :many
 SELECT atl.agent_id, l.*
@@ -185,7 +210,7 @@ JOIN agent_to_label atl ON atl.label_id = l.id
 WHERE atl.agent_id = ANY(sqlc.arg('agent_ids')::uuid[])
   AND l.workspace_id = sqlc.arg('workspace_id')::uuid
   AND l.resource_type = 'agent'
-ORDER BY atl.agent_id, LOWER(l.name) ASC;
+ORDER BY atl.agent_id, l.position ASC, LOWER(l.name) ASC;
 
 -- name: AttachLabelToAgent :exec
 INSERT INTO agent_to_label (agent_id, label_id)
@@ -220,7 +245,7 @@ JOIN skill_to_label stl ON stl.label_id = l.id
 WHERE stl.skill_id = sqlc.arg('skill_id')::uuid
   AND l.workspace_id = sqlc.arg('workspace_id')::uuid
   AND l.resource_type = 'skill'
-ORDER BY LOWER(l.name) ASC;
+ORDER BY l.position ASC, LOWER(l.name) ASC;
 
 -- name: ListLabelsForSkills :many
 SELECT stl.skill_id, l.*
@@ -229,7 +254,7 @@ JOIN skill_to_label stl ON stl.label_id = l.id
 WHERE stl.skill_id = ANY(sqlc.arg('skill_ids')::uuid[])
   AND l.workspace_id = sqlc.arg('workspace_id')::uuid
   AND l.resource_type = 'skill'
-ORDER BY stl.skill_id, LOWER(l.name) ASC;
+ORDER BY stl.skill_id, l.position ASC, LOWER(l.name) ASC;
 
 -- name: AttachLabelToSkill :exec
 INSERT INTO skill_to_label (skill_id, label_id)
