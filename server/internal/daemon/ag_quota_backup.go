@@ -19,7 +19,10 @@ package daemon
 //
 // Detection spends no quota: `claude auth status --json` against each dir, at
 // start and every 30 minutes. Valid = logged in with claude.ai, a subscription,
-// and a different email from the primary.
+// and a different account from the primary. Accounts are told apart by orgId (two
+// logins can share an email and differ only in org and plan, as a personal Max
+// and a company Enterprise login do); email is compared only when either side has
+// no orgId.
 //
 // Fail policy (every guard fails closed for failover):
 //   - the backup check fails: valid=false, reason check_failed, retried next interval;
@@ -114,6 +117,7 @@ type agAuthStatus struct {
 	LoggedIn         bool   `json:"loggedIn"`
 	AuthMethod       string `json:"authMethod"`
 	Email            string `json:"email"`
+	OrgID            string `json:"orgId"`
 	SubscriptionType string `json:"subscriptionType"`
 }
 
@@ -180,17 +184,41 @@ func (d *Daemon) agBackupEvaluate(ctx context.Context, dir string) (detected, va
 	if err != nil {
 		return true, false, agBackupReasonCheckFailed
 	}
-	if !backup.LoggedIn || backup.AuthMethod != agBackupAuthMethodClaudeAI || backup.SubscriptionType == "" || backup.Email == "" {
+	if !backup.LoggedIn || backup.AuthMethod != agBackupAuthMethodClaudeAI || backup.SubscriptionType == "" || !backup.hasIdentity() {
 		return true, false, agBackupReasonNotLoggedIn
 	}
 	main, err := d.agBackupAuthStatus(ctx, primary)
-	if err != nil || main.Email == "" {
+	if err != nil || !main.hasIdentity() {
 		return true, false, agBackupReasonCheckFailed
 	}
-	if strings.EqualFold(strings.TrimSpace(main.Email), strings.TrimSpace(backup.Email)) {
+	same, comparable := agSameAccount(main, backup)
+	switch {
+	case !comparable:
+		return true, false, agBackupReasonCheckFailed
+	case same:
 		return true, false, agBackupReasonSameAccount
 	}
 	return true, true, ""
+}
+
+// hasIdentity reports whether the status says which account it is: an orgId or an email.
+func (s agAuthStatus) hasIdentity() bool {
+	return strings.TrimSpace(s.OrgID) != "" || strings.TrimSpace(s.Email) != ""
+}
+
+// agSameAccount compares two logins by orgId when both have one, else by email
+// (case-insensitive). comparable is false when neither rule applies (one side has
+// only an orgId and the other only an email), which callers treat as not valid.
+func agSameAccount(a, b agAuthStatus) (same, comparable bool) {
+	ao, bo := strings.TrimSpace(a.OrgID), strings.TrimSpace(b.OrgID)
+	if ao != "" && bo != "" {
+		return strings.EqualFold(ao, bo), true
+	}
+	ae, be := strings.TrimSpace(a.Email), strings.TrimSpace(b.Email)
+	if ae == "" || be == "" {
+		return false, false
+	}
+	return strings.EqualFold(ae, be), true
 }
 
 // agBackupLoop checks the backup at start and every agBackupCheckInterval. A check

@@ -208,11 +208,77 @@ func TestAGPatchBackupDetection(t *testing.T) {
 		}
 	})
 
-	t.Run("AG patch: the same email as the primary is same_account, whatever the case", func(t *testing.T) {
+	t.Run("AG patch: without an orgId the same email as the primary is same_account, whatever the case", func(t *testing.T) {
 		f := newAGBackupFixture(t)
 		f.setAuth(f.backupDir, `{"loggedIn":true,"authMethod":"claude.ai","email":"ALAN@primary.test","subscriptionType":"pro"}`)
 		if st := check(t, f); !st.Detected || st.Valid || st.Reason != "same_account" {
 			t.Fatalf("status = %+v", st)
+		}
+	})
+
+	t.Run("AG patch: the same email in a different org is a valid backup", func(t *testing.T) {
+		f := newAGBackupFixture(t)
+		f.setAuth(f.acct, `{"loggedIn":true,"authMethod":"claude.ai","email":"alan@both.test","orgId":"org-personal","subscriptionType":"max"}`)
+		f.setAuth(f.backupDir, `{"loggedIn":true,"authMethod":"claude.ai","email":"alan@both.test","orgId":"org-company","subscriptionType":"enterprise"}`)
+		if st := check(t, f); !st.Detected || !st.Valid || st.Reason != "" {
+			t.Fatalf("status = %+v", st)
+		}
+	})
+
+	t.Run("AG patch: the same orgId as the primary is same_account, whatever the email or case", func(t *testing.T) {
+		f := newAGBackupFixture(t)
+		f.setAuth(f.acct, `{"loggedIn":true,"authMethod":"claude.ai","email":"alan@primary.test","orgId":"ORG-1","subscriptionType":"max"}`)
+		f.setAuth(f.backupDir, `{"loggedIn":true,"authMethod":"claude.ai","email":"other@backup.test","orgId":"org-1","subscriptionType":"max"}`)
+		if st := check(t, f); st.Valid || st.Reason != "same_account" {
+			t.Fatalf("status = %+v", st)
+		}
+	})
+
+	t.Run("AG patch: with both orgIds present a missing email does not invalidate the backup", func(t *testing.T) {
+		f := newAGBackupFixture(t)
+		f.setAuth(f.acct, `{"loggedIn":true,"authMethod":"claude.ai","orgId":"org-personal","subscriptionType":"max"}`)
+		f.setAuth(f.backupDir, `{"loggedIn":true,"authMethod":"claude.ai","orgId":"org-company","subscriptionType":"enterprise"}`)
+		if st := check(t, f); !st.Valid || st.Reason != "" {
+			t.Fatalf("status = %+v", st)
+		}
+	})
+
+	t.Run("AG patch: an orgId missing on either side falls back to the email", func(t *testing.T) {
+		f := newAGBackupFixture(t)
+		f.setAuth(f.acct, `{"loggedIn":true,"authMethod":"claude.ai","email":"alan@both.test","orgId":"org-personal","subscriptionType":"max"}`)
+		f.setAuth(f.backupDir, `{"loggedIn":true,"authMethod":"claude.ai","email":"ALAN@both.test","subscriptionType":"enterprise"}`)
+		if st := check(t, f); st.Valid || st.Reason != "same_account" {
+			t.Fatalf("backup without orgId, same email: %+v", st)
+		}
+		f.setAuth(f.backupDir, `{"loggedIn":true,"authMethod":"claude.ai","email":"alan@backup.test","subscriptionType":"enterprise"}`)
+		if st := check(t, f); !st.Valid {
+			t.Fatalf("backup without orgId, other email: %+v", st)
+		}
+		f.setAuth(f.acct, `{"loggedIn":true,"authMethod":"claude.ai","email":"alan@both.test","subscriptionType":"max"}`)
+		f.setAuth(f.backupDir, `{"loggedIn":true,"authMethod":"claude.ai","email":"alan@both.test","orgId":"org-company","subscriptionType":"enterprise"}`)
+		if st := check(t, f); st.Valid || st.Reason != "same_account" {
+			t.Fatalf("primary without orgId, same email: %+v", st)
+		}
+	})
+
+	t.Run("AG patch: a login that cannot be compared with the primary is not valid", func(t *testing.T) {
+		f := newAGBackupFixture(t)
+		// The backup has only an orgId and the primary only an email.
+		f.setAuth(f.backupDir, `{"loggedIn":true,"authMethod":"claude.ai","orgId":"org-company","subscriptionType":"enterprise"}`)
+		if st := check(t, f); !st.Detected || st.Valid || st.Reason != "check_failed" {
+			t.Fatalf("status = %+v", st)
+		}
+		// The primary reports neither an orgId nor an email.
+		f.setAuth(f.backupDir, agBackupAuthBackup)
+		f.setAuth(f.acct, `{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"max"}`)
+		if st := check(t, f); st.Valid || st.Reason != "check_failed" {
+			t.Fatalf("primary without identity: %+v", st)
+		}
+		// Neither does the backup.
+		f.setAuth(f.acct, agBackupAuthPrimary)
+		f.setAuth(f.backupDir, `{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"enterprise"}`)
+		if st := check(t, f); st.Valid || st.Reason != "not_logged_in" {
+			t.Fatalf("backup without identity: %+v", st)
 		}
 	})
 
