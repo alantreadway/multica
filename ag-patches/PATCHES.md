@@ -46,6 +46,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | PR snapshot fields and `pull-requests link` | `fork-only` | [#8145](https://github.com/multica-ai/multica/pull/8145) (open, same CLI commands, different design) |
 | Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (open, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) |
 | Label ordering (backend + web) | `candidate` | none found (searched 2026-10-19) |
+| Deferred retry until quota reset (backend) | `fork-only` | [#7887](https://github.com/multica-ai/multica/issues/7887) (closed not_planned), [#8949](https://github.com/multica-ai/multica/pull/8949) (rejected), [#9159](https://github.com/multica-ai/multica/issues/9159), [#8964](https://github.com/multica-ai/multica/pull/8964) (open) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -955,6 +956,71 @@ the rows roll back and the server's error shows as a toast. See README
     is `PUT` and takes a namespace, because labels have three of them.
   - Fit: a small additive feature with a migration, so it goes through a Feature
     Request first. `VISION.md` says nothing about labels.
+### Deferred retry until quota reset (backend)
+
+A task killed by a provider usage-window limit (`provider_quota_limit`) comes
+back on its own when the window resets, instead of staying failed. It reuses the
+`runtime_offline` retry mechanism: `CreateRetryTask` inserts a `deferred` child
+with `fire_at`, copying `session_id` and `work_dir` so the retry resumes the
+session, and each claim promotes due deferred tasks. This is the "no backup
+account, or both exhausted" half of the quota-dispatch work.
+
+The reset time, in order:
+
+1. `ag_retry_not_before` (RFC 3339) on the daemon's `/fail` request. When it is
+   present the failure is treated as `provider_quota_limit` whatever the text
+   says (the classifier would otherwise send "token limit" text to
+   `context_overflow`).
+2. The failure text: `usage limit reached|<epoch>` (seconds, or milliseconds
+   above 1e12) and `resets <h>[:mm]am|pm [(<IANA zone>)]` (the next occurrence
+   after now, in the stated zone, else the server's). The current Claude Code
+   wording for these is **unverified**; the fixtures in
+   `ag_quota_reset_test.go` record the forms handled.
+3. Unknown: one hour.
+
+`fire_at` is the reset plus 2 minutes. A reset in the past fires 2 minutes from
+now, and one more than 8 days out counts as unknown (it is more likely a
+mis-parse). The ceiling is 3 attempts, like `provider_network`. Billing text
+(`402`, `insufficient_balance`, `credits`, `balance is too low`) is not retried,
+since waiting does not fix it. Autopilot and Triage tasks stay excluded, as for
+every retry. `CancelSupersededDeferredRetriesForRuntimes` still drops the
+deferral when newer work exists for the same issue, agent or thread, which is
+wanted. A daemon that does not send the field (stock, or unpatched) gets the
+text parsing and the one-hour fallback.
+
+Hooks in `task.go`: `retryAttemptCeiling`, `retryDelayForAttempt`,
+`retryEligible` (the billing exclusion), the two `fire_at` sites
+(`FailTaskWithTransition`, `MaybeRetryFailedTask`) and the reason upgrade in
+`FailTaskWithTransition`. `provider_quota_limit` joins `retryableReasons` from an
+`init()` in the new service file, so the literal is untouched. The daemon fail
+handler passes the field through the request context, so
+`FailTaskWithTransition` keeps its signature. No schema change and no
+migration.
+
+- Test prefix: `TestAGPatch` / `AG patch:`. The reset parser and the retry
+  predicates run in `ag-patches/test.sh`; the two `TestAGPatchQuota…` tests that
+  fail a real task and read back the deferred child need Postgres
+  (`DATABASE_URL`, see README) and skip without one, so they are not counted
+- Files:
+  - `server/pkg/taskfailure/ag_quota_reset.go`, `ag_quota_reset_test.go` (new:
+    reset parsing, billing detection)
+  - `server/internal/service/ag_quota_retry.go`, `ag_quota_retry_test.go` (new:
+    the retry policy; the tests include the DB-backed ones)
+  - `server/internal/service/task.go` (hooks above)
+  - `server/internal/handler/daemon.go` (hooks: `AGRetryNotBefore` on
+    `TaskFailRequest`, the context passed to `FailTaskWithTransition`)
+  - `ag-patches/test.sh` (two new packages, minimum 142)
+
+- Upstream:
+  - Status: `fork-only`. The maintainer has declined this.
+  - Overlap: [#7887](https://github.com/multica-ai/multica/issues/7887) closed
+    not_planned ("we are not planning to implement automatic 'resume at quota
+    reset'"); [#8949](https://github.com/multica-ai/multica/pull/8949) was
+    rejected over replay side effects. Open: [#9159](https://github.com/multica-ai/multica/issues/9159)
+    (the request, re-filed) and [#8964](https://github.com/multica-ai/multica/pull/8964)
+    (GLM-only, same `fire_at` mechanism). Checked 2026-10-17.
+  - Fit: upstream said no to this behaviour, so it stays ours. Watch #8964; if
+    it lands, rebase onto its mechanism.
 
 ## Tooling (not a patch)
 
