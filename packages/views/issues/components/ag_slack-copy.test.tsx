@@ -113,6 +113,18 @@ describe("AG patch: Copy (Slack) HTML renderer", () => {
       expect(root.querySelector("a")!.textContent).toBe("https://x.com/i.png");
     });
 
+    it("renders an editor attachment (!file syntax) as an absolute link without the prefix", async () => {
+      const root = await render(
+        "!file[report.pdf](/api/attachments/0b0b6f3e-1a2b-4c3d-8e4f-5a6b7c8d9e0f/download)",
+      );
+      const a = root.querySelector("a")!;
+      expect(a.textContent).toBe("report.pdf");
+      expect(a.getAttribute("href")).toBe(
+        "https://app.example/api/attachments/0b0b6f3e-1a2b-4c3d-8e4f-5a6b7c8d9e0f/download",
+      );
+      expect(root.textContent).not.toContain("!file");
+    });
+
     it("renders member mentions as plain @Name text", async () => {
       const root = await render("hi [@Ada](mention://member/u-1) there");
       expect(root.querySelector("a")).toBeNull();
@@ -200,6 +212,17 @@ describe("AG patch: Copy (Slack) mrkdwn fallback", () => {
       expect(
         slackPlainText("hi [@Ada](mention://member/u-1) and [@Bot](mention://agent/a-1)", ctx),
       ).toBe("hi @Ada and @Bot");
+    });
+
+    it("writes an editor attachment (!file syntax) as a Slack link without the prefix", () => {
+      expect(
+        slackPlainText(
+          "!file[report.pdf](/api/attachments/0b0b6f3e-1a2b-4c3d-8e4f-5a6b7c8d9e0f/download)",
+          ctx,
+        ),
+      ).toBe(
+        "<https://app.example/api/attachments/0b0b6f3e-1a2b-4c3d-8e4f-5a6b7c8d9e0f/download|report.pdf>",
+      );
     });
 
     it("writes legacy mention shortcodes as their label", () => {

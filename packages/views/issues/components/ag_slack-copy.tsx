@@ -34,6 +34,7 @@ import ReactMarkdown, {
 } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import { FILE_CARD_URL_PATTERN } from "@multica/ui/markdown";
 import { preprocessMentionShortcodes } from "@multica/ui/markdown/mentions";
 
 export interface SlackCopyContext {
@@ -121,6 +122,22 @@ export function formatMrkdwn(content: string): string {
 
 // --- Mentions and URLs -------------------------------------------------------
 
+// `!file[name](url)` is how the editor stores an attachment; neither renderer
+// knows it, so it is rewritten to a plain link first. Same label and URL rules
+// as `@multica/ui/markdown/file-cards`.
+const FILE_CARD_RE = new RegExp(
+  `!file\\[((?:\\\\.|[^\\]\\\\])*)\\]\\((${FILE_CARD_URL_PATTERN.source})\\)`,
+  "g",
+);
+
+/** Mention shortcodes and attachment cards, rewritten to plain Markdown. */
+function normalizeContent(content: string): string {
+  return preprocessMentionShortcodes(content).replace(
+    FILE_CARD_RE,
+    (_m: string, label: string, url: string) => `[${label}](${url})`,
+  );
+}
+
 const MENTION_RE = /\[([^\]]*)\]\(mention:\/\/([a-z_]+)\/([^)\s]*)\)/g;
 
 /** Absolute issue link for a `mention://issue/<id>` target, or null. */
@@ -148,7 +165,7 @@ const RELATIVE_LINK_RE = /(^|[^!])\[([^\]]+)\]\((\/(?!\/)[^)\s]*)\)/gm;
  * mentions become their label, issue mentions and relative links absolute links.
  */
 function flattenMentions(content: string, ctx: SlackCopyContext): string {
-  return preprocessMentionShortcodes(content)
+  return normalizeContent(content)
     .replace(
       RELATIVE_LINK_RE,
       (_m: string, lead: string, label: string, href: string) =>
@@ -271,11 +288,11 @@ export async function renderSlackHtml(
   const { renderToStaticMarkup } = await import("react-dom/server");
   return renderToStaticMarkup(
     <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkBreaks]}
+      remarkPlugins={[[remarkGfm, { singleTilde: false }], remarkBreaks]}
       components={slackComponents(ctx)}
       urlTransform={urlTransform}
     >
-      {preprocessMentionShortcodes(content)}
+      {normalizeContent(content)}
     </ReactMarkdown>,
   );
 }

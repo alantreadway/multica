@@ -34,18 +34,20 @@ export function CopySlackMenuItem({ content }: { content: string }) {
   const onCopy = async () => {
     const ctx: SlackCopyContext = { origin, workspaceSlug };
     let text: string;
-    let ok: boolean;
     try {
       text = slackPlainText(content, ctx);
     } catch {
       text = content;
     }
-    try {
-      const html = await renderSlackHtml(content, ctx);
-      ok = await copyRich({ html, text });
-    } catch {
-      ok = await copyText(text);
-    }
+    // The clipboard write starts inside the click with the HTML still pending;
+    // awaiting the render first would lose the user gesture in Safari.
+    let renderFailed = false;
+    const html = renderSlackHtml(content, ctx).catch((err: unknown) => {
+      renderFailed = true;
+      throw err;
+    });
+    let ok = await copyRich({ html, text });
+    if (!ok && renderFailed) ok = await copyText(text);
     if (ok) toast.success(t(($) => $.comment.copied_toast));
   };
 
