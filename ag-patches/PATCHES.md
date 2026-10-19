@@ -1408,11 +1408,28 @@ the setting turned on from the runtime page, and a patched server (the claim fil
   with the claude binary the daemon already resolves, 10s timeout, at start and
   every 30 minutes. The loop does nothing while the dir does not exist.
   `detected` = the dir exists. `valid` = `loggedIn` and `authMethod == "claude.ai"`
-  and a subscription type and an email that differs from the primary's (checked the
-  same way). `reason` when not valid: `not_detected` (no dir), `not_logged_in`,
-  `same_account` (same email or same dir) or `check_failed` (the CLI failed, timed
-  out or printed something unreadable, or the primary could not be read). A result
+  and a subscription type and a different account from the primary's (checked the
+  same way). Accounts are told apart by `orgId` from the same output: two logins can
+  share an email and differ only in org and plan (a personal Max and a company
+  Enterprise login do). Same dir is the same account; both `orgId`s present and equal
+  is the same account, and different is a different one whatever the emails say. Only
+  when either `orgId` is missing are the emails compared, case-insensitively. `reason`
+  when not valid: `not_detected` (no dir), `not_logged_in` (including a backup with
+  neither `orgId` nor email), `same_account` (same dir, `orgId` or email) or
+  `check_failed` (the CLI failed, timed out or printed something unreadable, the
+  primary could not be read or has neither `orgId` nor email, or the two cannot be
+  compared: one side has only an `orgId` and the other only an email). A result
   older than an hour is treated as `check_failed`.
+- Account state is keyed on the config dir, not the email: `agQuotaAccountKey`
+  (holds, windows) and the pacing state use the effective `CLAUDE_CONFIG_DIR`, so two
+  logins with one email keep separate holds and pacing (`TestAGPatchBackupAccountState`).
+- Enterprise logins: checked 2026-10-19 with a one-line `claude -p` on an Enterprise
+  login (`subscriptionType=enterprise`). The `rate_limit_event` carries
+  `rateLimitType: "overage"` (with `overageStatus`, `overageResetsAt`,
+  `isUsingOverage`, `overageInUse`) and no `five_hour` or `seven_day` window, so
+  `backup_windows` stays empty and pacing has no state: the cap is
+  `backup_max_concurrent`. A `rejected` overage event still holds that account. No
+  code change was needed; the tests pin it.
 - Failing over needs all of: the primary on hold; the runtime's setting enabled and
   received within 10 minutes; the backup valid; and the server's heartbeat ack
   carrying `ag_capabilities: ["claim_filter"]` (also within 10 minutes).
@@ -1460,7 +1477,7 @@ means no Claude claims on the backup; the legacy claim is never used for Claude 
 the backup; a rejected resume is a normal quota failure.
 
 - Test prefix: `TestAGPatchBackup*` (`Detection`, `AckGates`, `EnvSwap`, `Claim`,
-  `Report`, `Pacing`, `ResumeInPlace`, `ResumeSessionAndPrompt`, `ConcurrentResumes`,
+  `Report`, `AccountState`, `Pacing`, `ResumeInPlace`, `ResumeSessionAndPrompt`, `ConcurrentResumes`,
   `SwapLimit`, `RunTaskSwap`, `NoIssueTaskStaysOnPrimary`, `SetupScript`,
   `SetupLinksEverySpecItem`), plus the null-ack cases in
   `TestAGPatchBackupSetting*`. They use a test-created `claude` and a fake claim
@@ -1468,7 +1485,8 @@ the backup; a rejected resume is a normal quota failure.
 - Files:
   - `server/internal/daemon/ag_quota_backup.go`, `ag_quota_backup_test.go`,
     `ag_quota_backup_run_test.go`, `ag_quota_backup_setup_test.go`,
-    `ag_quota_backup_spec_test.go`, `ag_quota_backup_limit_test.go` (new)
+    `ag_quota_backup_spec_test.go`, `ag_quota_backup_limit_test.go`,
+    `ag_quota_backup_org_test.go` (new)
   - `server/internal/daemon/ag_quota_report.go` (null ack disables; report fill),
     `ag_quota.go` (rejection note and slot release in the observer, one hook in
     `agQuotaClaim`), `ag_handoff.go` (slot release in `agUntrackTask`)
@@ -1481,7 +1499,7 @@ the backup; a rejected resume is a normal quota failure.
   - `server/pkg/protocol/messages.go` (`AGCapabilities` on the ack, the same line as
     the claim filter patch)
   - `ag-patches/claude-backup-setup.sh` (new), `ag-patches/test.sh`
-    (`AG_GO_MIN_TESTS` 163)
+    (`AG_GO_MIN_TESTS` 195)
 
 - Upstream:
   - Status: `fork-only`. It encodes one subscriber's two-account setup.
@@ -1495,6 +1513,10 @@ the backup; a rejected resume is a normal quota failure.
     Last checked 2026-10-18.
   - Fit: provider fallback is on upstream's radar; switching accounts under a
     personal subscription is operator tooling and unlikely to be accepted.
+  - Identity: comparing accounts by `orgId` serves our same-email, two-org setup
+    only; the overlapping PRs above do not compare accounts at all. Last checked
+    2026-10-19.
+
 ### Runtime quota section and sidebar warning (web)
 
 The Runtimes detail page gets a "Claude quota" card under Usage for a Claude runtime
