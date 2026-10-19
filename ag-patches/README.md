@@ -48,6 +48,22 @@ with:
 `--skip-tests` skips the guard tests. `--rev N` defaults to 1. Bump it for every
 rebuild of the same base tag.
 
+From `v0.6.3` the web build (`next build`) needs more memory than the self-host's
+4 GiB Colima VM has spare, and is killed with `SIGKILL` / `cannot allocate
+memory`. Build it in a separate Colima profile instead of resizing the one the
+self-host runs in, then load the image into the self-host's VM:
+
+```sh
+colima start agbuild --activate=false --cpus 4 --memory 8 --disk 40
+DOCKER_CONTEXT=colima-agbuild ag-patches/build-web.sh --rev N
+docker --context colima-agbuild save multica-web-ag:<tag>-ag.N multica-web-ag:<tag> \
+  | docker --context colima load
+colima stop agbuild
+```
+
+`--activate=false` keeps `colima` as the default Docker context, so nothing else
+on the machine starts talking to the build VM.
+
 Run the guard tests alone with `ag-patches/test.sh`. CI runs the same script on
 PRs into `ag/**` (`.github/workflows/ag-patches.yml`).
 
