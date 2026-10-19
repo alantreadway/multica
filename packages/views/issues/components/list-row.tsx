@@ -21,7 +21,8 @@ import { ProjectIcon } from "../../projects/components/project-icon";
 import { PriorityIcon } from "./priority-icon";
 import { ProgressRing } from "./progress-ring";
 import { IssueActionsContextMenu } from "../actions";
-import { LabelChip } from "../../labels/label-chip";
+import { AgLabelRow } from "../../labels/ag-label-row";
+import { normalizeLabelDisplay } from "@multica/core/issues/stores/ag-label-display";
 import { CustomStatusChip } from "./custom-status-chip";
 import { IssueDuplicateOfMarker } from "./issue-duplicates";
 import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
@@ -83,7 +84,8 @@ function ListRowContent({
   const showAssignee = storeProperties.assignee && issue.assignee_type && issue.assignee_id;
   const showStartDate = storeProperties.startDate && issue.start_date;
   const showDueDate = storeProperties.dueDate && issue.due_date;
-  const showLabels = storeProperties.labels && labels.length > 0;
+  const labelDisplay = normalizeLabelDisplay(storeProperties.labels);
+  const showLabels = labelDisplay !== "off" && labels.length > 0;
 
   return (
     <IssueActionsContextMenu issue={issue}>
@@ -144,16 +146,11 @@ function ListRowContent({
               </span>
             )}
             {showLabels && (
-              <span className="ml-1.5 hidden md:inline-flex shrink-0 items-center gap-1 max-w-[260px] overflow-hidden">
-                {labels.slice(0, 3).map((label) => (
-                  <LabelChip key={label.id} label={label} />
-                ))}
-                {labels.length > 3 && (
-                  <span className="text-micro text-muted-foreground">
-                    +{labels.length - 3}
-                  </span>
-                )}
-              </span>
+              <AgLabelRow
+                labels={labels}
+                display={labelDisplay}
+                className="ml-1.5 hidden md:flex shrink-0 max-w-[260px]"
+              />
             )}
             {cardCustomProperties.length > 0 && (
               <span className="ml-1.5 hidden md:inline-flex shrink-0 items-center gap-1 max-w-[260px] overflow-hidden">
