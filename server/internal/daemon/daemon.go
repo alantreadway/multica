@@ -662,6 +662,10 @@ type Daemon struct {
 
 	agDrain agDrainState // AG patch: drain mode, guarded by claimMu (see ag_drain.go)
 	agQuota agQuotaState // AG patch: Claude quota tracker and hold (see ag_quota.go)
+	agPace  agPaceState  // AG patch: Claude pacing (see ag_quota_pace.go)
+
+	agSettings agSettingsState // AG patch: runtime backup setting (see ag_quota_report.go)
+	agBackup   agBackupState   // AG patch: backup Claude account (see ag_quota_backup.go)
 
 	agSlotDir string                      // AG patch: slot dir override for tests (see ag_slotlock.go)
 	agSlots   atomic.Pointer[agTaskSlots] // AG patch: set by pollLoop (see ag_slotlock.go)
@@ -2207,6 +2211,7 @@ func (d *Daemon) run(ctx context.Context, healthLn net.Listener) error {
 
 	// Start workspace sync loop to discover newly created workspaces.
 	go d.agOverlapLoop(ctx) // AG patch: handoff
+	go d.agBackupLoop(ctx)  // AG patch: backup account
 	go d.workspaceSyncLoop(ctx)
 	go d.terminalReportReplayLoop(ctx)
 
@@ -4599,7 +4604,7 @@ func (d *Daemon) runHeartbeatTick(ctx context.Context, rid string) bool {
 		return false
 	}
 	d.logger.Debug("heartbeat: HTTP tick", "runtime_id", rid)
-	resp, err := d.client.SendHeartbeatWithDrain(ctx, rid, d.agDrainReport())
+	resp, err := d.client.SendHeartbeatWithReports(ctx, rid, d.agDrainReport(), d.agQuotaReport(rid))
 	if err != nil {
 		if ctx.Err() == nil {
 			if isRuntimeNotFoundError(err) {
@@ -4634,6 +4639,7 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 	if resp == nil {
 		return
 	}
+	d.agApplyAck(runtimeID, resp.AGSettings, resp.AGCapabilities) // AG patch: runtime backup setting
 	if resp.PendingUpdate != nil || resp.PendingModelList != nil || resp.PendingLocalSkills != nil || resp.PendingLocalSkillImport != nil {
 		d.logger.Debug("heartbeat: pending actions",
 			"runtime_id", runtimeID,
@@ -4744,7 +4750,7 @@ func (d *Daemon) handlePendingWorkHint(runtimeID, kind string) {
 		return
 	}
 	hbCtx, cancel := context.WithTimeout(ctx, pendingWorkHeartbeatTimeout)
-	resp, err := d.client.SendHeartbeatWithDrain(hbCtx, runtimeID, d.agDrainReport())
+	resp, err := d.client.SendHeartbeatWithReports(hbCtx, runtimeID, d.agDrainReport(), d.agQuotaReport(runtimeID))
 	cancel()
 	if err != nil {
 		if isRuntimeNotFoundError(err) {
@@ -8611,6 +8617,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		agentCustomEnv = task.Agent.CustomEnv
 	}
 	layerCustomEnvAndHermesHome(agentEnv, agentCustomEnv, env.HermesHome, d.logger)
+	d.agApplyClaudeAccount(provider, task, agentEnv) // AG patch: backup account
 	if provider == "reasonix" {
 		reasonixStateHome, err := prepareReasonixTaskStateHome(d.cfg.Profile, task.RuntimeID, task.AgentID)
 		if err != nil {
@@ -8765,7 +8772,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		ClaudeSettingsPath:     env.ClaudeSettingsPath,
 		QwenpawWorkspace:       env.QwenpawWorkspace,
 	}
-	execOpts.AGOnRateLimit = d.agQuotaObserver(task, provider, agentEnv) // AG patch: quota
+	defer d.agQuotaWire(&execOpts, task, provider, agentEnv)() // AG patch: quota
 	// Some providers do not reliably load the per-task runtime config files we
 	// write into the task workdir:
 	//   - openclaw is pinned to the task workdir via the per-task config we
@@ -8910,6 +8917,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		// than being relabeled resumable by a benign-looking second error.
 		result, tools = reconcileFreshRetryResult(firstResult, firstUsage, firstTools, retryResult, retryTools, retryErr)
 	}
+	result, tools = d.agQuotaResumeOnBackup(ctx, backend, task, provider, agentEnv, execOpts, taskLog, env.CodexHome, &msgSeq, result, tools) // AG patch: backup account
 	phaseRecorder.Mark(taskPhaseTurnCompleted)
 
 	elapsed := time.Since(taskStart).Round(time.Second)

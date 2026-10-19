@@ -43,6 +43,9 @@ every rebase (README, "Rebase onto a new upstream tag").
 | GitHub PR polling (token mode) | `candidate` | [#8111](https://github.com/multica-ai/multica/issues/8111) (open feature request, same need) |
 | Daemon handoff (overlap mode) | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) |
 | Claude quota tracker and auto-hold (daemon) | `fork-only` (the `rate_limit_event` parsing alone is a `candidate`) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255), #8965 (closed), #8969 (withdrawn) |
+| Claude pacing: 80% knee, weekly curve, EWMA cap (daemon) | `fork-only` | [#6011](https://github.com/multica-ai/multica/pull/6011) (adaptive admission, open), [#8331](https://github.com/multica-ai/multica/pull/8331) (static caps, closed unmerged), [#7015](https://github.com/multica-ai/multica/issues/7015), [#4205](https://github.com/multica-ai/multica/issues/4205) (ask for static caps) |
+| Claude quota report and runtime backup setting (daemon + backend) | `fork-only` (the report alone is a `candidate` only if it lines up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (plan quota per runtime, open), [#6000](https://github.com/multica-ai/multica/issues/6000) (the request, open) |
+| Backup Claude account failover, urgent only (daemon) | `fork-only` | [#5282](https://github.com/multica-ai/multica/pull/5282), [#8579](https://github.com/multica-ai/multica/pull/8579) (fallback runtime, open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC), [#5704](https://github.com/multica-ai/multica/issues/5704), [#5618](https://github.com/multica-ai/multica/issues/5618) (resume after an account switch, fixed by [#5715](https://github.com/multica-ai/multica/pull/5715)) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -705,6 +708,273 @@ captured yet; that fixture is synthetic.
   - Fit: quota-aware dispatch is operator tooling for self-hosters on a
     subscription plan; the obstacle is the open overlapping work and the missing
     dispatch-gate design, not the vision.
+
+### Claude pacing: 80% knee, weekly curve, EWMA cap (daemon)
+
+Builds on the quota tracker above. From the daemon's own Claude account's 5-hour
+and 7-day windows it derives a cap C on Claude runs in flight, and the batch
+claim starts at most `C - active` more. `active` counts Claude runs on this
+account (running ones, tasks claimed until their dispatch goroutine exits, and
+during a handoff overlap the predecessor's); runs on an agent's own `CLAUDE_CONFIG_DIR` are
+tracked per account but do not count. C limits new claims only; running tasks
+are never touched, and it is read every claim cycle, so no restart is needed.
+
+- Session: full `MULTICA_DAEMON_MAX_CONCURRENT_TASKS` while 5h utilisation is
+  below 80%; above that `n = (0.95 - u) / (T * b)` runs, to land on 95% at the reset.
+- Weekly: full max while utilisation is at or under the linear curve
+  `c = min(elapsed fraction of 7d, 0.97)`; over it `n = (0.97 - u) / (T * b)`.
+- `b` is the burn per run in fraction/hour: an EWMA (alpha 0.3) of du/dt over
+  the time-weighted mean active runs (at least 1), sampled when utilisation
+  changes or 15 minutes after the last sample. A negative du is dropped; a
+  sample with no change and under 0.05 runs on average is skipped so idle time
+  does not decay the estimate.
+- C = clamp(floor(min(n_5h, n_7d)), 1, Max). C moves one step toward that at most
+  every 10 minutes (the first step after a quiet period is immediate). When a
+  window rolls over or a hold clears, C jumps straight to the target.
+- Split claim: with headroom `h = C - active` below the free slots, Claude
+  runtimes claim with `max_tasks = h`, then the other runtimes claim the
+  remaining slots; the two results are merged. No headroom drops the Claude
+  runtimes from the claim, like a hold.
+- `/health` gains `ag_quota.active_claude` and `ag_quota.effective_cap`. Utilisation
+  and resets come from the shared `ag_quota.json`; burn estimates and C are
+  per process.
+- Handoff: the successor is the only daemon that claims during an overlap. It
+  adds the predecessor's `ag_quota.active_claude`, read from the `/health` it
+  already polls, to its own count: the last known value when the read fails,
+  all of the predecessor's tasks when it never reported one (an older build),
+  and only its own once the overlap ends. The first `ag_quota.effective_cap` it
+  reads (clamped to 1..Max) seeds its limiter, so it never starts above the
+  predecessor's pace.
+
+Fail policy: no windows or no state is Max; where the formula applies and the
+burn is unknown C holds its position, and a fresh process (a restart, or a
+successor before its first read of the predecessor's cap) starts that position
+at 1; an expired window constrains nothing; C
+never goes below 1, so a lone run keeps refreshing utilisation. The maths takes
+the account as a parameter (`agPaceEvaluate`), so a backup account can reuse it.
+
+- Test prefix: `TestAGPatch` / `AG patch:` (`TestAGPatchPace*`, incl. `TestAGPatchPaceSpec*`; worked examples
+  A-H from the design as table tests)
+- Files:
+  - `server/internal/daemon/ag_quota_pace.go`, `ag_quota_pace_test.go`,
+    `ag_quota_pace_spec_test.go`, `ag_quota_pace_start_test.go` (new)
+  - `server/internal/daemon/ag_quota.go` (`agQuotaClaim` applies C,
+    `agQuotaObserver` also returns a `done` func, the observe hook, `/health`),
+    `ag_handoff.go` (reads the predecessor's `ag_quota` block in the overlap
+    step; `agUntrackTask` releases the task's claim), `daemon.go` (the `agPace` field; the observer hook is now
+    `defer d.agQuotaWire(...)()`)
+  - `ag_quota_test.go`, `ag_quota_edge_test.go` (the observer's second return value)
+  - `ag-patches/test.sh` (`AG_GO_MIN_TESTS`)
+
+- Upstream:
+  - Status: `fork-only`.
+  - Overlap: [#6011](https://github.com/multica-ai/multica/pull/6011) (adaptive
+    admission, open) is the nearest. [#8331](https://github.com/multica-ai/multica/pull/8331)
+    (static per-provider caps) was closed unmerged; [#7015](https://github.com/multica-ai/multica/issues/7015)
+    and [#4205](https://github.com/multica-ai/multica/issues/4205) ask for static
+    caps. Last checked 2026-10-18.
+  - Fit: pacing against a subscription's rolling windows is operator tooling
+    for self-hosters. Upstream has so far preferred static caps or generic
+    admission control over provider-specific quota maths.
+
+### Claude quota report and runtime backup setting (daemon + backend)
+
+The daemon attaches an `ag_quota` report to every heartbeat (HTTP, WebSocket and
+the pending-work hint heartbeat) for its Claude runtimes, beside `ag_drain`.
+The backend merges it into `agent_runtime.metadata.ag_quota` and publishes a
+`daemon:register` refresh (`action: "quota"`) so the Runtimes page refetches. A
+write that only moves a window's `observed_at` is stored but not published. In
+the other direction `PUT /api/runtimes/{runtimeId}/ag-settings` stores
+`{backup_enabled, backup_max_concurrent}` for a Claude runtime and the heartbeat
+ack returns it as `ag_settings`. Detecting and using a backup account is the
+next patch ("Backup Claude account failover"); this patch alone reports
+`detected/valid: false` plus the stored setting.
+
+- Report: `account` (`primary`), `hold` (`until`, `window`; absent when not held),
+  `effective_cap` (the pacing limiter's cap, `0` while a hold gates Claude claims),
+  `max` (`MULTICA_DAEMON_MAX_CONCURRENT_TASKS`), `windows` (`five_hour` and
+  `seven_day`: `utilization`, `resets_at`, `observed_at`), `backup`
+  (`detected`, `valid`, `reason`, `enabled`, `max_concurrent`) and
+  `backup_windows` (empty until the backup patch fills it). It describes the daemon's own account, like
+  the tracker and the limiter. Utilisation is rounded to 0.01 and `observed_at`
+  to the minute so the guarded write fires only on a real change. Only Claude
+  runtime IDs report; only the heartbeating daemon reports (the successor during
+  a handoff).
+- Writes: `SetAgentRuntimeAGQuota` is one guarded statement (`IS DISTINCT FROM`,
+  like `SetAgentRuntimeAGDrain`); an unchanged report writes nothing. The memo is
+  rebuilt from the row on the HTTP path and kept on the WebSocket lease, which
+  re-runs the guarded query every 60s. A malformed report (unknown account,
+  negative counts) is logged and not written. There is no `Clear` query: nothing
+  stops reporting short of a registration, and registration already drops
+  `ag_quota`.
+- Setting storage: `metadata.ag_settings`, kept through registration. Both
+  register upserts in `runtime.sql` now end in
+  `metadata = EXCLUDED.metadata || jsonb_strip_nulls(jsonb_build_object('ag_settings', agent_runtime.metadata -> 'ag_settings'))`,
+  so only `ag_settings` survives a re-register; stale `ag_drain`, `ag_quota` and
+  `offline_reason` still clear. No migration.
+- Ack delivery: the HTTP ack reads `ag_settings` from the runtime row it already
+  loaded. The WebSocket hot path never reads `agent_runtime`, so the setting rides
+  the lease's quota memo, read back by the same guarded query on the lease's
+  first beat and every 60s: a toggle reaches the daemon within about a minute.
+- Endpoint: gated by `canEditRuntime`; Claude runtimes only (400 otherwise);
+  `backup_enabled` required, `backup_max_concurrent` 1..100 and 2 when unset
+  (400 outside the range); publishes `daemon:register` with `action: "ag_settings"`
+  only when the stored value changed. It is its own handler, not a field on
+  `UpdateAgentRuntimeRequest`.
+- Daemon: `handleHeartbeatActions` stores the ack's setting per runtime. A
+  received ack with no `ag_settings` disables backup for that runtime at once
+  (fail closed, so rolling the server back to stock stops failover on the next
+  heartbeat). The last setting is kept for 10 minutes only to ride out an ack
+  that never arrives (a missed or failed heartbeat), and dropped on restart.
+
+Fail policy: an unpatched daemon sends no `ag_quota` and ignores `ag_settings`; an
+unpatched server ignores `ag_quota` and sends no `ag_settings`.
+
+- Test prefix: `TestAGPatch` / `AG patch:` (`TestAGPatchQuota*`,
+  `TestAGPatchRuntimeSettings*`, `TestAGPatchBackupSetting*`, `TestAGPatchLeaseKeepsQuotaMemo`).
+  The DB-backed ones in `internal/handler` need `DATABASE_URL` and are not run by
+  `ag-patches/test.sh`.
+- Files:
+  - `server/pkg/protocol/ag_quota.go`, `ag_quota_test.go`, `ag_quota_compat_test.go` (new);
+    `messages.go` (`AGQuota` on the heartbeat request, `AGSettings` on the ack)
+  - `server/internal/agquota/agquota.go`, `agquota_test.go` (new)
+  - `server/internal/handler/ag_quota.go`, `ag_quota_settings.go`,
+    `ag_quota_test.go`, `ag_quota_settings_spec_test.go` (new); `daemon.go` (HTTP
+    apply, the ack map, the WS apply and ack)
+  - `server/internal/daemonws/hub.go` (lease memo, the report on the context),
+    `ag_quota_test.go` (new)
+  - `server/cmd/server/router.go` (one route)
+  - `server/pkg/db/queries/runtime.sql` and the regenerated
+    `server/pkg/db/generated/runtime.sql.go` (two new queries, the two upsert edits)
+  - `server/internal/daemon/ag_quota_report.go`, `ag_quota_report_test.go`,
+    `ag_quota_report_spec_test.go` (new); `client.go` (`SendHeartbeatWithReports`), `daemon.go` (the field, the two HTTP
+    call sites, one line in `handleHeartbeatActions`), `wakeup.go` (the WS frame)
+  - `ag-patches/test.sh` (`./internal/agquota`, `AG_GO_MIN_TESTS` 149)
+
+- Upstream:
+  - Status: `fork-only`. The report alone would be a `candidate` only if it
+    aligned with one of the open PRs below; the runtime-metadata setting is
+    fork-only.
+  - Overlap: [#7413](https://github.com/multica-ai/multica/pull/7413) ("show CLI
+    plan quota per runtime") and [#8679](https://github.com/multica-ai/multica/pull/8679)
+    ("show local plan usage for Claude, Cursor, Codex, and more signed-in CLIs")
+    both answer [#6000](https://github.com/multica-ai/multica/issues/6000); all
+    three open. They show plan usage; ours also carries hold, the pacing cap and a
+    backup setting. Last checked 2026-10-18.
+  - Fit: showing plan quota on the Runtimes page is a plausible product feature
+    (the three above); a per-runtime backup-account setting stored in metadata is
+    operator tooling for subscription users.
+
+### Backup Claude account failover, urgent only (daemon)
+
+When the daemon's own Claude account is on hold (the quota tracker), urgent issues
+can keep running on a second subscription. Off by default: it needs a backup login,
+the setting turned on from the runtime page, and a patched server (the claim filter).
+
+- Backup dir: `~/.claude-backup`, or `MULTICA_AG_CLAUDE_BACKUP_DIR`. Claude Code
+  picks the account from `CLAUDE_CONFIG_DIR`, so the backup is a second config dir
+  with its own login. `ag-patches/claude-backup-setup.sh` creates it, copies
+  `.claude.json` once (it holds `oauthAccount`, so it is per account and never
+  symlinked) and symlinks the shared parts of `~/.claude` into it: `settings.json`,
+  `CLAUDE.md`, `keybindings.json`, `statusline.*`, `plugins/`, `skills/`, `agents/`,
+  `commands/`, `hooks/`, `projects/`, `file-history/`, `todos/`, `shell-snapshots/`,
+  `session-env/`, `plans/` (only those that exist). A shared `projects/` is what
+  lets a session resume across accounts. It is idempotent, never overwrites a real
+  file or a foreign symlink (it reports a conflict and exits 1 after doing the
+  rest), and copies no credentials: they live in a separate macOS Keychain item
+  keyed by a hash of the config dir, so Alan runs
+  `CLAUDE_CONFIG_DIR=$HOME/.claude-backup claude auth login` once.
+- Detection (no quota spent): `CLAUDE_CONFIG_DIR=<dir> claude auth status --json`
+  with the claude binary the daemon already resolves, 10s timeout, at start and
+  every 30 minutes. The loop does nothing while the dir does not exist.
+  `detected` = the dir exists. `valid` = `loggedIn` and `authMethod == "claude.ai"`
+  and a subscription type and an email that differs from the primary's (checked the
+  same way). `reason` when not valid: `not_detected` (no dir), `not_logged_in`,
+  `same_account` (same email or same dir) or `check_failed` (the CLI failed, timed
+  out or printed something unreadable, or the primary could not be read). A result
+  older than an hour is treated as `check_failed`.
+- Failing over needs all of: the primary on hold; the runtime's setting enabled and
+  received within 10 minutes; the backup valid; and the server's heartbeat ack
+  carrying `ag_capabilities: ["claim_filter"]` (also within 10 minutes).
+- Claim: while failing over, a Claude runtime with the backup enabled stays in the
+  batch claim, with `ag_min_issue_priority: {<runtime id>: "urgent"}` and
+  `max_tasks = min(pacing room, backup_max_concurrent - active on backup)`. Active
+  counts runs on the backup plus tasks claimed and not yet running. The pacing room
+  is the pacing maths of the previous patch run on the backup's own windows. Tasks without an issue (chat,
+  autopilot) are not claimed on the backup. A runtime without the setting, the
+  backup being held itself, or no room leaves Claude out of the claim, as any hold
+  does. The per-runtime legacy claim (`client.go`, used on a 404 from the batch
+  route) cannot filter, so it is never used for the filtered runtimes, and a daemon
+  already on the legacy route does not claim Claude while on hold.
+- Env swap: an urgent task starting while the primary is held gets
+  `CLAUDE_CONFIG_DIR` = the backup, only when its effective dir was the primary (an
+  agent's own `custom_env` dir is left alone). A task that is not urgent is not
+  moved, even if it was claimed just before the hold started; it fails as quota and
+  comes back at the reset through the deferred retry. The same goes for an urgent
+  task that finds the backup held or already at `backup_max_concurrent`: each task
+  takes a backup slot at the swap, held until its run is counted, so tasks claimed
+  just before the hold cannot all move over. When the hold ends at the
+  primary's reset, new tasks go back to the primary.
+- In-place resume: a run that saw `rejected` on the primary resumes on the backup
+  with `--resume <this run's session>` and the prompt "You hit a usage limit and
+  have been moved to another account; continue where you left off", only for an
+  urgent issue, with the backup valid, enabled and not held, and a free slot under
+  `backup_max_concurrent` (a slot reserved the same way, counted once: it is released when the resumed run
+  is counted). Usage
+  from both runs is summed. If the backup rejects the resume the run fails as quota
+  with its original result: no fresh-session retry, because tools already ran.
+- Report: `ag_quota.account` is `backup` while failing over, with the backup's
+  `max` and `effective_cap` (0 when the backup is held too); `windows` and `hold`
+  stay the primary's, which is why it failed over. `backup.{detected,valid,reason}`
+  and `backup_windows` (the backup's five_hour and seven_day) are always filled.
+- Change to the report and settings patch: a received ack with no `ag_settings` now
+  disables backup at once; the 10 minute TTL covers only acks that never arrive.
+- Unverified, needs Alan's backup login: that `--resume` works across the two
+  accounts' config dirs on this machine, and that the Keychain item for the backup
+  dir is readable from a launchd-started daemon. Commands are in the PR.
+
+Fail policy (everything fails closed for failover): backup check fails then
+`valid:false, reason: check_failed`, retried next interval; no `ag_settings` on a
+received ack, or none for 10 minutes, disables backup; no `claim_filter` capability
+means no Claude claims on the backup; the legacy claim is never used for Claude on
+the backup; a rejected resume is a normal quota failure.
+
+- Test prefix: `TestAGPatchBackup*` (`Detection`, `AckGates`, `EnvSwap`, `Claim`,
+  `Report`, `Pacing`, `ResumeInPlace`, `ResumeSessionAndPrompt`, `ConcurrentResumes`,
+  `SwapLimit`, `RunTaskSwap`, `NoIssueTaskStaysOnPrimary`, `SetupScript`,
+  `SetupLinksEverySpecItem`), plus the null-ack cases in
+  `TestAGPatchBackupSetting*`. They use a test-created `claude` and a fake claim
+  server; no installed CLI is used.
+- Files:
+  - `server/internal/daemon/ag_quota_backup.go`, `ag_quota_backup_test.go`,
+    `ag_quota_backup_run_test.go`, `ag_quota_backup_setup_test.go`,
+    `ag_quota_backup_spec_test.go`, `ag_quota_backup_limit_test.go` (new)
+  - `server/internal/daemon/ag_quota_report.go` (null ack disables; report fill),
+    `ag_quota.go` (rejection note and slot release in the observer, one hook in
+    `agQuotaClaim`), `ag_handoff.go` (slot release in `agUntrackTask`)
+  - hooks: `daemon.go` (the `agBackup` field, `agApplyAck` in
+    `handleHeartbeatActions`, `agApplyClaudeAccount` after the custom env,
+    `agQuotaResumeOnBackup` after the fresh-session retry, `agBackupLoop` at start),
+    `client.go` and `wsrpc.go` (`agClaimBody` on the batch claim body,
+    `agLegacyClaimIDs` in `claimTasksLegacy`), `types.go` (`AGIssuePriority` on
+    `Task`)
+  - `server/pkg/protocol/messages.go` (`AGCapabilities` on the ack, the same line as
+    the claim filter patch)
+  - `ag-patches/claude-backup-setup.sh` (new), `ag-patches/test.sh`
+    (`AG_GO_MIN_TESTS` 163)
+
+- Upstream:
+  - Status: `fork-only`. It encodes one subscriber's two-account setup.
+  - Overlap: fallback-runtime work [#5282](https://github.com/multica-ai/multica/pull/5282)
+    and [#8579](https://github.com/multica-ai/multica/pull/8579) (open) and the RFC
+    [#6650](https://github.com/multica-ai/multica/issues/6650); they fail over to a
+    different runtime, ours to a different account on the same CLI. Inherits the
+    resume risk from [#5704](https://github.com/multica-ai/multica/issues/5704) and
+    [#5618](https://github.com/multica-ai/multica/issues/5618) (resume after an
+    account switch, fixed by [#5715](https://github.com/multica-ai/multica/pull/5715)).
+    Last checked 2026-10-18.
+  - Fit: provider fallback is on upstream's radar; switching accounts under a
+    personal subscription is operator tooling and unlikely to be accepted.
 
 ## Tooling (not a patch)
 

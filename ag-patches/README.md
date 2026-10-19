@@ -369,6 +369,23 @@ with your shell's environment, losing the plist's settings
 Self-host defaults auto-update off (`MULTICA_DAEMON_AUTO_UPDATE`). Keep it off: a
 self-update would replace the patched binary with a stock release.
 
+### Backup Claude account (urgent issues only)
+
+Off by default. While the daemon's own Claude account is on hold, urgent issues
+can run on a second subscription. Setup, once:
+
+1. `ag-patches/claude-backup-setup.sh` creates `~/.claude-backup` (or
+   `$MULTICA_AG_CLAUDE_BACKUP_DIR`), copies `.claude.json` and symlinks the shared
+   parts of `~/.claude` into it. Safe to run again; it never overwrites a real file.
+2. `CLAUDE_CONFIG_DIR=$HOME/.claude-backup claude auth login`, with the other
+   account.
+3. Turn the backup on from the Runtimes page (needs the patched backend). The
+   daemon checks the login every 30 minutes; the runtime's quota report shows
+   `backup.detected`, `valid` and `reason`.
+
+Rollback: switch the setting off, or roll the backend back (an ack without
+`ag_settings` turns it off on the next heartbeat). See `PATCHES.md` for the rules.
+
 ### Rules
 
 - Build the CLI from the same tag the backend runs (`MULTICA_IMAGE_TAG`). Never

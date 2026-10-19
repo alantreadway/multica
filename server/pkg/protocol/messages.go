@@ -404,6 +404,8 @@ type DaemonHeartbeatRequestPayload struct {
 	// mode (stock daemons), which tells the server to leave runtime metadata
 	// alone; see DaemonDrainReport.
 	AGDrain *DaemonDrainReport `json:"ag_drain,omitempty"`
+	// AGQuota is the AG patch Claude quota report; Claude runtimes only.
+	AGQuota *DaemonQuotaReport `json:"ag_quota,omitempty"`
 }
 
 // DaemonDrainReport is the drain state a patched daemon attaches to every
@@ -433,6 +435,7 @@ type DaemonHeartbeatAckPayload struct {
 	RuntimeID               string                                  `json:"runtime_id"`
 	Status                  string                                  `json:"status"`
 	ServerCapabilities      []string                                `json:"server_capabilities,omitempty"`
+	AGCapabilities          []string                                `json:"ag_capabilities,omitempty"` // AG patch: urgent-only claim filter
 	RuntimeGone             bool                                    `json:"runtime_gone,omitempty"`
 	PendingUpdate           *DaemonHeartbeatPendingUpdate           `json:"pending_update,omitempty"`
 	PendingModelList        *DaemonHeartbeatPendingModelList        `json:"pending_model_list,omitempty"`
@@ -443,6 +446,9 @@ type DaemonHeartbeatAckPayload struct {
 	// that don't know this field silently ignore it (standard JSON behavior)
 	// and fall back to the singular PendingLocalSkillImport above.
 	PendingLocalSkillImports []DaemonHeartbeatPendingLocalSkillImport `json:"pending_local_skill_imports,omitempty"`
+	// AGSettings is the AG patch runtime setting stored by the UI; nil when none
+	// is stored or the server is stock.
+	AGSettings *AGRuntimeSettings `json:"ag_settings,omitempty"`
 }
 
 // HeartbeatStatusRuntimeGone is the ack Status used when the runtime row no
