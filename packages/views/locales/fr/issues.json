@@ -608,6 +608,7 @@
     "save_action": "Enregistrer",
     "cancel_edit": "Annuler",
     "copy_action": "Copier",
+    "copy_slack_action": "Copier (Slack)",
     "copy_link_action": "Copier le lien",
     "link_copied": "Lien copié",
     "link_copy_failed": "Échec de la copie du lien",
