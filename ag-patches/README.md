@@ -328,7 +328,9 @@ It runs `ag-patches/test.sh`, then cross-compiles `./cmd/multica`
 (`CGO_ENABLED=0 GOOS=darwin GOARCH=arm64`, ldflags `-X main.version=<tag>-ag.<n>`
 and the commit, as in the `Makefile`) with local `go` if present, else in a
 `golang:<version from server/go.mod>` container, to
-`dist/multica-<tag>-ag.<n>-darwin-arm64`. `--skip-tests` skips the guard.
+`dist/multica-<tag>-ag.<n>-darwin-arm64`. The container keeps Go's module and
+build caches in the `multica-ag-gomod` and `multica-ag-gocache` volumes; they
+are shared by every container run, so pruning them makes the next build cold. `--skip-tests` skips the guard.
 `AG_FORCE_DOCKER=1` uses the container even when `go` is installed. `--rev`
 defaults to 1 and is shared with `build-web.sh`: both builds of one release use
 the same number, and the script refuses a `--rev` whose `ag/<tag>-ag.<n>` tag
