@@ -126,8 +126,8 @@ docker compose -f docker-compose.selfhost.yml -f docker-compose.isolated.yml up 
 ```
 
 Roll back: remove that line and run the same `up -d backend`. The drain badge
-changes nothing in the schema; the PR snapshot fields add migration `573`, which
-is additive and stays behind harmlessly (see that section); label ordering adds `574`, same story (see "Label ordering"). The stock backend ignores the `ag_drain` key in
+changes nothing in the schema; the PR snapshot fields add migration `9001`, which
+is additive and stays behind harmlessly (see that section); label ordering adds `9002`, same story (see "Label ordering"). The stock backend ignores the `ag_drain` key in
 `agent_runtime.metadata` and never clears it. Registration overwrites `metadata`
 wholesale, so a runtime that re-registers loses the key. Until then, a runtime
 that was draining at rollback keeps it, and a patched web image keeps showing
@@ -417,7 +417,7 @@ Both halves are needed for the full effect, and neither touches the self-host
 until you switch it:
 
 1. Backend: `ag-patches/build-backend.sh --rev N`, then switch as in "Backend
-   image". The backend's migrate step applies `573_ag_github_pr_snapshot_extras`
+   image". The backend's migrate step applies `9001_ag_github_pr_snapshot_extras`
    (four nullable columns, no index) on start.
 2. CLI: `ag-patches/build-cli.sh --rev N`, then install it next to the stock one
    as in "Daemon/CLI patch, Install" (`~/.local/bin/multica-ag`). Use
@@ -438,8 +438,8 @@ anyway (only with the stock backend running, and no patched backend to come
 back to):
 
 ```sh
-psql "$DATABASE_URL" -f server/migrations/573_ag_github_pr_snapshot_extras.down.sql
-psql "$DATABASE_URL" -c "DELETE FROM schema_migrations WHERE version = '573_ag_github_pr_snapshot_extras'"
+psql "$DATABASE_URL" -f server/migrations/9001_ag_github_pr_snapshot_extras.down.sql
+psql "$DATABASE_URL" -c "DELETE FROM schema_migrations WHERE version = '9001_ag_github_pr_snapshot_extras'"
 ```
 
 The patched CLI needs no rollback; keep using `multica` to avoid `link` and
@@ -458,7 +458,7 @@ are in [`PATCHES.md`](./PATCHES.md).
 It needs the server half: the web image alone has nothing to save the order to.
 
 1. Backend: `ag-patches/build-backend.sh --rev N`, then switch as in "Backend
-   image". The backend's migrate step applies `574_label_position` on start: one
+   image". The backend's migrate step applies `9002_ag_label_position` on start: one
    `position` column on `issue_label` (default 0, no index, no foreign key),
    backfilled in each workspace's current alphabetical order, so no label moves
    until someone drags one.
@@ -490,8 +490,8 @@ To drop the column anyway (only with the stock backend running, and no patched
 backend to come back to; this loses the saved order):
 
 ```sh
-psql "$DATABASE_URL" -f server/migrations/574_label_position.down.sql
-psql "$DATABASE_URL" -c "DELETE FROM schema_migrations WHERE version = '574_label_position'"
+psql "$DATABASE_URL" -f server/migrations/9002_ag_label_position.down.sql
+psql "$DATABASE_URL" -c "DELETE FROM schema_migrations WHERE version = '9002_ag_label_position'"
 ```
 
 The `down` migration has not been run in testing.
@@ -511,23 +511,34 @@ The web tests run with `pnpm test`.
 
 ## Rebase onto a new upstream tag
 
-For a new upstream tag `vX`, from the current patch branch `ag/v0.6.2`:
+For a new upstream tag `vX`, from the current patch branch `ag/v0.6.3`:
 
 1. Fetch upstream tags: `git fetch upstream --tags`.
-2. Create the new branch: `git switch -c ag/vX ag/v0.6.2`.
+2. Create the new branch: `git switch -c ag/vX ag/v0.6.3`.
 3. Re-check upstream before replaying anything. For each patch in
    [`PATCHES.md`](./PATCHES.md) (see "Upstream status" there), look at its
    overlapping PRs and issues on `multica-ai/multica` (read-only; open nothing
    there) and search for newer duplicates. If upstream merged it in `vX` or
    earlier, or replaced it, drop the patch from the replay (`git rebase
-   --onto vX v0.6.2` with the patch's commits excluded, or `git rebase -i`) and
+   --onto vX v0.6.3` with the patch's commits excluded, or `git rebase -i`) and
    delete its entry. Otherwise refresh its **Upstream** line and the
    "Last checked" date.
-4. Replay the patches: `git rebase --onto vX v0.6.2`.
+4. Replay the patches: `git rebase --onto vX v0.6.3`. This flattens the PR
+   merge commits, so a conflict a merge commit resolved comes back on the
+   commit that caused it (usually `PATCHES.md` and the test lists in
+   `test.sh`). Afterwards the tree must equal
+   `git merge-tree --write-tree ag/v0.6.3 vX` plus your conflict fixes; diff the
+   two to check.
 5. Resolve conflicts. The web patches concentrate in `swimlane-view.tsx`, and the
    daemon patch hooks into `daemon.go`, `health.go`, `auto_update.go` and
-   `cmd_daemon.go`, so expect conflicts there.
-6. Run `ag-patches/test.sh`.
+   `cmd_daemon.go`, so expect conflicts there. Fork migrations are numbered
+   from `9001` up so they never share a number with upstream's
+   (`TestMigrationNumericPrefixesAreUnique` fails if they do); give a new one
+   the next free `9xxx` number, never upstream's next one.
+6. Run `ag-patches/test.sh`, then the whole Go suite against a scratch
+   Postgres (`go run ./cmd/migrate up`, then `go test ./...` with
+   `DATABASE_URL` set), since the guard skips the DB-backed tests. Run it as a
+   non-root user: as root, Claude-launch tests fail on Claude's root check.
 7. Build: `ag-patches/build-web.sh --rev 1`, `ag-patches/build-cli.sh --rev 1` and
    `ag-patches/build-backend.sh --rev 1`.
 8. Upgrade the self-host to `vX`, then switch to the new images: the patched

@@ -834,7 +834,7 @@ a backend image from `ag-patches/build-backend.sh` and a CLI from
   `server/internal/integrations/ghsnapshot`, list response in
   `server/internal/handler`) need Postgres (see test.sh header)
 - Files:
-  - `server/migrations/573_ag_github_pr_snapshot_extras.up.sql`, `.down.sql` (new)
+  - `server/migrations/9001_ag_github_pr_snapshot_extras.up.sql`, `.down.sql` (new)
   - `server/pkg/db/queries/ag_github_snapshot.sql` (new) and
     `server/pkg/db/generated/ag_github_snapshot.sql.go` (new); `models.go`,
     `github.sql.go`, `github_snapshot.sql.go` regenerated with sqlc for the new
@@ -876,7 +876,7 @@ A workspace sets the order its labels appear in, by dragging rows in Manage
 labels. Until now labels were sorted by `LOWER(name)` with no order field.
 Status: in review (PR against `ag/v0.6.2`).
 
-`issue_label` gains `position INTEGER NOT NULL DEFAULT 0` (migration `574`).
+`issue_label` gains `position INTEGER NOT NULL DEFAULT 0` (migration `9002`).
 Position is per `(workspace_id, resource_type)`, so reordering issue labels
 never touches agent or skill labels. The migration backfills each namespace in
 its current alphabetical order (`ROW_NUMBER() OVER (PARTITION BY workspace_id,
@@ -933,7 +933,7 @@ the rows roll back and the server's error shows as a toast. See README
   `labels/mutations.test.tsx`, `api/client.test.ts`) run in `ag-patches/test.sh`
   and under `pnpm test`
 - Files:
-  - `server/migrations/574_label_position.up.sql`, `.down.sql` (new)
+  - `server/migrations/9002_ag_label_position.up.sql`, `.down.sql` (new)
   - `server/pkg/db/queries/issue_label.sql`; `server/pkg/db/generated/issue_label.sql.go`
     and `models.go` regenerated with sqlc
   - `server/internal/handler/label.go` (`Position` on `LabelResponse`,
