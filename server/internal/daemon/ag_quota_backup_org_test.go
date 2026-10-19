@@ -27,15 +27,27 @@ func TestAGPatchBackupAccountState(t *testing.T) {
 
 		now := f.clock.now()
 		f.event(t, 0.9, 0.1, now.Add(4*time.Hour), now.Add(6*24*time.Hour)) // the primary is deep into its session
-		backupWindows := map[string]agQuotaWindow{}
-		primaryWindows := f.d.agQuotaDefaultWindows()
-		if len(primaryWindows) == 0 || len(f.d.agQuotaAccountWindows(f.backupDir)) != 0 {
-			t.Fatalf("windows leaked: primary %v backup %v", primaryWindows, f.d.agQuotaAccountWindows(f.backupDir))
+		backupEnv := map[string]string{"CLAUDE_CONFIG_DIR": f.backupDir}
+		fresh := fmt.Sprintf(`{"status":"allowed","rateLimitType":"five_hour","resetsAt":%d,"unifiedWindows":{"five_hour":{"utilization":0.05,"resetsAt":%d},"seven_day":{"utilization":0.05,"resetsAt":%d}}}`,
+			now.Add(4*time.Hour).Unix(), now.Add(4*time.Hour).Unix(), now.Add(6*24*time.Hour).Unix())
+		agQuotaObs(f.d, Task{ID: "evt-backup"}, "claude", backupEnv)(json.RawMessage(fresh))
+		primaryWindows, backupWindows := f.d.agQuotaDefaultWindows(), f.d.agQuotaAccountWindows(f.backupDir)
+		if len(primaryWindows) == 0 || len(backupWindows) == 0 {
+			t.Fatalf("each dir should have its own windows: primary %v backup %v", primaryWindows, backupWindows)
 		}
-		pc, _ := f.d.agPaceEvaluate(f.acct, primaryWindows, false, 5, now)
-		bc, _ := f.d.agPaceEvaluate(f.backupDir, backupWindows, false, 5, now)
+		if *primaryWindows[agQuotaWindowFiveHour].Utilization == *backupWindows[agQuotaWindowFiveHour].Utilization {
+			t.Fatalf("windows leaked between the dirs: primary %v backup %v", primaryWindows, backupWindows)
+		}
+
+		done := f.d.agPaceRunStart("run-backup", f.backupDir, now)
+		defer done()
+		pc, pa := f.d.agPaceEvaluate(f.acct, primaryWindows, false, 5, now)
+		bc, ba := f.d.agPaceEvaluate(f.backupDir, backupWindows, false, 5, now)
 		if pc >= 5 || bc != 5 {
 			t.Fatalf("pacing is shared: primary cap %d, backup cap %d", pc, bc)
+		}
+		if pa != 0 || ba != 1 {
+			t.Fatalf("active runs are shared: primary %d, backup %d", pa, ba)
 		}
 
 		f.holdPrimary(t)

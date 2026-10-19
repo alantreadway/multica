@@ -1479,14 +1479,14 @@ the backup; a rejected resume is a normal quota failure.
 - Test prefix: `TestAGPatchBackup*` (`Detection`, `AckGates`, `EnvSwap`, `Claim`,
   `Report`, `AccountState`, `Pacing`, `ResumeInPlace`, `ResumeSessionAndPrompt`, `ConcurrentResumes`,
   `SwapLimit`, `RunTaskSwap`, `NoIssueTaskStaysOnPrimary`, `SetupScript`,
-  `SetupLinksEverySpecItem`), plus the null-ack cases in
+  `SetupLinksEverySpecItem`, `IdentityEdges`), plus the null-ack cases in
   `TestAGPatchBackupSetting*`. They use a test-created `claude` and a fake claim
   server; no installed CLI is used.
 - Files:
   - `server/internal/daemon/ag_quota_backup.go`, `ag_quota_backup_test.go`,
     `ag_quota_backup_run_test.go`, `ag_quota_backup_setup_test.go`,
     `ag_quota_backup_spec_test.go`, `ag_quota_backup_limit_test.go`,
-    `ag_quota_backup_org_test.go` (new)
+    `ag_quota_backup_org_test.go` (new), `ag_quota_backup_identity_test.go` (new)
   - `server/internal/daemon/ag_quota_report.go` (null ack disables; report fill),
     `ag_quota.go` (rejection note and slot release in the observer, one hook in
     `agQuotaClaim`), `ag_handoff.go` (slot release in `agUntrackTask`)
@@ -1499,7 +1499,7 @@ the backup; a rejected resume is a normal quota failure.
   - `server/pkg/protocol/messages.go` (`AGCapabilities` on the ack, the same line as
     the claim filter patch)
   - `ag-patches/claude-backup-setup.sh` (new), `ag-patches/test.sh`
-    (`AG_GO_MIN_TESTS` 195)
+    (`AG_GO_MIN_TESTS` 196)
 
 - Upstream:
   - Status: `fork-only`. It encodes one subscriber's two-account setup.
