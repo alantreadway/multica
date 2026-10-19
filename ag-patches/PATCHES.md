@@ -51,6 +51,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Deferred retry until quota reset (backend) | `fork-only` | [#7887](https://github.com/multica-ai/multica/issues/7887) (closed not_planned), [#8949](https://github.com/multica-ai/multica/pull/8949) (rejected), [#9159](https://github.com/multica-ai/multica/issues/9159), [#8964](https://github.com/multica-ai/multica/pull/8964) (open), [#9310](https://github.com/multica-ai/multica/issues/9310) / [#9314](https://github.com/multica-ai/multica/pull/9314) (open, quota failure classification) |
 | Label row: show all labels, Compact/Full display (web) | `candidate` | none found; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`) |
 | Copy (Slack) comment menu item | `candidate` | none open; upstream ships the Slack mrkdwn formatter server-side (`server/internal/integrations/slack/mrkdwn.go`) |
+| 1d and Yesterday periods on usage pages (web) | `candidate` (runtime `1d`), `fork-only` (Yesterday) | none open (searched 2026-10-19); related merged [#2837](https://github.com/multica-ai/multica/pull/2837), [#6194](https://github.com/multica-ai/multica/pull/6194) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
