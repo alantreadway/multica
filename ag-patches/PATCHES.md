@@ -44,6 +44,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Daemon handoff (overlap mode) | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) |
 | Claude quota tracker and auto-hold (daemon) | `fork-only` (the `rate_limit_event` parsing alone is a `candidate`) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255), #8965 (closed), #8969 (withdrawn) |
 | PR snapshot fields and `pull-requests link` | `fork-only` | [#8145](https://github.com/multica-ai/multica/pull/8145) (open, same CLI commands, different design) |
+| Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (open, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -603,6 +604,83 @@ changes do not touch a PR's `updated_at`: the snapshot's chase backoff, the
     to the `github_pull_request` tables to avoid a migration.
   - Fit: removes a stated adoption blocker for self-hosters without an App, and
     adds no dependency. Add our design to #8111 only if alan says so.
+
+### Urgent-only claim filter (backend)
+
+Lets a daemon ask the server to hand a runtime only tasks whose issue is at or
+above a priority. It exists for the quota-dispatch work: while Claude runtimes
+sit on the backup account, they should claim urgent issues only. The daemon
+can't safely un-claim a task, so the filter has to be on the claim itself. This
+change is the server half; the daemon sends the field in a later change.
+
+The batch claim (`POST /api/daemon/tasks/claim`, and the same body over the
+`tasks.claim` WebSocket RPC) takes an optional `ag_min_issue_priority`: a map of
+runtime ID to the lowest issue priority that runtime may claim, e.g.
+`{"<runtime id>": "urgent"}`. The allowed set is that priority and everything
+above it (`urgent` > `high` > `medium` > `low` > `none`). For a runtime in the
+map only:
+
+- `ListQueuedClaimCandidatesByRuntimes` and `ClaimAgentTask` both require
+  `atq.issue_id IS NOT NULL` and an issue whose **live** priority is allowed.
+  `ClaimAgentTask` picks the agent's top row itself, so it needs the filter as
+  well as the candidate list. The task's own `priority` snapshot is not used.
+- Tasks with no issue (chat, issue-less autopilot, quick-create) are never
+  claimed.
+- A miss does not call `EmptyClaim.MarkEmpty`: the runtime's hidden non-urgent
+  tasks would otherwise be skipped by the next unfiltered poll for the
+  empty-claim TTL.
+- The stale-dispatch reclaim is not filtered: a task already dispatched to the
+  runtime is recovered whatever its priority.
+
+Runtimes not in the map, and requests without the field, behave exactly as
+before. An unknown priority, an empty one, or a malformed runtime ID is a 400
+(fail closed, never silently unfiltered). The filter travels from the handler to
+the claim path in the request context, so `ClaimTasksForRuntimes` keeps its
+signature.
+
+The claimed task payload gains `ag_issue_priority` (the issue's priority at
+claim time), for the daemon's in-place-resume decision. The heartbeat ack, HTTP
+and WebSocket alike, gains `ag_capabilities: ["claim_filter"]` so a daemon can
+refuse to run filtered against a server that would ignore the field.
+
+Not covered: the per-runtime claim endpoint (`/runtimes/{id}/tasks/claim`) and
+its singular candidate query take no filter. A daemon that needs the filter must
+not fall back to it. No schema change and no migration; one `make sqlc` for the
+two query edits.
+
+- Test prefix: `TestAGPatch` / `AG patch:`. The `agclaim` and `protocol` ones run
+  in `ag-patches/test.sh`; the DB-backed ones in `server/internal/service` and
+  `server/internal/handler` need Postgres, and the empty-claim one also needs
+  `REDIS_TEST_URL` (see README)
+- Files:
+  - `server/internal/agclaim/` (new: `agclaim.go`, `agclaim_test.go`)
+  - `server/internal/handler/ag_claim_filter.go` (new: validates the request
+    map), `ag_claim_filter_test.go` (new: DB-backed)
+  - `server/internal/handler/daemon.go` (hooks: request field, context, the
+    `ClaimTasksForRuntimes` argument, `ag_issue_priority`, the ack key),
+    `agent.go` (hook: `AGIssuePriority` on `AgentTaskResponse`)
+  - `server/internal/service/task.go` (hooks: `claimTask` argument, the candidate
+    query argument, the `MarkEmpty` guard), `ag_claim_filter_test.go` (new:
+    DB-backed), `runtime_claim_access_test.go` (the candidate query now takes a
+    params struct)
+  - `server/pkg/db/queries/agent.sql` and `server/pkg/db/generated/agent.sql.go`
+    (one predicate in each of the two queries; regenerated)
+  - `server/pkg/protocol/messages.go` (hook: `AGCapabilities` on the ack),
+    `ag_claim_filter_test.go` (new)
+  - `ag-patches/test.sh` (new package, minimum 104)
+
+- Upstream:
+  - Status: `fork-only`. No upstream request.
+  - Overlap: [#7324](https://github.com/multica-ai/multica/pull/7324) (open,
+    last touched 2026-08-21) pins the priority claim contract, and this changes
+    the same claim queries. [#8551](https://github.com/multica-ai/multica/issues/8551)
+    (open bug, 2026-09-18) is about priority-0 tasks starving behind
+    higher-priority ones; a filter that hides low priorities on purpose is the
+    opposite concern, but any change to claim ordering there will touch the same
+    SQL. Checked 2026-10-17.
+  - Fit: it exists for a personal quota-failover setup (a backup account that
+    takes urgent work only) and has no use on a stock install, so it is not
+    worth offering.
 
 ### Sidebar agent and drain status (web)
 
