@@ -112,15 +112,26 @@ describe("AG patch: label row", () => {
     });
   });
 
-  it("makes compact chips narrower than full chips: smaller type and tighter padding", () => {
+  it("keeps the compact chip's fixed width overhead under the full chip's 16px", () => {
     const labels = makeLabels(1);
     const compact = renderWithI18n(<AgLabelRow labels={labels} display="compact" />);
     const full = renderWithI18n(<AgLabelRow labels={labels} display="full" />);
-    const compactChip = row(compact.container)!.firstElementChild!;
-    const fullChip = row(full.container)!.firstElementChild!;
-    expect(compactChip.className).toContain("px-1.5");
-    expect(fullChip.className).toContain("px-2 ");
-    expect(compactChip.className).not.toContain("text-caption");
+    const compactChip = row(compact.container)!.firstElementChild as HTMLElement;
+    const fullChip = row(full.container)!.firstElementChild as HTMLElement;
+    const px = (cls: string, prefix: string) => {
+      const m = new RegExp(`(?:^|\\s)${prefix}-(\\d+(?:\\.\\d+)?)(?:\\s|$)`).exec(cls);
+      return m ? Number(m[1]) * 4 : 0;
+    };
+    const dot = compactChip.querySelector<HTMLElement>('[aria-hidden="true"]')!;
+    const overhead =
+      2 * px(compactChip.className, "px") +
+      px(compactChip.className, "gap") +
+      px(dot.className, "size");
+    const fullOverhead = 2 * px(fullChip.className, "px");
+    expect(fullOverhead).toBe(16);
+    // The outline must be an inset ring: a real border would add width.
+    expect(compactChip.className).not.toMatch(/(?:^|\s)border(?:-|\s|$)/);
+    expect(overhead).toBeLessThan(fullOverhead);
   });
 
   it("forwards className to the row", () => {
