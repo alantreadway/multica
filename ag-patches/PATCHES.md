@@ -927,7 +927,9 @@ the rows roll back and the server's error shows as a toast. See README
   does not run them, so `AG_GO_MIN_TESTS` is unchanged. Run them with a migrated
   test database:
   `cd server && DATABASE_URL=postgres://... go test ./internal/handler ./cmd/server -run 'Label' -count=1`.
-  The web tests run under `pnpm test`
+  The web tests (`label-manager.reorder.test.tsx`, `labels-tab.test.tsx`,
+  `labels/mutations.test.tsx`, `api/client.test.ts`) run in `ag-patches/test.sh`
+  and under `pnpm test`
 - Files:
   - `server/migrations/574_label_position.up.sql`, `.down.sql` (new)
   - `server/pkg/db/queries/issue_label.sql`; `server/pkg/db/generated/issue_label.sql.go`
