@@ -103,7 +103,20 @@ func TestLabelPositionBackfillIsAlphabeticalPerNamespace(t *testing.T) {
 			`INSERT INTO issue_label (workspace_id, resource_type, name, color, position) VALUES ($1, $2, $3, '#3b82f6', 0)`,
 			ws, row[0], row[1])
 	}
-	dbfx.Exec(t, sql[i:])
+	// Scope the migration's statement to this test's workspace: unscoped it
+	// would renumber labels other tests in the shared database depend on. The
+	// ranking text (PARTITION BY ... ORDER BY LOWER(name), id) is untouched.
+	stmt := sql[i:]
+	for _, r := range [][2]string{
+		{"FROM issue_label\n) ranked", "FROM issue_label WHERE workspace_id = $1\n) ranked"},
+		{"WHERE l.id = ranked.id", "WHERE l.id = ranked.id AND l.workspace_id = $1"},
+	} {
+		if strings.Count(stmt, r[0]) != 1 {
+			t.Fatalf("backfill statement no longer contains %q; update this test", r[0])
+		}
+		stmt = strings.Replace(stmt, r[0], r[1], 1)
+	}
+	dbfx.Exec(t, stmt, ws)
 
 	for rt, want := range map[string][]string{
 		"issue": {"alpha", "Bravo", "Charlie"},
