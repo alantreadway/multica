@@ -67,6 +67,12 @@ import { ProjectFilter, TimeRangeFilter } from "./dashboard-filters";
 import { UsageTrendCard } from "./usage-trend-card";
 import { Leaderboard } from "./leaderboard";
 import { ErrorsTab } from "./errors-tab";
+import {
+  agPeriodDays,
+  agPeriodEndOffset,
+  YESTERDAY,
+  type AgPeriod,
+} from "../../common/ag_period";
 import { cn } from "@multica/ui/lib/utils";
 
 // Stable references — `data ?? []` would create a new empty array on
@@ -153,7 +159,13 @@ export function DashboardPage() {
   const viewTZ = useViewingTimezone();
   const navigation = useNavigation();
   const locales = i18n.resolvedLanguage ?? i18n.language;
-  const [days, setDays] = useState<TimeRange>(30);
+  const [period, setPeriod] = useState<AgPeriod<TimeRange>>(30);
+  const days = agPeriodDays(period) as TimeRange;
+  const endOffset = agPeriodEndOffset(period);
+  const periodLabel =
+    period === YESTERDAY
+      ? t(($) => $.ag_period.yesterday)
+      : t(($) => $.ag_period.days, { days });
   const [projectValue, setProjectValue] = useState<string>(ALL_PROJECTS);
 
   // The tab lives in the URL because the Errors view is the half of this page
@@ -216,10 +228,10 @@ export function DashboardPage() {
   // and the Run time / Tasks KPIs silently widen by one day while the chart
   // and the Cost / Tokens KPIs beside them do not (MUL-5551).
   const byAgentQuery = useQuery(
-    dashboardUsageByAgentOptions(wsId, days, projectId, viewTZ),
+    dashboardUsageByAgentOptions(wsId, days, projectId, viewTZ, endOffset),
   );
   const runTimeQuery = useQuery(
-    dashboardAgentRunTimeOptions(wsId, days, projectId, viewTZ),
+    dashboardAgentRunTimeOptions(wsId, days, projectId, viewTZ, endOffset),
   );
   const runTimeDailyQuery = useQuery(
     dashboardRunTimeDailyOptions(wsId, chartFetchDays, projectId, viewTZ),
@@ -228,7 +240,7 @@ export function DashboardPage() {
     dashboardFailuresDailyOptions(wsId, chartFetchDays, projectId, viewTZ),
   );
   const failuresByAgentQuery = useQuery(
-    dashboardFailuresByAgentOptions(wsId, days, projectId, viewTZ),
+    dashboardFailuresByAgentOptions(wsId, days, projectId, viewTZ, endOffset),
   );
 
   const dailyUsage = dailyQuery.data ?? EMPTY_DAILY;
@@ -273,20 +285,34 @@ export function DashboardPage() {
   // both dims so 1d strictly means "today" even at the midnight edge where a
   // wall-clock cutoff would otherwise include yesterday.
   const dailyCutoffIso = useMemo(
-    () => addDaysIso(todayIso(viewTZ), -(days - 1)),
-    [days, viewTZ],
+    () => addDaysIso(todayIso(viewTZ), -(days - 1 + endOffset)),
+    [days, endOffset, viewTZ],
+  );
+  // AG patch: last day in the window, before today for Yesterday.
+  const dailyEndIso = useMemo(
+    () => addDaysIso(todayIso(viewTZ), -endOffset),
+    [endOffset, viewTZ],
   );
   const dailyUsageInWindow = useMemo(
-    () => dailyUsage.filter((u) => u.date >= dailyCutoffIso),
-    [dailyUsage, dailyCutoffIso],
+    () =>
+      dailyUsage.filter(
+        (u) => u.date >= dailyCutoffIso && u.date <= dailyEndIso,
+      ),
+    [dailyUsage, dailyCutoffIso, dailyEndIso],
   );
   const runTimeDailyInWindow = useMemo(
-    () => runTimeDailyRows.filter((r) => r.date >= dailyCutoffIso),
-    [runTimeDailyRows, dailyCutoffIso],
+    () =>
+      runTimeDailyRows.filter(
+        (r) => r.date >= dailyCutoffIso && r.date <= dailyEndIso,
+      ),
+    [runTimeDailyRows, dailyCutoffIso, dailyEndIso],
   );
   const failureDailyInWindow = useMemo(
-    () => failureDailyRows.filter((r) => r.date >= dailyCutoffIso),
-    [failureDailyRows, dailyCutoffIso],
+    () =>
+      failureDailyRows.filter(
+        (r) => r.date >= dailyCutoffIso && r.date <= dailyEndIso,
+      ),
+    [failureDailyRows, dailyCutoffIso, dailyEndIso],
   );
 
   // Loading and empty are per tab: the Usage tab has no reason to wait on the
@@ -514,7 +540,7 @@ export function DashboardPage() {
             </TabsTrigger>
           </TabsList>
           <div className="flex shrink-0 items-center gap-2">
-            <TimeRangeFilter days={days} onChange={setDays} />
+            <TimeRangeFilter days={period} onChange={setPeriod} />
             <ProjectFilter
               projects={projects}
               projectValue={projectValue}
@@ -537,11 +563,11 @@ export function DashboardPage() {
                     section uses, expanded to four tiles. */}
                 <div className="grid grid-cols-1 divide-y rounded-lg border bg-card sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
                   <KpiCard
-                    label={t(($) => $.kpi.cost_label, { days })}
+                    label={t(($) => $.kpi.cost_label, { period: periodLabel })}
                     value={<CurrencyNumberFlow value={totals.cost} locales={locales} />}
                   />
                   <KpiCard
-                    label={t(($) => $.kpi.tokens_label, { days })}
+                    label={t(($) => $.kpi.tokens_label, { period: periodLabel })}
                     value={
                       <CompactNumberFlow
                         value={
@@ -559,7 +585,7 @@ export function DashboardPage() {
                     })}
                   />
                   <KpiCard
-                    label={t(($) => $.kpi.run_time_label, { days })}
+                    label={t(($) => $.kpi.run_time_label, { period: periodLabel })}
                     value={
                       <DurationNumberFlow
                         seconds={runTimeTotals.totalSeconds}
@@ -572,7 +598,7 @@ export function DashboardPage() {
                     })}
                   />
                   <KpiCard
-                    label={t(($) => $.kpi.tasks_label, { days })}
+                    label={t(($) => $.kpi.tasks_label, { period: periodLabel })}
                     value={
                       <NumberFlow
                         value={runTimeTotals.taskCount}
@@ -621,7 +647,7 @@ export function DashboardPage() {
               <DashboardSkeleton />
             ) : (
               <ErrorsTab
-                days={days}
+                period={periodLabel}
                 allowedDims={allowedDims}
                 totals={failureTotals}
                 classRows={failureClassRows}
