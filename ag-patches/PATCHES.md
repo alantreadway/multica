@@ -5,8 +5,8 @@ lands, is dropped or is reworked during a rebase.
 
 ## Upstream base
 
-- Tag: `v0.6.2`
-- Commit: `7ab92d7622ecd81d179a8d83ae2dea74835a5069`
+- Tag: `v0.6.3`
+- Commit: `18fa9f728a9e25f2465df2789631edb2a75442ad`
 
 ## Upstream status
 
@@ -26,8 +26,10 @@ offer upstream. Every patch entry below ends with an **Upstream** line:
 - **Overlap:** related upstream PRs and issues, with their state when last checked.
 - **Fit:** how it sits with upstream's `VISION.md` and roadmap, or why it doesn't.
 
-Last checked 2026-10-16 against upstream `main` (release `v0.6.3` was cut that
-day; the polling patch's entry checked the same day), using the preflight from the `multica-upstream-contribution` skill: live
+Last checked 2026-10-19 at the rebase onto `v0.6.3`: every overlapping PR and
+issue below re-read (none merged or superseded) and upstream searched for new
+ones opened since 2026-10-16. The full preflight from the
+`multica-upstream-contribution` skill last ran 2026-10-16: live
 `VISION.md` and `CONTRIBUTING.md`, plus issue and PR searches, open and closed.
 Read-only: nothing has been opened, filed or commented on upstream. Re-check on
 every rebase (README, "Rebase onto a new upstream tag").
@@ -46,7 +48,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | PR snapshot fields and `pull-requests link` | `fork-only` | [#8145](https://github.com/multica-ai/multica/pull/8145) (open, same CLI commands, different design) |
 | Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (open, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) |
 | Label ordering (backend + web) | `candidate` | none found (searched 2026-10-19) |
-| Deferred retry until quota reset (backend) | `fork-only` | [#7887](https://github.com/multica-ai/multica/issues/7887) (closed not_planned), [#8949](https://github.com/multica-ai/multica/pull/8949) (rejected), [#9159](https://github.com/multica-ai/multica/issues/9159), [#8964](https://github.com/multica-ai/multica/pull/8964) (open) |
+| Deferred retry until quota reset (backend) | `fork-only` | [#7887](https://github.com/multica-ai/multica/issues/7887) (closed not_planned), [#8949](https://github.com/multica-ai/multica/pull/8949) (rejected), [#9159](https://github.com/multica-ai/multica/issues/9159), [#8964](https://github.com/multica-ai/multica/pull/8964) (open), [#9310](https://github.com/multica-ai/multica/issues/9310) / [#9314](https://github.com/multica-ai/multica/pull/9314) (open, quota failure classification) |
 | Label row: show all labels, Compact/Full display (web) | `candidate` | none found; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
@@ -874,7 +876,7 @@ a backend image from `ag-patches/build-backend.sh` and a CLI from
 
 A workspace sets the order its labels appear in, by dragging rows in Manage
 labels. Until now labels were sorted by `LOWER(name)` with no order field.
-Status: in review (PR against `ag/v0.6.2`).
+Status: landed in [#27](https://github.com/alantreadway/multica/pull/27).
 
 `issue_label` gains `position INTEGER NOT NULL DEFAULT 0` (migration `9002`).
 Position is per `(workspace_id, resource_type)`, so reordering issue labels
@@ -1020,7 +1022,13 @@ migration.
     reset'"); [#8949](https://github.com/multica-ai/multica/pull/8949) was
     rejected over replay side effects. Open: [#9159](https://github.com/multica-ai/multica/issues/9159)
     (the request, re-filed) and [#8964](https://github.com/multica-ai/multica/pull/8964)
-    (GLM-only, same `fire_at` mechanism). Checked 2026-10-17.
+    (GLM-only, same `fire_at` mechanism). New since:
+    [#9310](https://github.com/multica-ai/multica/issues/9310) (open bug: a
+    launcher's quota refusal is classified as context overflow) and its fix
+    [#9314](https://github.com/multica-ai/multica/pull/9314) (open), which
+    changes `taskfailure.Classify`, the classifier this patch keys on. If it
+    lands, re-check that quota refusals still map to `provider_quota_limit`.
+    Checked 2026-10-19.
   - Fit: upstream said no to this behaviour, so it stays ours. Watch #8964; if
     it lands, rebase onto its mechanism.
 
