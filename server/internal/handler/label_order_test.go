@@ -85,7 +85,7 @@ func TestCreateLabelAppendsToItsNamespace(t *testing.T) {
 // The migration's backfill numbers existing labels alphabetically per
 // (workspace, resource type). Run its UPDATE against rows that all start at 0.
 func TestLabelPositionBackfillIsAlphabeticalPerNamespace(t *testing.T) {
-	raw, err := os.ReadFile("../../migrations/574_label_position.up.sql")
+	raw, err := os.ReadFile("../../migrations/9002_ag_label_position.up.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
