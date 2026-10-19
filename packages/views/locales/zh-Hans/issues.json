@@ -592,6 +592,7 @@
     "save_action": "保存",
     "cancel_edit": "取消",
     "copy_action": "复制",
+    "copy_slack_action": "复制（Slack）",
     "copy_link_action": "复制链接",
     "link_copied": "链接已复制",
     "link_copy_failed": "复制链接失败",

@@ -47,6 +47,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (open, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) |
 | Label ordering (backend + web) | `candidate` | none found (searched 2026-10-19) |
 | Deferred retry until quota reset (backend) | `fork-only` | [#7887](https://github.com/multica-ai/multica/issues/7887) (closed not_planned), [#8949](https://github.com/multica-ai/multica/pull/8949) (rejected), [#9159](https://github.com/multica-ai/multica/issues/9159), [#8964](https://github.com/multica-ai/multica/pull/8964) (open) |
+| Copy (Slack) comment menu item | `candidate` | none open; upstream ships the Slack mrkdwn formatter server-side (`server/internal/integrations/slack/mrkdwn.go`) |
 | Label row: show all labels, Compact/Full display (web) | `candidate` | none found; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
@@ -1023,6 +1024,61 @@ migration.
     (GLM-only, same `fire_at` mechanism). Checked 2026-10-17.
   - Fit: upstream said no to this behaviour, so it stays ours. Watch #8964; if
     it lands, rebase onto its mechanism.
+
+### Copy (Slack) comment menu item (web)
+
+A **Copy (Slack)** item in the comment `…` menu, right after **Copy**, at both
+sites in `comment-card.tsx` (reply row and collapsed thread root). Slack's
+composer does not parse pasted Markdown or `<url|label>` links, but it turns
+pasted `text/html` into rich text, so the item writes one `ClipboardItem` with
+`text/html` and a `text/plain` mrkdwn fallback.
+
+- HTML: the comment's Markdown rendered with `react-markdown` + `remark-gfm` +
+  `remark-breaks` through `renderToStaticMarkup` (loaded lazily, and preloaded
+  when the menu opens so the write stays inside the click's user-gesture
+  window). Member and agent mentions become `@Name` text; issue mentions an
+  absolute link labelled with the identifier; relative and attachment URLs are
+  absolutised against the app origin (`useAppOrigin`); editor attachments
+  (`!file[name](url)`) become plain links; images become links;
+  headings become bold paragraphs; tables become a pipe-table code block;
+  `mermaid` and `html` fences stay code blocks; task-list boxes become ☑/☐.
+- Plain text: a TS port of `formatMrkdwn` (Hermes Agent, MIT; attribution kept in
+  the file header), run after mentions and relative links are flattened.
+- `copyRich({ html, text })` in `packages/ui/lib/ag_clipboard-rich.ts`: the
+  `ClipboardItem` path (written synchronously in the click, with the HTML as a
+  pending value, since Safari rejects a write after an await), else a hidden `contenteditable` selected and copied with
+  `execCommand('copy')` (plain `http://`). `clipboard.ts` is untouched.
+- Fails soft: if rendering throws it copies the mrkdwn text with `copyText`; if
+  every clipboard path fails there is no toast. **Copy** is unchanged.
+- Frontend only: rollback is switching the web image back. The issue
+  description has no Copy item and gets no Copy (Slack).
+- **Unverified:** pasting into Slack (web and desktop) was not checked when this
+  landed, since no agent could drive a signed-in Slack. Check bold, italic,
+  strike, links, nested lists, inline code, code blocks and quotes by hand.
+- Test prefix: `AG patch:` (renderer, mrkdwn port, menu item, `copyRich`), run in
+  `ag-patches/test.sh`. `comment-card-actions-menu.test.tsx` lists the extra item.
+- Files:
+  - `packages/views/issues/components/ag_slack-copy.tsx` (new: HTML renderer,
+    mrkdwn port)
+  - `packages/views/issues/components/ag_comment-share-items.tsx` (new: menu item)
+  - `packages/ui/lib/ag_clipboard-rich.ts` (new: `copyRich`)
+  - `packages/ui/package.json` (hook: `./lib/ag_clipboard-rich` export)
+  - `packages/views/issues/components/comment-card.tsx` (hooks: the import and one
+    line after **Copy** at each of the two sites)
+  - `packages/views/locales/{en,zh-Hans,fr,ja,ko}/issues.json`
+    (`comment.copy_slack_action`)
+  - `packages/views/issues/components/comment-card-actions-menu.test.tsx`
+    (expects the new item)
+  - `ag-patches/test.sh` (new test files)
+
+- Upstream:
+  - Status: `candidate`.
+  - Overlap: none open for a Slack-formatted copy. Upstream already ships the
+    Slack mrkdwn formatter server-side for its Slack integration, which this
+    patch ports. A search of upstream PRs and issues for copy-slack,
+    copy-comment and clipboard-html found no overlap.
+  - Fit: small, frontend-only, and builds on upstream's Slack work. It touches
+    upstream files only at the two menu sites, one import and five locale files.
 
 ### Label row: show all labels, Compact/Full display (web)
 

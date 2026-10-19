@@ -592,6 +592,7 @@
     "save_action": "저장",
     "cancel_edit": "취소",
     "copy_action": "복사",
+    "copy_slack_action": "복사 (Slack)",
     "copy_link_action": "링크 복사",
     "link_copied": "링크를 복사했습니다",
     "link_copy_failed": "링크를 복사하지 못했습니다",

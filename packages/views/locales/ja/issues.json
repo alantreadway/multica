@@ -592,6 +592,7 @@
     "save_action": "保存",
     "cancel_edit": "キャンセル",
     "copy_action": "コピー",
+    "copy_slack_action": "コピー（Slack）",
     "copy_link_action": "リンクをコピー",
     "link_copied": "リンクをコピーしました",
     "link_copy_failed": "リンクをコピーできませんでした",
