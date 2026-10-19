@@ -1009,7 +1009,7 @@ migration.
   - `server/internal/service/task.go` (hooks above)
   - `server/internal/handler/daemon.go` (hooks: `AGRetryNotBefore` on
     `TaskFailRequest`, the context passed to `FailTaskWithTransition`)
-  - `ag-patches/test.sh` (two new packages, minimum 142)
+  - `ag-patches/test.sh` (two new packages, minimum 148)
 
 - Upstream:
   - Status: `fork-only`. The maintainer has declined this.
