@@ -90,3 +90,51 @@ func TestAGPatchQuotaBillingFailure(t *testing.T) {
 		}
 	}
 }
+
+// "Next occurrence after now": a clock time equal to now has already passed, and
+// the epoch form wins when a message carries both.
+func TestAGPatchQuotaResetNextOccurrence(t *testing.T) {
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	got, ok := AGQuotaResetTime("resets 12pm", now, time.UTC)
+	if want := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC); !ok || !got.Equal(want) {
+		t.Errorf("clock time equal to now: got %v ok=%v, want %v", got, ok, want)
+	}
+	got, ok = AGQuotaResetTime("resets 12:01pm", now, time.UTC)
+	if want := time.Date(2026, 10, 17, 12, 1, 0, 0, time.UTC); !ok || !got.Equal(want) {
+		t.Errorf("a minute ahead: got %v ok=%v, want %v", got, ok, want)
+	}
+	got, ok = AGQuotaResetTime("usage limit reached|1792000000 resets 9pm (Europe/London)", now, time.UTC)
+	if want := time.Unix(1792000000, 0); !ok || !got.Equal(want) {
+		t.Errorf("epoch and clock time together: got %v ok=%v, want the epoch %v", got, ok, want)
+	}
+}
+
+// The seconds/milliseconds split sits at 1e12: the largest 12-digit value is
+// still seconds, the first 13-digit one is milliseconds.
+func TestAGPatchQuotaResetEpochUnitBoundary(t *testing.T) {
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	got, ok := AGQuotaResetTime("usage limit reached|999999999999", now, time.UTC)
+	if want := time.Unix(999999999999, 0); !ok || !got.Equal(want) {
+		t.Errorf("12 digits: got %v ok=%v, want %v as seconds", got, ok, want)
+	}
+	got, ok = AGQuotaResetTime("usage limit reached|1760000000123", now, time.UTC)
+	if want := time.UnixMilli(1760000000123); !ok || !got.Equal(want) {
+		t.Errorf("13 digits: got %v ok=%v, want %v as milliseconds", got, ok, want)
+	}
+}
+
+// Billing wording must be recognised even when it sits inside a longer message,
+// but a window-limit message that merely contains digits stays retryable.
+func TestAGPatchQuotaBillingFailureInContext(t *testing.T) {
+	for text, want := range map[string]bool{
+		"claude exited with status 1: API Error: 402 {\"type\":\"error\"}": true,
+		"Credit balance is too low":                                        true,
+		"Usage limit reached|1760004020":                                   false,
+		"Usage limit reached|1760000000 (retry in 4020 seconds)":           false,
+		"5-hour limit reached \u00b7 resets 9pm (Europe/London)":           false,
+	} {
+		if got := AGIsBillingFailure(text); got != want {
+			t.Errorf("AGIsBillingFailure(%q) = %v, want %v", text, got, want)
+		}
+	}
+}
