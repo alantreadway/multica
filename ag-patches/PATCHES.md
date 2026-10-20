@@ -1466,9 +1466,13 @@ the setting turned on from the runtime page, and a patched server (the claim fil
   and `backup_windows` (the backup's five_hour and seven_day) are always filled.
 - Change to the report and settings patch: a received ack with no `ag_settings` now
   disables backup at once; the 10 minute TTL covers only acks that never arrive.
-- Unverified, needs Alan's backup login: that `--resume` works across the two
-  accounts' config dirs on this machine, and that the Keychain item for the backup
-  dir is readable from a launchd-started daemon. Commands are in the PR.
+- Checked 2026-10-20 on this machine, with the backup login in place: a one-shot
+  launchd job in the `gui/<uid>` domain, with `CLAUDE_CONFIG_DIR=~/.claude-backup`
+  and a minimal `PATH`, ran `claude auth status --json` and got `loggedIn: true`,
+  so the backup's Keychain item is readable from a launchd-started process. A
+  one-line `claude -p` session started under one config dir resumed under the
+  other with `--resume`, in both directions (backup to primary and primary to
+  backup), because `projects/` is shared.
 
 Fail policy (everything fails closed for failover): backup check fails then
 `valid:false, reason: check_failed`, retried next interval; no `ag_settings` on a
@@ -1591,6 +1595,7 @@ branches. They do not touch product code. Landed in
 | `ag/v0.6.2-ag.1` | `c59bdb71d0713897e19371e4d11d4c316c56c71b` | `multica-web-ag:v0.6.2-ag.1` | none (stock backend) | none (stock) | 2026-10-14 |
 | `ag/v0.6.2-ag.2` | `0ae4d6edc3c9651e1cfb5d2c711d062469828ab7` | `multica-web-ag:v0.6.2-ag.2` | `multica-backend-ag:v0.6.2-ag.2` | `dist/multica-v0.6.2-ag.2-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-16 |
 | `ag/v0.6.3-ag.1` | `d19013ab84e81751d031bb894f374ccae6afbffe` | `multica-web-ag:v0.6.3-ag.1` | `multica-backend-ag:v0.6.3-ag.1` | `dist/multica-v0.6.3-ag.1-darwin-arm64` | 2026-10-19 |
+| `ag/v0.6.3-ag.2` | `9b15ccc316ded86a419f0eb7f532227ff0ae3f22` | `multica-web-ag:v0.6.3-ag.2` | `multica-backend-ag:v0.6.3-ag.2` | `dist/multica-v0.6.3-ag.2-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-20 |
 
 The CLI column is the `dist/multica-<tag>-ag.<n>-darwin-arm64` binary from
 `ag-patches/build-cli.sh`; `none (stock)` means the daemon runs the upstream
@@ -1602,6 +1607,15 @@ launchd daemon still runs Homebrew `multica` until its plist is pointed at
 `multica-ag`, so the Runtimes page shows no drain badge until then.
 
 `v0.6.3-ag.1` is the first build on `v0.6.3`, with every patch merged into
-`ag/v0.6.2` up to PR #30. It is built but not yet deployed: the self-host still
-runs `v0.6.2-ag.2`, which has none of the fork migrations, so the upgrade applies
-upstream's `573`–`582` and the fork's `9001` and `9002` for the first time.
+`ag/v0.6.2` up to PR #30. It was deployed on 2026-10-19: the upgrade from
+`v0.6.2-ag.2` applied upstream's `573`–`582` and the fork's `9001` and `9002` for
+the first time.
+
+`v0.6.3-ag.2` adds the Claude quota report, the backup-account failover (ported
+in PR #31) and the `orgId` account identity fix (PR #32). It applies no migration.
+Deployed 2026-10-20 after a `pg_dump` backup: backend, then frontend, both
+recreated from the `ag.2` images. The previous CLI stays beside the new one as
+`~/.local/bin/multica-ag.v0.6.3-ag.1`. The launchd daemon picks up the new
+`multica-ag` at its next idle auto-reload (or `~/bin/multica-daemon-reload`); the
+Runtimes page has no quota report or backup status until it does. The backup
+toggle is off until switched on from the runtime page.
