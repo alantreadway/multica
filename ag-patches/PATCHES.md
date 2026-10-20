@@ -1611,10 +1611,12 @@ launchd daemon still runs Homebrew `multica` until its plist is pointed at
 `v0.6.2-ag.2` applied upstream's `573`–`582` and the fork's `9001` and `9002` for
 the first time.
 
-`v0.6.3-ag.2` adds the Claude quota report, the backup-account failover (ported
-in PR #31) and the `orgId` account identity fix (PR #32). It applies no migration.
-Deployed 2026-10-20 after a `pg_dump` backup: backend, then frontend, both
-recreated from the `ag.2` images. The previous CLI stays beside the new one as
+`v0.6.3-ag.2` adds the Claude quota stack ported in PR #31 (Claude pacing, the
+quota report and runtime backup setting, the backup failover, and the Runtimes
+quota section and sidebar warning) and the `orgId` account identity fix (PR #32).
+It applies no migration. Deployed 2026-10-20 after a `pg_dump` backup
+(`~/multica-selfhost/backups/multica-pre-v0.6.3-ag.2-20261020-162210.sql.gz`):
+backend, then frontend, both recreated from the `ag.2` images. The previous CLI stays beside the new one as
 `~/.local/bin/multica-ag.v0.6.3-ag.1`. The launchd daemon picks up the new
 `multica-ag` at its next idle auto-reload (or `~/bin/multica-daemon-reload`); the
 Runtimes page has no quota report or backup status until it does. The backup
