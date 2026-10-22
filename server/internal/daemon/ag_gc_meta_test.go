@@ -18,20 +18,28 @@ import (
 	"github.com/multica-ai/multica/server/internal/daemon/execenv"
 )
 
-// These tests pin that handleTask stamps .gc_meta.json on every terminal path,
-// for every task folder layout. Worktree-mode tasks used to skip it whenever
-// the task errored or was cancelled — which is exactly what a failed worktree
-// Finalize turns into — so their folders fell back to the orphan TTL with the
+// AG patch: GC meta on every terminal task path; TestAGPatch* tests as counted
+// by ag-patches/test.sh.
+//
+// handleTask stamps .gc_meta.json on every terminal path, for every task folder
+// layout. A failed worktree Finalize fails the task, so the meta cannot be tied
+// to the success path: the folder would fall back to the orphan TTL with the
 // preserved worktree/ still inside.
 
-const gcMetaTestDaemonID = "d-gc-meta"
+const (
+	gcMetaTestDaemonID = "d-gc-meta"
+	gcMetaNoPoll       = time.Hour
+	gcMetaFastPoll     = 5 * time.Millisecond
+)
 
 type gcMetaRunner func(ctx context.Context, envRoot string) (TaskResult, error)
 
 // runGCMetaTask drives handleTask against a fake runner and returns the env
 // root the runner reported. taskStatus is what the server answers to the
-// cancellation polls ("running" means not cancelled).
-func runGCMetaTask(t *testing.T, resources []ProjectResourceData, taskStatus string, runner gcMetaRunner) string {
+// cancellation checks ("running" means not cancelled). pollInterval is how
+// often the in-flight poll asks: an hour keeps it from firing, so only the
+// pre-completion check can see a cancel.
+func runGCMetaTask(t *testing.T, resources []ProjectResourceData, taskStatus string, pollInterval time.Duration, runner gcMetaRunner) string {
 	t.Helper()
 
 	envRoot := filepath.Join(t.TempDir(), "env-root")
@@ -55,11 +63,8 @@ func runGCMetaTask(t *testing.T, resources []ProjectResourceData, taskStatus str
 		runtimeIndex:       map[string]Runtime{"rt-1": {ID: "rt-1", Provider: "claude"}},
 		activeEnvRoots:     make(map[string]int),
 		localPathLocks:     NewLocalPathLocker(),
-		cancelPollInterval: time.Hour,
+		cancelPollInterval: pollInterval,
 		cfg:                Config{WorkspacesRoot: t.TempDir(), DaemonID: gcMetaTestDaemonID},
-	}
-	if taskStatus == "cancelled" {
-		d.cancelPollInterval = 5 * time.Millisecond
 	}
 	d.runner = taskRunnerFunc(func(ctx context.Context, _ Task, _ string, _ int, _ *slog.Logger) (TaskResult, error) {
 		return runner(ctx, envRoot)
@@ -105,12 +110,12 @@ func completedRunner(_ context.Context, envRoot string) (TaskResult, error) {
 	return TaskResult{Status: "completed", EnvRoot: envRoot}, nil
 }
 
-// (a) A worktree-mode task whose Finalize succeeded gets ordinary TTL
+// A worktree-mode task whose Finalize succeeded gets ordinary TTL
 // treatment: meta written, no LocalDirectory exemption.
-func TestHandleTask_WorktreeCompletedWritesGCMetaWithoutExemption(t *testing.T) {
+func TestAGPatchGCMetaWorktreeCompletedWithoutExemption(t *testing.T) {
 	t.Parallel()
 
-	envRoot := runGCMetaTask(t, localDirectoryResources(t, localDirectoryModeWorktree), "running", completedRunner)
+	envRoot := runGCMetaTask(t, localDirectoryResources(t, localDirectoryModeWorktree), "running", gcMetaNoPoll, completedRunner)
 
 	meta := mustReadGCMeta(t, envRoot)
 	if meta.LocalDirectory {
@@ -121,11 +126,11 @@ func TestHandleTask_WorktreeCompletedWritesGCMetaWithoutExemption(t *testing.T) 
 	}
 }
 
-// The in-place stamping rule is unchanged by the refactor.
-func TestHandleTask_InPlaceLocalDirectoryStillStampsLocalDirectory(t *testing.T) {
+// In-place local_directory tasks keep the LocalDirectory stamp.
+func TestAGPatchGCMetaInPlaceStampsLocalDirectory(t *testing.T) {
 	t.Parallel()
 
-	envRoot := runGCMetaTask(t, localDirectoryResources(t, localDirectoryModeInPlace), "running", completedRunner)
+	envRoot := runGCMetaTask(t, localDirectoryResources(t, localDirectoryModeInPlace), "running", gcMetaNoPoll, completedRunner)
 
 	meta := mustReadGCMeta(t, envRoot)
 	if !meta.LocalDirectory {
@@ -136,10 +141,10 @@ func TestHandleTask_InPlaceLocalDirectoryStillStampsLocalDirectory(t *testing.T)
 	}
 }
 
-// (b) A worktree task that fails — including the Finalize failure that fails
+// A worktree task that fails — including the Finalize failure that fails
 // the task — still gets meta. Only the Finalize failure marks the folder as
 // holding preserved work.
-func TestHandleTask_WorktreeFailureWritesGCMeta(t *testing.T) {
+func TestAGPatchGCMetaWorktreeFailure(t *testing.T) {
 	t.Parallel()
 
 	finalizeFailure := &worktreePreservedError{err: errors.New("local_directory worktree: uncommitted changes")}
@@ -156,7 +161,7 @@ func TestHandleTask_WorktreeFailureWritesGCMeta(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			envRoot := runGCMetaTask(t, localDirectoryResources(t, localDirectoryModeWorktree), "running",
+			envRoot := runGCMetaTask(t, localDirectoryResources(t, localDirectoryModeWorktree), "running", gcMetaNoPoll,
 				func(_ context.Context, envRoot string) (TaskResult, error) {
 					return TaskResult{EnvRoot: envRoot}, tc.err
 				})
@@ -172,10 +177,10 @@ func TestHandleTask_WorktreeFailureWritesGCMeta(t *testing.T) {
 	}
 }
 
-// (b, GC half) A folder marked PreservedWorktree must keep worktree/ past the
+// A folder marked PreservedWorktree must keep worktree/ past the
 // TTL on both the clean path (parent issue done) and the orphan path (parent
 // unreachable), while a worktree task that finished cleanly is reclaimed.
-func TestGC_PreservedWorktreeIsNeverRemovedPastTTL(t *testing.T) {
+func TestAGPatchGCKeepsPreservedWorktreePastTTL(t *testing.T) {
 	t.Parallel()
 	const issueID = "99999999-9999-9999-9999-999999999991"
 
@@ -245,15 +250,15 @@ func TestGC_PreservedWorktreeIsNeverRemovedPastTTL(t *testing.T) {
 	}
 }
 
-// (c) Both cancel paths write meta.
-func TestHandleTask_CancelledTaskWritesGCMeta(t *testing.T) {
+// Both cancel paths write meta.
+func TestAGPatchGCMetaCancelledTask(t *testing.T) {
 	t.Parallel()
 
 	t.Run("cancelled before completion is reported", func(t *testing.T) {
 		t.Parallel()
 		// The poll never fires (hour interval); the pre-completion status
 		// check is what observes the cancel.
-		envRoot := runGCMetaTask(t, localDirectoryResources(t, localDirectoryModeWorktree), "cancelled", completedRunner)
+		envRoot := runGCMetaTask(t, localDirectoryResources(t, localDirectoryModeWorktree), "cancelled", gcMetaNoPoll, completedRunner)
 
 		meta := mustReadGCMeta(t, envRoot)
 		if meta.LocalDirectory || meta.PreservedWorktree {
@@ -263,7 +268,7 @@ func TestHandleTask_CancelledTaskWritesGCMeta(t *testing.T) {
 
 	t.Run("cancelled mid-run by the poll", func(t *testing.T) {
 		t.Parallel()
-		envRoot := runGCMetaTask(t, localDirectoryResources(t, localDirectoryModeWorktree), "cancelled",
+		envRoot := runGCMetaTask(t, localDirectoryResources(t, localDirectoryModeWorktree), "cancelled", gcMetaFastPoll,
 			func(ctx context.Context, envRoot string) (TaskResult, error) {
 				<-ctx.Done()
 				return TaskResult{EnvRoot: envRoot}, context.Cause(ctx)
@@ -277,7 +282,7 @@ func TestHandleTask_CancelledTaskWritesGCMeta(t *testing.T) {
 
 	t.Run("cancelled with a failed Finalize keeps the preserved marker", func(t *testing.T) {
 		t.Parallel()
-		envRoot := runGCMetaTask(t, localDirectoryResources(t, localDirectoryModeWorktree), "cancelled",
+		envRoot := runGCMetaTask(t, localDirectoryResources(t, localDirectoryModeWorktree), "cancelled", gcMetaFastPoll,
 			func(ctx context.Context, envRoot string) (TaskResult, error) {
 				<-ctx.Done()
 				return TaskResult{EnvRoot: envRoot}, errors.Join(context.Cause(ctx),
@@ -290,18 +295,18 @@ func TestHandleTask_CancelledTaskWritesGCMeta(t *testing.T) {
 	})
 }
 
-// (d) The workdir/ layout (no local_directory resource) is unchanged.
-func TestHandleTask_WorkdirLayoutStillWritesGCMeta(t *testing.T) {
+// The workdir/ layout (no local_directory resource) is unchanged.
+func TestAGPatchGCMetaWorkdirLayout(t *testing.T) {
 	t.Parallel()
 
-	envRoot := runGCMetaTask(t, nil, "running", completedRunner)
+	envRoot := runGCMetaTask(t, nil, "running", gcMetaNoPoll, completedRunner)
 
 	meta := mustReadGCMeta(t, envRoot)
 	if meta.LocalDirectory || meta.PreservedWorktree {
 		t.Errorf("meta = %+v, want neither exemption for a workdir/ task", meta)
 	}
 
-	failedRoot := runGCMetaTask(t, nil, "running", func(_ context.Context, envRoot string) (TaskResult, error) {
+	failedRoot := runGCMetaTask(t, nil, "running", gcMetaNoPoll, func(_ context.Context, envRoot string) (TaskResult, error) {
 		return TaskResult{EnvRoot: envRoot}, errors.New("agent crashed")
 	})
 	mustReadGCMeta(t, failedRoot)
@@ -309,10 +314,10 @@ func TestHandleTask_WorkdirLayoutStillWritesGCMeta(t *testing.T) {
 
 // A runner error before any env root exists has nothing to stamp, and must not
 // write into an unrelated directory.
-func TestHandleTask_NoEnvRootWritesNoGCMeta(t *testing.T) {
+func TestAGPatchGCMetaNoEnvRoot(t *testing.T) {
 	t.Parallel()
 
-	envRoot := runGCMetaTask(t, nil, "running", func(_ context.Context, _ string) (TaskResult, error) {
+	envRoot := runGCMetaTask(t, nil, "running", gcMetaNoPoll, func(_ context.Context, _ string) (TaskResult, error) {
 		return TaskResult{}, errors.New("claim execution environment: boom")
 	})
 	if _, err := os.Stat(filepath.Join(envRoot, ".gc_meta.json")); !os.IsNotExist(err) {
@@ -320,10 +325,10 @@ func TestHandleTask_NoEnvRootWritesNoGCMeta(t *testing.T) {
 	}
 }
 
-// (e) Lock-only stubs (.task_lock + .task_owner, no meta) are reclaimed once
+// Lock-only stubs (.task_lock + .task_owner, no meta) are reclaimed once
 // past GCOrphanTTL; younger and active ones are kept, and so is a directory
 // whose owner marker does not validate.
-func TestGC_LockOnlyStubsFollowOrphanTTL(t *testing.T) {
+func TestAGPatchGCLockOnlyStubsFollowOrphanTTL(t *testing.T) {
 	t.Parallel()
 
 	d := newGCTestDaemon(t, http.NewServeMux())
@@ -366,7 +371,7 @@ func TestGC_LockOnlyStubsFollowOrphanTTL(t *testing.T) {
 
 // runTask's error returns are bare TaskResult{}; the env root must still reach
 // handleTask so those failures get meta too.
-func TestRunTask_ErrorAfterEnvironmentReadyStillNamesEnvRoot(t *testing.T) {
+func TestAGPatchGCMetaRunTaskErrorNamesEnvRoot(t *testing.T) {
 	t.Parallel()
 
 	d, _, cleanup := newLeaderReuseTestDaemon(t)
@@ -377,7 +382,7 @@ func TestRunTask_ErrorAfterEnvironmentReadyStillNamesEnvRoot(t *testing.T) {
 
 	result, err := d.runTask(context.Background(), leaderReuseTestTask("task-backend-error"), "claude", 0, d.logger)
 	if err == nil {
-		t.Skipf("runTask did not fail (result %+v); the failure this test needs is gone", result)
+		t.Fatalf("runTask did not fail (result %+v); the failure this test needs is gone", result)
 	}
 	if result.EnvRoot == "" {
 		t.Fatalf("runTask failed with %v but named no env root, so handleTask could not stamp .gc_meta.json", err)
