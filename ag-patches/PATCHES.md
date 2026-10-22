@@ -56,6 +56,7 @@ every rebase (README, "Rebase onto a new upstream tag").
 | Claude quota report and runtime backup setting (daemon + backend) | `fork-only` (the report alone is a `candidate` only if it lines up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (plan quota per runtime, open), [#6000](https://github.com/multica-ai/multica/issues/6000) (the request, open) |
 | Backup Claude account failover, urgent only (daemon) | `fork-only` | [#5282](https://github.com/multica-ai/multica/pull/5282), [#8579](https://github.com/multica-ai/multica/pull/8579) (fallback runtime, open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC), [#5704](https://github.com/multica-ai/multica/issues/5704), [#5618](https://github.com/multica-ai/multica/issues/5618) (resume after an account switch, fixed by [#5715](https://github.com/multica-ai/multica/pull/5715)) |
 | Runtime quota section and sidebar warning (web) | `fork-only` (the Runtimes-page section alone could line up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (open); sidebar line: none found |
+| Task GC meta on every terminal path (daemon) | `candidate` | [#9176](https://github.com/multica-ai/multica/issues/9176) (open, adjacent: GC gates on issue status), [#7469](https://github.com/multica-ai/multica/issues/7469) (closed, atomic meta writes) |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -1578,6 +1579,46 @@ Frontend only: rollback is switching the web image back.
     backup switch and the sidebar warning are operator tooling for subscription
     users. The `ConnectRemoteDialog` filter is generic and would go upstream with
     any change that publishes non-registration `daemon:register` events.
+
+### Task GC meta on every terminal path (daemon)
+
+`handleTask` wrote `.gc_meta.json` only after a clean report. A task that errored
+or was cancelled returned early without it, and a worktree-mode local_directory
+task whose `Finalize` fails is failed by design, so those folders kept their
+preserved `worktree/` and no meta.
+
+- `writeTaskGCMeta`, deferred from `handleTask` right after the stale-claim return,
+  stamps the meta on completed, failed and both cancel paths. It runs before the
+  active-root unmark defers, so the root stays guarded until the meta lands. A write
+  failure is a warning. The `LocalDirectory` rule is unchanged: in-place yes, worktree no.
+- `runTask` names the env root on every error return once the environment is ready
+  (a deferred fallback on the named result), so a failure after setup can be stamped.
+- `GCMeta.PreservedWorktree` (`preserved_worktree`) is set when the run error carries
+  `worktreePreservedError`, that is when `Finalize` failed. `applyLocalDirectoryGCOverride`
+  gives it the `LocalDirectory` demotion: a full clean becomes artifact cleanup, an
+  orphan becomes managed-artifact cleanup, and `GCArtifactTTL <= 0` skips. Artifact
+  cleanup keeps its `.git` and `artifactDirectoryNeedsPreservation` protections. A
+  worktree task whose `Finalize` succeeded keeps the ordinary TTL treatment.
+- Lock-only stubs (`.task_lock` and `.task_owner`, no meta) already went through the
+  orphan path and are removed past `GCOrphanTTL`; the patch only adds the test.
+- Known gaps: the protection lives in the meta file, so a failed meta write, or a
+  `Finalize` failure joined to a rejected start claim, leaves the folder on the
+  72h orphan path as before.
+- Files:
+  - `server/internal/daemon/daemon.go` (`handleTask`, `writeTaskGCMeta`, `runTask`)
+  - `server/internal/daemon/gc.go` (`applyLocalDirectoryGCOverride`)
+  - `server/internal/daemon/execenv/execenv.go` (`GCMeta.PreservedWorktree`)
+  - `server/internal/daemon/ag_gc_meta_test.go` (new, `TestAGPatchGC*`)
+  - `ag-patches/test.sh` (`AG_GO_MIN_TESTS` 205)
+
+- Upstream:
+  - Status: `candidate`. A plain bug fix; nothing is proposed yet.
+  - Overlap: [#9176](https://github.com/multica-ai/multica/issues/9176) (open bug
+    report on GC eligibility, a different gap) and
+    [#7469](https://github.com/multica-ai/multica/issues/7469) (closed, atomic meta
+    writes, which would also close the known gap above). Searched 2026-10-22.
+  - Fit: fixes cleanup of local_directory worktree runs; no change to what the
+    product does for users.
 
 ## Tooling (not a patch)
 
