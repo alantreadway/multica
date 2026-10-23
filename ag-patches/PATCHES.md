@@ -42,6 +42,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 
 | # | Patch | Status | Overlapping upstream | Fit | Likelihood | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2 | 1d and Yesterday periods (web): runtime `1d` | `candidate` (`1d`), `fork-only` (Yesterday) | none open; [#2837](https://github.com/multica-ai/multica/pull/2837) (merged) added `1d` to the workspace Usage tab only | High: matches a shipped period | High (`1d`) | Small PR for the runtime `1d` alone. Yesterday needs an end bound on the rollup endpoints first. |
 | 3 | Daemon handoff: single-instance fixes (PID file owner check, repo cache flock) | `candidate` once split out | none found | High: bug fixes | Medium-high | Split out of the handoff patch and show a repro first. |
 | 4 | Copy (Slack) comment menu item (web) | `candidate` | none; builds on upstream's server-side Slack mrkdwn formatter | Medium | Medium | Feature Request first. |
 | 5 | Label ordering (backend + web) | `candidate` | none (searched 2026-10-19); the status reorder endpoint is the precedent | Medium | Medium | Feature Request first; the migration raises the bar. |
@@ -1223,6 +1224,75 @@ pasted `text/html` into rich text, so the item writes one `ClipboardItem` with
   - Fit: small, frontend-only, and builds on upstream's Slack work. It touches
     upstream files only at the two menu sites, one import and five locale files.
 
+### 1d and Yesterday periods on Analytics and runtime usage (web)
+
+Frontend only. The runtime detail page's period pills gain `1d`, so they offer
+the same ranges as the Analytics page, and both pages gain **Yesterday**, placed
+right after `1d`.
+
+- `1d` means today from 00:00 in the viewer's timezone on both pages, as it
+  already did on Analytics. Yesterday is the previous calendar day. Both are
+  daily-only; switching the runtime page to Weekly from either falls back to 90d
+  as before.
+- KPI labels read `Cost · Yesterday`: the seven Analytics labels and the three
+  runtime labels take `{{period}}` instead of `{{days}}D`, filled from
+  `ag_period.days` (`{{days}}D`, per locale) or `ag_period.yesterday`.
+- Analytics: the date-bucketed series are trimmed to `[start, end]` instead of
+  `>= start`. The three per-agent rollups (usage, run time, failures) carry no
+  date and the server only takes a trailing `days` count, so for Yesterday
+  `agFetchWindow` asks for `days=2` and `days=1` (both closed at exactly N days
+  by `parseExactSinceParamInTZ`) and subtracts, matching rows on their string
+  fields. The two requests are not one snapshot, so a count that today's runs
+  moved between them is clamped at zero. Query keys for the existing ranges are
+  unchanged; Yesterday's window part is `"1-1"`.
+- Runtime page: `agSlicePeriod` narrows `1d` and Yesterday to one calendar day
+  (prior window: the day before). The trailing ranges keep upstream's
+  `sliceWindow`, which spans N+1 calendar days, so `7d` there still covers one
+  more day than `7d` on Analytics; not changed here.
+- Runtime **Cost by agent** for `1d` and Yesterday shows "Per-agent cost for a
+  single day is on the Analytics page." instead of a list: its endpoint
+  (`/api/runtimes/:id/usage/by-agent`) uses the N+1 cutoff and rejects
+  `days=0`, so no pair of trailing windows isolates one day. Fixing it needs a
+  backend change (an exact cutoff or an end bound on that endpoint).
+- Rollback: switch the web image back.
+
+- Test prefix: `AG patch:`
+- Tests: `packages/core/dashboard/ag_closed-window.test.ts`,
+  `packages/views/runtimes/ag_slice-period.test.ts`,
+  `packages/views/locales/ag-period.test.ts`, and `AG patch:` cases in
+  `dashboard/components/dashboard-page.test.tsx` and
+  `runtimes/components/usage-section.test.tsx`. All run in
+  `ag-patches/test.sh`.
+- Files:
+  - `packages/core/dashboard/ag_closed-window.ts` (new: window key, two-window
+    fetch, row subtraction)
+  - `packages/views/common/ag_period.ts` (new: period type, Yesterday option)
+  - `packages/views/runtimes/ag_slice-period.ts` (new: single-day slices)
+  - `packages/core/dashboard/queries.ts` (hooks: `endOffset` on the three
+    per-agent options, key and fetch)
+  - `packages/views/dashboard/components/dashboard-page.tsx`,
+    `dashboard-filters.tsx`, `errors-tab.tsx` (period state, window end, labels)
+  - `packages/views/runtimes/components/usage-section.tsx` (`1d` range, period
+    state, labels, Cost by agent notice)
+  - `packages/views/locales/*/ag.json` (`usage.ag_period`, `usage.kpi`,
+    `usage.errors`, `runtimes.usage`: the period options and the reworded KPI
+    labels; upstream's `usage.json` and `runtimes.json` are unchanged)
+  - `dashboard-page.ag.test.tsx`, `usage-section.ag.test.tsx` (new: siblings of
+    upstream tests)
+
+- Upstream:
+  - Status: `candidate` for the runtime `1d` (upstream's
+    [#2837](https://github.com/multica-ai/multica/pull/2837) added `1d` to the
+    workspace Usage tab only, and the Analytics code comment says it mirrors the
+    runtime page). Yesterday is `fork-only` as built: the two-window subtraction
+    is a client-side workaround, and upstream would want an end bound on the
+    rollup endpoints instead.
+  - Overlap: none open (searched 2026-10-19 for yesterday and period/1d usage).
+    Related merged work: [#2837](https://github.com/multica-ai/multica/pull/2837)
+    and [#6194](https://github.com/multica-ai/multica/pull/6194) (exact per-agent
+    windows on the dashboard).
+  - Fit: small and additive. It touches upstream files at the period state, the
+    window filters, the KPI label strings and three query options.
 ## Tooling (not a patch)
 
 `ag-patches/` and `.github/workflows/ag-patches.yml` exist only on the patch
