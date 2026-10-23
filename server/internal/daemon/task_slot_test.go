@@ -13,7 +13,7 @@ func newTestTaskSlot(index int) *taskSlotLease {
 
 func TestTaskSlotLeaseReleaseIsIdempotent(t *testing.T) {
 	t.Parallel()
-	slots := newTaskSlotSemaphore(1)
+	slots := agChanSlotSemaphore(1)
 	wakeup := make(chan struct{}, 1)
 	lease := newTaskSlotLease(slots, <-slots, wakeup)
 	lease.release()
@@ -36,7 +36,7 @@ func TestTaskSlotLeaseReleaseIsIdempotent(t *testing.T) {
 
 func TestTaskSlotLeaseReacquiresCurrentIndex(t *testing.T) {
 	t.Parallel()
-	slots := newTaskSlotSemaphore(2)
+	slots := agChanSlotSemaphore(2)
 	lease := newTaskSlotLease(slots, <-slots, nil)
 	spare := <-slots
 	lease.release()
@@ -67,7 +67,7 @@ func TestTaskSlotLeaseCancelledAcquireConservesCapacity(t *testing.T) {
 	t.Parallel()
 	for _, ready := range []bool{false, true} {
 		t.Run(map[bool]string{false: "occupied", true: "available"}[ready], func(t *testing.T) {
-			slots := newTaskSlotSemaphore(1)
+			slots := agChanSlotSemaphore(1)
 			lease := newTaskSlotLease(slots, <-slots, nil)
 			lease.release()
 			if !ready {
@@ -92,7 +92,7 @@ func TestTaskSlotLeaseCancelledAcquireConservesCapacity(t *testing.T) {
 
 func TestTaskSlotLeaseAcquireObservesCancellationWhileBlocked(t *testing.T) {
 	t.Parallel()
-	slots := newTaskSlotSemaphore(1)
+	slots := agChanSlotSemaphore(1)
 	lease := newTaskSlotLease(slots, <-slots, nil)
 	lease.release()
 	other := <-slots
@@ -118,7 +118,7 @@ func TestTaskSlotLeaseAcquireObservesCancellationWhileBlocked(t *testing.T) {
 
 func TestTaskSlotLeaseTryAcquireDoesNotWait(t *testing.T) {
 	t.Parallel()
-	slots := newTaskSlotSemaphore(1)
+	slots := agChanSlotSemaphore(1)
 	lease := newTaskSlotLease(slots, <-slots, nil)
 	lease.release()
 	other := <-slots

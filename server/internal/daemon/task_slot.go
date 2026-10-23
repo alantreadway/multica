@@ -5,14 +5,14 @@ import "context"
 // taskSlotLease belongs to one task goroutine. A parked task keeps its task
 // ownership but returns execution capacity, then may resume on a different index.
 type taskSlotLease struct {
-	slots  chan int
+	slots  agSlotPool // AG patch: machine-wide slot cap (ag_slotlock.go)
 	wakeup chan struct{}
 	index  int
 	held   bool
 }
 
 func newTaskSlotLease(slots chan int, index int, wakeup chan struct{}) *taskSlotLease {
-	return &taskSlotLease{slots: slots, wakeup: wakeup, index: index, held: true}
+	return &taskSlotLease{slots: agChanSlots(slots), wakeup: wakeup, index: index, held: true}
 }
 
 func (s *taskSlotLease) release() {
@@ -20,7 +20,7 @@ func (s *taskSlotLease) release() {
 		return
 	}
 	s.held = false
-	s.slots <- s.index
+	s.slots.put(s.index)
 	signalPollerWakeup(s.wakeup)
 }
 
@@ -28,12 +28,11 @@ func (s *taskSlotLease) acquire(ctx context.Context) error {
 	if acquired, err := s.tryAcquire(ctx); acquired || err != nil {
 		return err
 	}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case index := <-s.slots:
-		return s.adopt(ctx, index)
+	index, err := s.slots.take(ctx)
+	if err != nil {
+		return err
 	}
+	return s.adopt(ctx, index)
 }
 
 func (s *taskSlotLease) tryAcquire(ctx context.Context) (bool, error) {
@@ -43,13 +42,12 @@ func (s *taskSlotLease) tryAcquire(ctx context.Context) (bool, error) {
 	if s.held {
 		return true, nil
 	}
-	select {
-	case index := <-s.slots:
-		err := s.adopt(ctx, index)
-		return err == nil, err
-	default:
-		return false, nil
+	index, ok, err := s.slots.tryTake()
+	if !ok || err != nil {
+		return false, err
 	}
+	err = s.adopt(ctx, index)
+	return err == nil, err
 }
 
 func (s *taskSlotLease) adopt(ctx context.Context, index int) error {

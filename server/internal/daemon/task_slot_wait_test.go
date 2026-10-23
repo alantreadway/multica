@@ -128,7 +128,7 @@ func TestRunBatchPollerDirectoryWaitReleasesExecutionCapacity(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var taskWG sync.WaitGroup
-	sem := newTaskSlotSemaphore(2)
+	sem := newTaskSlotSemaphore(t.TempDir(), 2, nil) // AG patch: machine-wide slot cap
 	pollDone := make(chan struct{})
 	go func() {
 		defer close(pollDone)
@@ -226,7 +226,7 @@ func TestDirectoryWaitCancellationWhileReacquiringSlot(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(releaseHolder)
-			slots := newTaskSlotSemaphore(1)
+			slots := agChanSlotSemaphore(1)
 			lease := newTaskSlotLease(slots, <-slots, nil)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -345,7 +345,7 @@ func TestDirectoryFastPathsRetainExecutionSlot(t *testing.T) {
 				task.ProjectResources = nil
 			}
 			d := &Daemon{cfg: Config{DaemonID: "daemon"}, localPathLocks: NewLocalPathLocker(), logger: slog.New(slog.NewTextHandler(noopWriter{}, nil))}
-			slots := newTaskSlotSemaphore(1)
+			slots := agChanSlotSemaphore(1)
 			lease := newTaskSlotLease(slots, <-slots, nil)
 			release, abort := d.acquireLocalDirectoryLockIfNeeded(context.Background(), task, d.logger, lease)
 			if release != nil {
@@ -397,7 +397,7 @@ func TestDirectDirectoryWaitDoesNotBlockWorktreeSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	slots := newTaskSlotSemaphore(1)
+	slots := agChanSlotSemaphore(1)
 	lease := newTaskSlotLease(slots, <-slots, nil)
 	directDone := make(chan bool, 1)
 	var wg sync.WaitGroup

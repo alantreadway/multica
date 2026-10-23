@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -73,8 +74,8 @@ func agValidateDrainFlags(cmd *cobra.Command, _ []string) error {
 		}
 		return nil
 	}
-	if drain, _ := cmd.Flags().GetBool("drain"); !drain {
-		return fmt.Errorf("--timeout requires --drain")
+	if drain, _ := cmd.Flags().GetBool("drain"); !drain && !agHandoffRequested(cmd) {
+		return fmt.Errorf("--timeout requires --drain or --handoff")
 	}
 	return nil
 }
@@ -127,8 +128,17 @@ func runDaemonDrain(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	if agHandoffRequested(cmd) {
+		if err := agHandoffBegin(port, os.Stdout); err != nil {
+			return err
+		}
+	}
 	wait, _ := cmd.Flags().GetBool("wait")
 	timeout, _ := cmd.Flags().GetDuration("timeout")
+	if agHandoffRequested(cmd) && wait {
+		// A handoff daemon exits once idle, so waiting for it means waiting for that.
+		return agWaitDaemonExit(port, timeout, os.Stderr)
+	}
 	return agDrainAndReport(port, wait, timeout, os.Stdout, os.Stderr)
 }
 
@@ -269,6 +279,10 @@ func agPostDrainEndpoint(port int, path string) (map[string]any, error) {
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
 		return nil, fmt.Errorf("the running daemon does not support %s: it was started from a multica binary without the AG drain patch; restart it from the patched build (see ag-patches/README.md)", path)
 	}
+	if resp.StatusCode == http.StatusConflict { // AG patch: handoff refuses /resume
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return nil, fmt.Errorf("%s", strings.TrimSpace(string(msg)))
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("daemon %s returned status %d", path, resp.StatusCode)
 	}
@@ -332,6 +346,12 @@ func agDaemonStatusRows(health map[string]any) [][2]string {
 			idle = "yes"
 		}
 		rows = append(rows, [2]string{"Idle", idle})
+	}
+	if handoff, _ := health["handoff"].(bool); handoff {
+		rows = append(rows, [2]string{"Handoff", "yes (exits once idle)"})
+	}
+	if pred, ok := agIntField(health, "predecessor_pid"); ok && pred > 0 {
+		rows = append(rows, [2]string{"Predecessor", fmt.Sprintf("pid %d still running (overlap)", pred)})
 	}
 	return rows
 }

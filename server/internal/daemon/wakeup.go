@@ -309,6 +309,9 @@ func (d *Daemon) runWSHeartbeatSender(ctx context.Context, runtimeIDs []string, 
 }
 
 func (d *Daemon) sendWSHeartbeats(ctx context.Context, runtimeIDs []string, writes chan<- *wsOutbound) {
+	if d.agHandoffActive() { // AG patch: handoff — the successor heartbeats
+		return
+	}
 	drain := d.agDrainReport()
 	for _, rid := range runtimeIDs {
 		if ctx.Err() != nil {

@@ -115,6 +115,9 @@ func (d *Daemon) convergeAgentRuntimes(
 	now time.Time,
 	force bool,
 ) {
+	if d.agHandoffActive() { // AG patch: handoff
+		return
+	}
 	gained := d.refreshAgentAvailability()
 	missing := d.providersMissingRuntimes()
 	// A forced round runs even with nothing missing: that is the shape of "a
@@ -364,6 +367,9 @@ func (d *Daemon) refreshAgentAvailability() []string {
 // convergence has pending providers so one below-minimum CLI cannot starve version
 // updates for healthy providers.
 func (d *Daemon) refreshAgentVersions(ctx context.Context) {
+	if d.agHandoffActive() { // AG patch: handoff
+		return
+	}
 	// Nothing has ever been version-detected: the daemon is still starting up,
 	// and initial registration is the sync path's job.
 	if !d.hasDetectedAgentVersions() {
