@@ -64,6 +64,29 @@
       "kpi_cost_label": "费用 · {{period}}",
       "kpi_cache_label": "缓存节省 · {{period}}",
       "kpi_tokens_label": "Token · {{period}}"
+    },
+    "quota": {
+      "title": "Claude 配额",
+      "five_hour": "5 小时",
+      "seven_day": "7 天",
+      "resets": "{{time}} 重置",
+      "hold": "暂停至 {{time}}",
+      "cap": "最多同时运行 {{cap}} / {{max}}",
+      "on_backup": "正在使用备用账号",
+      "backup_title": "备用账号",
+      "backup_ready": "就绪",
+      "backup_not_found": "未找到",
+      "backup_invalid": "已找到但无效",
+      "reason": {
+        "not_logged_in": "未登录",
+        "same_account": "与主账号相同",
+        "check_failed": "检查失败",
+        "unknown": "原因未知"
+      },
+      "backup_enable": "使用备用账号",
+      "backup_urgent_only": "备用账号上只运行紧急任务。",
+      "backup_max": "最大并发数",
+      "save_failed": "无法保存备用账号设置"
     }
   },
   "layout": {
@@ -80,7 +103,9 @@
       "hover_runtimes_header": "排空中的运行时",
       "hover_runtime_draining": "{{name}} · {{running}} 个运行中",
       "hover_runtime_draining_unknown": "{{name}} · 排空中",
-      "hover_runtime_drained": "{{name}} · 已排空"
+      "hover_runtime_drained": "{{name}} · 已排空",
+      "backup_urgent": "备用账号 · 仅限紧急",
+      "quota_hold": "Claude 暂停至 {{time}}"
     }
   },
   "settings": {

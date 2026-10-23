@@ -66,6 +66,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 10 | Label row: show all labels, Compact/Full display (web) | `candidate` | none on the display; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`; the last two from a maintainer) | Medium | Medium-low | Wait for the maintainer's board refactor to land. |
 | 11 | Sidebar agent and drain status (web) | `fork-only` (the agent count alone could go) | none found | Low-medium | Low-medium | Only if asked; the drain marker comes out first. |
 | 12 | Claude quota report and runtime backup setting (daemon + backend) | `fork-only` (the report alone is a `candidate` only if it lines up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (open; #8679 active 2026-10-23), [#6000](https://github.com/multica-ai/multica/issues/6000) (the request) | High for plan usage | Low: crowded | Don't race; offer the `rate_limit_event` parsing to #8679. |
+| 13 | Runtime quota section and sidebar warning (web) | `fork-only` (the Runtimes-page section alone could line up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (open); sidebar line: none found | High for the section | Low: crowded | As the quota report. |
 | 14 | Claude quota tracker and auto-hold (daemon) | `fork-only` (the `rate_limit_event` parsing alone is a `candidate`) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255) (open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC, active 2026-10-19, 6 👍); #8965 closed, #8969 withdrawn | Medium | Low | Add our use case to RFC #6650. |
 | 15 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631) (changes requested, last touched 2026-07-28), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High: upstream's reviewer agreed on #5631 | Low for ours | Help #5631 land, then drop ours. |
 | 16 | Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679) (changes requested), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High | Low for ours | Drop once upstream shows the drain state. |
@@ -1605,6 +1606,64 @@ the backup; a rejected resume is a normal quota failure.
   - Identity: comparing accounts by `orgId` serves our same-email, two-org setup
     only; the overlapping PRs above do not compare accounts at all. Last checked
     2026-10-19.
+
+### Runtime quota section and sidebar warning (web)
+
+The Runtimes detail page gets a "Claude quota" card under Usage for a Claude runtime
+that carries `metadata.ag_quota`: both windows (5-hour, 7-day) as a bar with the
+utilisation and reset time, the current cap ("Running up to 3 of 5") and any
+hold ("On hold until 21:10"), then the backup account: status (not found, found
+but invalid with the reason, or ready), a switch, the `backup_max_concurrent`
+input and one help line ("Only urgent issues run on the backup."). The switch
+and input are disabled unless the backup is valid, the input also while the
+switch is off, and both for anyone who cannot edit the runtime. Saves go to
+`PUT /api/runtimes/{id}/ag-settings` with both fields; the form awaits the server
+and shows server state again on failure, with a toast. The hold and cap are
+hidden while the runtime is offline (stale once heartbeats stop).
+
+The sidebar status row (`agent-status-indicator.tsx`) gets one more line while any
+online runtime is on the backup account ("Backup account · urgent only") or, if
+none is, held ("Claude on hold until 21:10", earliest end across runtimes, local
+time, with the weekday and date when the hold ends on another day, as the weekly
+window's can). Backup wins when both apply. The row then links to Runtimes. It reads the
+same cached runtime list as the drain line: no new request.
+
+The saved setting is read from `metadata.ag_settings`, which the PUT writes at
+once, in preference to the `ag_quota.backup` echo, which only catches up on the
+daemon's next report (up to about a minute on the WebSocket path). A missing or
+malformed `ag_quota` shows no section and no sidebar line.
+
+The AG refreshes (`daemon:register` with `action` `quota`, `drain` or
+`ag_settings`) are not registrations, so `ConnectRemoteDialog` now ignores them;
+before, a quota report would have completed "Connect a computer" falsely.
+Frontend only: rollback is switching the web image back.
+
+- Test prefix: `AG patch:` (`ag-quota-format.test.ts`, `quota-section.test.tsx`, `runtime-detail-quota.test.tsx`,
+  `connect-remote-dialog.ag-quota.test.tsx`, `locales/ag-quota.test.ts`,
+  `layout/agent-status-indicator.test.tsx` and core `runtimes/ag-quota.test.ts` and `ag-quota.api.test.ts`, all in `ag-patches/test.sh`)
+- Files:
+  - `packages/core/runtimes/ag-quota.ts`, `ag-quota.test.ts`, `ag-quota.api.test.ts` (new: schema,
+    sidebar state, refresh filter, save mutation); `packages/core/package.json`
+    (one export); `packages/core/api/ag-client.ts` (`updateAGRuntimeSettings`)
+  - `packages/views/runtimes/ag-quota-format.ts`, `ag-quota-format.test.ts` (new: hold time label)
+  - `packages/views/runtimes/components/quota-section.tsx`, `quota-section.test.tsx`,
+    `runtime-detail-quota.test.tsx`, `connect-remote-dialog.ag-quota.test.tsx` (new)
+  - `packages/views/runtimes/components/runtime-detail.tsx` (one import, one JSX line),
+    `connect-remote-dialog.tsx` (one import, one guard line)
+  - `packages/views/layout/agent-status-indicator.tsx`, `agent-status-indicator.test.tsx`
+  - `packages/views/locales/*/ag.json` (`runtimes.quota`,
+    `layout.agent_status.backup_urgent`, `quota_hold`), `locales/ag-quota.test.ts` (new)
+
+- Upstream:
+  - Status: `fork-only`. Needs the quota report and settings patch above.
+  - Overlap: [#7413](https://github.com/multica-ai/multica/pull/7413) and
+    [#8679](https://github.com/multica-ai/multica/pull/8679) (plan usage on the
+    Runtimes page, open); the sidebar line has no upstream counterpart. Last
+    checked 2026-10-18.
+  - Fit: plan usage on the Runtimes page is a plausible product feature; the
+    backup switch and the sidebar warning are operator tooling for subscription
+    users. The `ConnectRemoteDialog` filter is generic and would go upstream with
+    any change that publishes non-registration `daemon:register` events.
 
 ## Tooling (not a patch)
 

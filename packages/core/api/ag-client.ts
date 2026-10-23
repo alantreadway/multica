@@ -9,6 +9,11 @@ import { EMPTY_LIST_LABELS_RESPONSE, ListLabelsResponseSchema } from "./schemas"
 declare module "./client" {
   interface ApiClient {
     reorderLabels(data: ReorderLabelsRequest): Promise<ListLabelsResponse>;
+    // Backup account setting for a Claude runtime (see runtimes/ag-quota.ts).
+    updateAGRuntimeSettings(
+      runtimeId: string,
+      body: { backup_enabled: boolean; backup_max_concurrent: number },
+    ): Promise<{ backup_enabled: boolean; backup_max_concurrent: number }>;
   }
 }
 
@@ -19,7 +24,7 @@ function clientFetch<T>(client: ApiClient, path: string, init?: RequestInit): Pr
   return (client as unknown as ClientFetch).fetch<T>(path, init);
 }
 
-type AgApiMethodName = "reorderLabels";
+type AgApiMethodName = "reorderLabels" | "updateAGRuntimeSettings";
 
 const agApiMethods: Pick<ApiClient, AgApiMethodName> & ThisType<ApiClient> = {
   async reorderLabels(data) {
@@ -29,6 +34,13 @@ const agApiMethods: Pick<ApiClient, AgApiMethodName> & ThisType<ApiClient> = {
     });
     return parseWithFallback(raw, ListLabelsResponseSchema, EMPTY_LIST_LABELS_RESPONSE, {
       endpoint: "PUT /api/labels/order",
+    });
+  },
+
+  async updateAGRuntimeSettings(runtimeId, body) {
+    return clientFetch(this, `/api/runtimes/${runtimeId}/ag-settings`, {
+      method: "PUT",
+      body: JSON.stringify(body),
     });
   },
 };
