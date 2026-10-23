@@ -717,37 +717,33 @@ func TestTriggerRestart_BrewPrefixUnavailable_NoKnownPrefix_KeepsExecutable(t *t
 func TestNewTaskSlotSemaphoreReturnsStableSlotIndexes(t *testing.T) {
 	t.Parallel()
 
-	sem := newTaskSlotSemaphore(4)
+	sem := newTaskSlotSemaphore(t.TempDir(), 4, nil)
 	seen := make(map[int]bool)
 	for i := 0; i < 4; i++ {
-		select {
-		case slot := <-sem:
-			if slot < 0 || slot > 3 {
-				t.Fatalf("slot out of range: %d", slot)
-			}
-			if seen[slot] {
-				t.Fatalf("duplicate slot: %d", slot)
-			}
-			seen[slot] = true
-		default:
-			t.Fatalf("expected slot %d to be available", i)
+		slot, ok, err := sem.tryAcquire()
+		if err != nil || !ok {
+			t.Fatalf("expected slot %d to be available: ok=%v err=%v", i, ok, err)
 		}
+		if slot < 0 || slot > 3 {
+			t.Fatalf("slot out of range: %d", slot)
+		}
+		if seen[slot] {
+			t.Fatalf("duplicate slot: %d", slot)
+		}
+		seen[slot] = true
 	}
 
-	select {
-	case slot := <-sem:
+	if slot, ok, _ := sem.tryAcquire(); ok {
 		t.Fatalf("expected semaphore to be empty, got slot %d", slot)
-	default:
 	}
 
-	sem <- 2
-	select {
-	case slot := <-sem:
-		if slot != 2 {
-			t.Fatalf("expected released slot 2, got %d", slot)
-		}
-	default:
-		t.Fatal("expected released slot to be available")
+	sem.release(2)
+	slot, ok, err := sem.tryAcquire()
+	if err != nil || !ok {
+		t.Fatalf("expected released slot to be available: ok=%v err=%v", ok, err)
+	}
+	if slot != 2 {
+		t.Fatalf("expected released slot 2, got %d", slot)
 	}
 }
 
