@@ -353,5 +353,5 @@ func agDaemonStatusRows(health map[string]any) [][2]string {
 	if pred, ok := agIntField(health, "predecessor_pid"); ok && pred > 0 {
 		rows = append(rows, [2]string{"Predecessor", fmt.Sprintf("pid %d still running (overlap)", pred)})
 	}
-	return rows
+	return append(rows, agQuotaStatusRows(health)...) // AG patch: quota
 }
