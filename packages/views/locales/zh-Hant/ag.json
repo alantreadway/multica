@@ -66,5 +66,13 @@
       "hover_runtime_draining_unknown": "{{name}} · 排空中",
       "hover_runtime_drained": "{{name}} · 已排空"
     }
+  },
+  "settings": {
+    "labels": {
+      "reorder_failed": "無法儲存新的順序",
+      "actions": {
+        "reorder": "調整 {{name}} 的順序"
+      }
+    }
   }
 }

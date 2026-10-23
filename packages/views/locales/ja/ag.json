@@ -66,5 +66,13 @@
       "hover_runtime_draining_unknown": "{{name}} · ドレイン中",
       "hover_runtime_drained": "{{name}} · ドレイン済み"
     }
+  },
+  "settings": {
+    "labels": {
+      "reorder_failed": "新しい順序を保存できませんでした",
+      "actions": {
+        "reorder": "{{name}} を並べ替え"
+      }
+    }
   }
 }

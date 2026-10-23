@@ -68,5 +68,13 @@
       "hover_runtime_draining_unknown": "{{name}} · vaciando",
       "hover_runtime_drained": "{{name}} · vaciado"
     }
+  },
+  "settings": {
+    "labels": {
+      "reorder_failed": "No se ha podido guardar el nuevo orden",
+      "actions": {
+        "reorder": "Reordenar {{name}}"
+      }
+    }
   }
 }

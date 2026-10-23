@@ -29,6 +29,7 @@ vi.mock("@multica/core/labels", () => ({
   useCreateLabel: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateLabel: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteLabel: () => ({ mutate: vi.fn(), isPending: false }),
+  useReorderLabels: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 describe("Label catalogs", () => {

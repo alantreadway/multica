@@ -153,9 +153,12 @@ func (q *Queries) AttachLabelToSkill(ctx context.Context, arg AttachLabelToSkill
 }
 
 const createLabel = `-- name: CreateLabel :one
-INSERT INTO issue_label (workspace_id, resource_type, name, description, color)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, workspace_id, name, color, created_at, updated_at, resource_type, description
+INSERT INTO issue_label (workspace_id, resource_type, name, description, color, position)
+VALUES ($1, $2, $3, $4, $5, (
+    SELECT COALESCE(MAX(position) + 1, 0) FROM issue_label
+    WHERE workspace_id = $1 AND resource_type = $2
+))
+RETURNING id, workspace_id, name, color, created_at, updated_at, resource_type, description, position
 `
 
 type CreateLabelParams struct {
@@ -166,6 +169,9 @@ type CreateLabelParams struct {
 	Color        string      `json:"color"`
 }
 
+// New labels go last in their (workspace, resource type) namespace. Two
+// concurrent creates can land on the same position; the name tie-break in the
+// list queries keeps their order stable, so no locking here.
 func (q *Queries) CreateLabel(ctx context.Context, arg CreateLabelParams) (IssueLabel, error) {
 	row := q.db.QueryRow(ctx, createLabel,
 		arg.WorkspaceID,
@@ -184,6 +190,7 @@ func (q *Queries) CreateLabel(ctx context.Context, arg CreateLabelParams) (Issue
 		&i.UpdatedAt,
 		&i.ResourceType,
 		&i.Description,
+		&i.Position,
 	)
 	return i, err
 }
@@ -364,7 +371,7 @@ func (q *Queries) DetachLabelFromSkill(ctx context.Context, arg DetachLabelFromS
 }
 
 const getLabel = `-- name: GetLabel :one
-SELECT id, workspace_id, name, color, created_at, updated_at, resource_type, description FROM issue_label
+SELECT id, workspace_id, name, color, created_at, updated_at, resource_type, description, position FROM issue_label
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -385,12 +392,13 @@ func (q *Queries) GetLabel(ctx context.Context, arg GetLabelParams) (IssueLabel,
 		&i.UpdatedAt,
 		&i.ResourceType,
 		&i.Description,
+		&i.Position,
 	)
 	return i, err
 }
 
 const listLabels = `-- name: ListLabels :many
-SELECT l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description,
+SELECT l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description, l.position,
     CASE l.resource_type
         WHEN 'issue' THEN (SELECT COUNT(*) FROM issue_to_label x WHERE x.label_id = l.id)
         WHEN 'agent' THEN (SELECT COUNT(*) FROM agent_to_label x WHERE x.label_id = l.id)
@@ -400,7 +408,7 @@ SELECT l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.reso
 FROM issue_label l
 WHERE l.workspace_id = $1::uuid
   AND l.resource_type = $2::text
-ORDER BY LOWER(name) ASC
+ORDER BY position ASC, LOWER(name) ASC
 `
 
 type ListLabelsParams struct {
@@ -417,6 +425,7 @@ type ListLabelsRow struct {
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 	ResourceType string             `json:"resource_type"`
 	Description  string             `json:"description"`
+	Position     int32              `json:"position"`
 	UsageCount   int64              `json:"usage_count"`
 }
 
@@ -438,6 +447,7 @@ func (q *Queries) ListLabels(ctx context.Context, arg ListLabelsParams) ([]ListL
 			&i.UpdatedAt,
 			&i.ResourceType,
 			&i.Description,
+			&i.Position,
 			&i.UsageCount,
 		); err != nil {
 			return nil, err
@@ -451,13 +461,13 @@ func (q *Queries) ListLabels(ctx context.Context, arg ListLabelsParams) ([]ListL
 }
 
 const listLabelsByAgent = `-- name: ListLabelsByAgent :many
-SELECT l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description
+SELECT l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description, l.position
 FROM issue_label l
 JOIN agent_to_label atl ON atl.label_id = l.id
 WHERE atl.agent_id = $1::uuid
   AND l.workspace_id = $2::uuid
   AND l.resource_type = 'agent'
-ORDER BY LOWER(l.name) ASC
+ORDER BY l.position ASC, LOWER(l.name) ASC
 `
 
 type ListLabelsByAgentParams struct {
@@ -483,6 +493,7 @@ func (q *Queries) ListLabelsByAgent(ctx context.Context, arg ListLabelsByAgentPa
 			&i.UpdatedAt,
 			&i.ResourceType,
 			&i.Description,
+			&i.Position,
 		); err != nil {
 			return nil, err
 		}
@@ -495,13 +506,13 @@ func (q *Queries) ListLabelsByAgent(ctx context.Context, arg ListLabelsByAgentPa
 }
 
 const listLabelsByIssue = `-- name: ListLabelsByIssue :many
-SELECT l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description
+SELECT l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description, l.position
 FROM issue_label l
 JOIN issue_to_label il ON il.label_id = l.id
 WHERE il.issue_id = $1::uuid
   AND l.workspace_id = $2::uuid
   AND l.resource_type = 'issue'
-ORDER BY LOWER(l.name) ASC
+ORDER BY l.position ASC, LOWER(l.name) ASC
 `
 
 type ListLabelsByIssueParams struct {
@@ -529,6 +540,7 @@ func (q *Queries) ListLabelsByIssue(ctx context.Context, arg ListLabelsByIssuePa
 			&i.UpdatedAt,
 			&i.ResourceType,
 			&i.Description,
+			&i.Position,
 		); err != nil {
 			return nil, err
 		}
@@ -541,13 +553,13 @@ func (q *Queries) ListLabelsByIssue(ctx context.Context, arg ListLabelsByIssuePa
 }
 
 const listLabelsBySkill = `-- name: ListLabelsBySkill :many
-SELECT l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description
+SELECT l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description, l.position
 FROM issue_label l
 JOIN skill_to_label stl ON stl.label_id = l.id
 WHERE stl.skill_id = $1::uuid
   AND l.workspace_id = $2::uuid
   AND l.resource_type = 'skill'
-ORDER BY LOWER(l.name) ASC
+ORDER BY l.position ASC, LOWER(l.name) ASC
 `
 
 type ListLabelsBySkillParams struct {
@@ -573,6 +585,7 @@ func (q *Queries) ListLabelsBySkill(ctx context.Context, arg ListLabelsBySkillPa
 			&i.UpdatedAt,
 			&i.ResourceType,
 			&i.Description,
+			&i.Position,
 		); err != nil {
 			return nil, err
 		}
@@ -585,13 +598,13 @@ func (q *Queries) ListLabelsBySkill(ctx context.Context, arg ListLabelsBySkillPa
 }
 
 const listLabelsForAgents = `-- name: ListLabelsForAgents :many
-SELECT atl.agent_id, l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description
+SELECT atl.agent_id, l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description, l.position
 FROM issue_label l
 JOIN agent_to_label atl ON atl.label_id = l.id
 WHERE atl.agent_id = ANY($1::uuid[])
   AND l.workspace_id = $2::uuid
   AND l.resource_type = 'agent'
-ORDER BY atl.agent_id, LOWER(l.name) ASC
+ORDER BY atl.agent_id, l.position ASC, LOWER(l.name) ASC
 `
 
 type ListLabelsForAgentsParams struct {
@@ -609,6 +622,7 @@ type ListLabelsForAgentsRow struct {
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 	ResourceType string             `json:"resource_type"`
 	Description  string             `json:"description"`
+	Position     int32              `json:"position"`
 }
 
 func (q *Queries) ListLabelsForAgents(ctx context.Context, arg ListLabelsForAgentsParams) ([]ListLabelsForAgentsRow, error) {
@@ -630,6 +644,7 @@ func (q *Queries) ListLabelsForAgents(ctx context.Context, arg ListLabelsForAgen
 			&i.UpdatedAt,
 			&i.ResourceType,
 			&i.Description,
+			&i.Position,
 		); err != nil {
 			return nil, err
 		}
@@ -642,13 +657,13 @@ func (q *Queries) ListLabelsForAgents(ctx context.Context, arg ListLabelsForAgen
 }
 
 const listLabelsForIssues = `-- name: ListLabelsForIssues :many
-SELECT il.issue_id, l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description
+SELECT il.issue_id, l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description, l.position
 FROM issue_label l
 JOIN issue_to_label il ON il.label_id = l.id
 WHERE il.issue_id = ANY($1::uuid[])
   AND l.workspace_id = $2::uuid
   AND l.resource_type = 'issue'
-ORDER BY il.issue_id, LOWER(l.name) ASC
+ORDER BY il.issue_id, l.position ASC, LOWER(l.name) ASC
 `
 
 type ListLabelsForIssuesParams struct {
@@ -666,6 +681,7 @@ type ListLabelsForIssuesRow struct {
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 	ResourceType string             `json:"resource_type"`
 	Description  string             `json:"description"`
+	Position     int32              `json:"position"`
 }
 
 // Bulk variant: fetch labels for many issues in one round-trip so the issue
@@ -690,6 +706,7 @@ func (q *Queries) ListLabelsForIssues(ctx context.Context, arg ListLabelsForIssu
 			&i.UpdatedAt,
 			&i.ResourceType,
 			&i.Description,
+			&i.Position,
 		); err != nil {
 			return nil, err
 		}
@@ -702,13 +719,13 @@ func (q *Queries) ListLabelsForIssues(ctx context.Context, arg ListLabelsForIssu
 }
 
 const listLabelsForSkills = `-- name: ListLabelsForSkills :many
-SELECT stl.skill_id, l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description
+SELECT stl.skill_id, l.id, l.workspace_id, l.name, l.color, l.created_at, l.updated_at, l.resource_type, l.description, l.position
 FROM issue_label l
 JOIN skill_to_label stl ON stl.label_id = l.id
 WHERE stl.skill_id = ANY($1::uuid[])
   AND l.workspace_id = $2::uuid
   AND l.resource_type = 'skill'
-ORDER BY stl.skill_id, LOWER(l.name) ASC
+ORDER BY stl.skill_id, l.position ASC, LOWER(l.name) ASC
 `
 
 type ListLabelsForSkillsParams struct {
@@ -726,6 +743,7 @@ type ListLabelsForSkillsRow struct {
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 	ResourceType string             `json:"resource_type"`
 	Description  string             `json:"description"`
+	Position     int32              `json:"position"`
 }
 
 func (q *Queries) ListLabelsForSkills(ctx context.Context, arg ListLabelsForSkillsParams) ([]ListLabelsForSkillsRow, error) {
@@ -747,6 +765,7 @@ func (q *Queries) ListLabelsForSkills(ctx context.Context, arg ListLabelsForSkil
 			&i.UpdatedAt,
 			&i.ResourceType,
 			&i.Description,
+			&i.Position,
 		); err != nil {
 			return nil, err
 		}
@@ -765,7 +784,7 @@ UPDATE issue_label SET
     color = COALESCE($5, color),
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
-RETURNING id, workspace_id, name, color, created_at, updated_at, resource_type, description
+RETURNING id, workspace_id, name, color, created_at, updated_at, resource_type, description, position
 `
 
 type UpdateLabelParams struct {
@@ -794,6 +813,7 @@ func (q *Queries) UpdateLabel(ctx context.Context, arg UpdateLabelParams) (Issue
 		&i.UpdatedAt,
 		&i.ResourceType,
 		&i.Description,
+		&i.Position,
 	)
 	return i, err
 }

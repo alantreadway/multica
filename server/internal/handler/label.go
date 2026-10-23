@@ -27,6 +27,7 @@ type LabelResponse struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
 	Color        string `json:"color"`
+	Position     int32  `json:"position"`
 	UsageCount   int64  `json:"usage_count"`
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
@@ -40,6 +41,7 @@ func labelToResponse(l db.IssueLabel) LabelResponse {
 		Name:         l.Name,
 		Description:  l.Description,
 		Color:        l.Color,
+		Position:     l.Position,
 		CreatedAt:    timestampToString(l.CreatedAt),
 		UpdatedAt:    timestampToString(l.UpdatedAt),
 	}
@@ -53,6 +55,7 @@ func labelListRowToResponse(l db.ListLabelsRow) LabelResponse {
 		Name:         l.Name,
 		Description:  l.Description,
 		Color:        l.Color,
+		Position:     l.Position,
 		UsageCount:   l.UsageCount,
 		CreatedAt:    timestampToString(l.CreatedAt),
 		UpdatedAt:    timestampToString(l.UpdatedAt),
