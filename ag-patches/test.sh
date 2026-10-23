@@ -34,9 +34,16 @@ pnpm --filter @multica/views exec vitest run \
   issues/components/swimlane-band.test.ts \
   issues/components/tree-rows.test.ts \
   issues/components/tree-view.test.tsx \
+  issues/components/tree-chart-layout.test.ts \
+  issues/components/tree-chart-layout.invariants.test.ts \
+  issues/components/tree-chart-viewport.test.ts \
+  issues/components/tree-chart-view.test.tsx \
+  issues/components/issues-header.tree-layout.test.tsx \
   issues/components/issues-header.tree-mode.test.tsx \
   issues/surface/tree-mode.test.tsx \
   issues/surface/tree-mode-surfaces.test.tsx \
+  issues/surface/tree-chart-mode.test.tsx \
+  issues/surface/tree-chart-surface.test.tsx \
   issues/surface/issue-surface.test.tsx \
   issues/surface/issue-surface.ag.test.tsx \
   issues/components/save-view-dialog.test.tsx \
@@ -51,6 +58,8 @@ pnpm --filter @multica/views exec vitest run \
 
 pnpm --filter @multica/core exec vitest run \
   issues/stores/tree-view-store.test.ts \
+  issues/stores/tree-layout-store.test.ts \
+  issues/stores/tree-layout-store.persist.test.ts \
   issues/queries.test.ts \
   issues/queries.tree-lanes.ag.test.ts \
   issues/queries.tree-view.ag.test.ts \

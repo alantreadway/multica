@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo, type ReactNode } from "react";
 import { Virtuoso } from "react-virtuoso";
 import {
   ChevronRight,
@@ -372,6 +372,41 @@ function FocusBreadcrumb({ tree }: { tree: TreeRowsState }) {
   );
 }
 
+/** Breadcrumb, the filters-paused notice and the layout's own actions. */
+export function TreeToolbar({
+  tree,
+  children,
+}: {
+  tree: TreeRowsState;
+  children?: ReactNode;
+}) {
+  const { t } = useT("ag");
+  return (
+    <div className="flex h-9 shrink-0 items-center gap-2 border-b px-4">
+      <div className="min-w-0 flex-1">
+        <FocusBreadcrumb tree={tree} />
+      </div>
+      {tree.focusId && (
+        <span
+          data-slot="tree-filters-paused"
+          className="flex shrink-0 items-center gap-1 text-caption text-muted-foreground"
+        >
+          {t(($) => $.issues.tree.filters_paused)}
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={tree.clearFocus}
+            className="text-foreground"
+          >
+            {t(($) => $.issues.tree.clear_focus)}
+          </Button>
+        </span>
+      )}
+      {children}
+    </div>
+  );
+}
+
 export function TreeView({
   tree,
   childProgressMap,
@@ -415,26 +450,7 @@ export function TreeView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b px-4">
-        <div className="min-w-0 flex-1">
-          <FocusBreadcrumb tree={tree} />
-        </div>
-        {tree.focusId && (
-          <span
-            data-slot="tree-filters-paused"
-            className="flex shrink-0 items-center gap-1 text-caption text-muted-foreground"
-          >
-            {t(($) => $.issues.tree.filters_paused)}
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={tree.clearFocus}
-              className="text-foreground"
-            >
-              {t(($) => $.issues.tree.clear_focus)}
-            </Button>
-          </span>
-        )}
+      <TreeToolbar tree={tree}>
         <Button
           variant="ghost"
           size="xs"
@@ -455,7 +471,7 @@ export function TreeView({
             {t(($) => $.issues.tree.collapse_all)}
           </span>
         </Button>
-      </div>
+      </TreeToolbar>
       <div
         role="tree"
         aria-label={t(($) => $.issues.tree.aria_label)}
