@@ -55,11 +55,13 @@ merged. Some patches appear in two parts where only one part is worth offering.
 
 | # | Patch | Status | Overlapping upstream | Fit | Likelihood | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
+| 3 | Daemon handoff: single-instance fixes (PID file owner check, repo cache flock) | `candidate` once split out | none found | High: bug fixes | Medium-high | Split out of the handoff patch and show a repro first. |
 | 6 | Tree-ordered parent lanes | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open, adjacent, no reviews, last touched 2026-07-07) | Medium: improves a shipped view | Medium | Feature Request, after reading #2966. |
 | 7 | Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) | Medium | Medium (drag rules), low (jump chip) | Ride along with the tree lanes; offer the drag rules first. |
 | 9 | Tree view mode (outline) | `candidate` | [#5685](https://github.com/multica-ai/multica/issues/5685) (open request, 3 👍), [#2966](https://github.com/multica-ai/multica/pull/2966) (open, overlaps) | Medium | Medium-low | After the tree lanes; read #2966 first. |
 | 15 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631) (changes requested, last touched 2026-07-28), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High: upstream's reviewer agreed on #5631 | Low for ours | Help #5631 land, then drop ours. |
 | 16 | Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679) (changes requested), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High | Low for ours | Drop once upstream shows the drain state. |
+| 19 | Daemon handoff (overlap mode, machine-wide slot cap) | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) | Low | Low | None. |
 | 20 | Tree mode org-chart layout | `fork-only` | none beyond the tree view | Low | Low | Only after the outline lands, and only if asked. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
@@ -398,6 +400,174 @@ Depends on the daemon drain core patch above.
   - Fit: the metadata-only design is a stopgap that avoids a migration on the
     self-host, not a shape upstream would want next to its own column-backed
     status. Offer nothing; watch the three PRs.
+
+### Daemon handoff (overlap mode) (in review)
+
+A new daemon starts and claims while the old one drains its running tasks and
+exits once it has none left: zero-downtime replacement. No server or DB change.
+Two parts. First, groundwork that makes the daemon safe to run as two processes
+on one machine (slot locks, single-instance fixes, repo cache lock, GC gate).
+Second, the handoff and overlap modes on top.
+
+**Groundwork:**
+
+- **Machine-wide slot cap.** The in-process channel of slot indices is replaced
+  by one lock file per slot, `<config dir>/slots/<k>.lock` for k in
+  `[0, MULTICA_DAEMON_MAX_CONCURRENT_TASKS)`, taken with a non-blocking
+  exclusive flock for the life of the task. The kernel drops the lock when the
+  holder exits, so a crashed daemon strands nothing. Total running agents across
+  daemons stay within the cap and `MULTICA_TASK_SLOT` is unique across the
+  machine. The slot dir is per machine (shared by every profile of one config
+  root). A miss falls into the existing `capacityBackoff`. The slot dir or a
+  lock file that can't be opened fails closed: no claim, one warning per backoff
+  cycle, no in-process fallback.
+- **PID file owner check.** `daemon start --foreground` and `daemon stop` remove
+  `daemon.pid` only while it still holds their PID, so an outgoing daemon can't
+  delete its successor's file.
+- **Cross-process repo cache lock.** Each per-repo `repoLock` also holds a flock
+  on `<bare repo>.multica-lock`, taken inside the in-process lock and released
+  with it, so two daemons never fetch, prune or GC one bare repo at once. The
+  high/low-priority behaviour is unchanged in-process. Fail closed: if the lock
+  file can't be opened the operation returns that error and git doesn't run.
+  Another daemon's maintenance can't be preempted, so a foreground checkout
+  waits for it to finish. The lock files are left in place (unlinking a flock
+  file another daemon may hold is unsafe), so an evicted repo's workspace cache
+  dir keeps them.
+- **Heavy git GC waits for other daemons.** `reflog expire` and `git gc` are
+  skipped while any slot lock is held by another process, as well as while this
+  daemon has active tasks. A probe error counts as busy.
+
+**Handoff and overlap modes:**
+
+- **Handoff on the old daemon** (`daemon drain --handoff`, and `--handoff` on
+  `daemon stop|restart`; `POST /handoff` on the health port). Implies drain. Then
+  it stops heartbeating (HTTP and WebSocket) and registering (workspace sync,
+  agent discovery, runtime-gone recovery, the register calls themselves), so
+  runtime liveness and heartbeat-carried requests belong to the successor. It
+  writes `daemon.handoff.json` (PID and port; a normal start beside a live one
+  refuses, since its startup recovery would fail the draining tasks), releases
+  `daemon.lock`, moves its logging to `daemon.handoff.<pid>.log`
+  (through a switchable writer, so the daemon's logger is not replaced), skips
+  `deregisterRuntimes` on exit and exits when idle, but not before
+  `agHandoffMinHold` (30s) so an idle daemon doesn't vanish before the successor
+  reads its `/health`. It keeps reporting for its own tasks and keeps serving its
+  health port. One-way: `/resume` answers 409 and `daemon resume` prints why.
+  It also skips GC cycles for the whole drain (the successor's task dirs would
+  look orphaned to it), answers `/handoff` only after claims already in flight
+  have become tracked tasks (bounded at 3s, so the successor's first `/health`
+  read lists them), and refuses `/handoff` with 409 while it is itself still
+  overlapping its own predecessor.
+  Upstream's `MULTICA_DAEMON_HANDOFF` env var and self-spawn restart path (binary
+  update handoff) are untouched.
+- **Overlap on the new daemon** (`daemon start --overlap`). Before writing its
+  port or PID file it reads the predecessor's PID, port, task IDs and cap
+  (`/health` gained `handoff`, `max_concurrent_tasks`, `active_task_ids` and, on
+  an overlap daemon, `predecessor_pid`). It skips the startup recover-orphans
+  loop and the runtime-gone one while the predecessor lives, and skips GC cycles
+  (the predecessor's task dirs would look orphaned) and self-restarts (a
+  restart would recover-orphans). It claims through the slot locks. The
+  background launcher doesn't write `daemon.pid` in overlap mode (the child
+  reads the old one first and writes its own).
+- **Fail closed.** `--overlap` exits non-zero, before registering runtimes, when
+  there is no live PID in the PID file, when the predecessor's `/health` can't be
+  read or answers with another PID, when it isn't in handoff mode, or when its
+  cap is missing or differs from this daemon's (both values named). Never a
+  fallback to a normal start.
+- **Predecessor death.** While the predecessor runs, the successor polls its PID
+  and `/health` every 2s and keeps the task-ID set current (it only shrinks). A
+  transient failure with the PID alive changes nothing. If the PID dies with
+  tasks left, only those IDs are failed through the daemon's terminal-report fail
+  path (reason `runtime_offline`, message names the predecessor's exit
+  mid-handoff), best effort per task. Then overlap ends and the daemon is
+  normal. Windows can't probe a PID, so it counts failed `/health` reads
+  instead.
+- **GC preemption.** A running heavy `reflog expire` / `git gc` step watches the
+  slot probe every 500ms and is cancelled with `repocache.ErrMaintenancePreempted`
+  as soon as another daemon holds a slot (probe errors count as busy). The
+  step is retried on a later cycle.
+- **Same cap.** `/health` reports `max_concurrent_tasks`; an overlap start with
+  a different or missing cap refuses, because a daemon with a larger N could take
+  slots at or above the smaller one's N.
+- **Reload script.** `ag-patches/multica-daemon-reload` alternates two launchd
+  labels (`…multica-daemon.a` / `.b`), hands the running one off, bootstraps the
+  other with `--overlap` (through a one-shot marker file read by the plist's
+  command line) and never boots the draining label out. Not installed by any
+  script here; setup is in the README ("Daemon/CLI patch").
+
+On Windows (no flock) the slot set and repo locks stay in-process, as upstream.
+Needs a CLI built with `ag-patches/build-cli.sh`.
+
+- Test prefix: `TestAGPatch` / `AG patch:` (run by `ag-patches/test.sh`, which
+  now also runs `server/internal/daemon/repocache`). The two-process slot-cap
+  test re-executes the test binary as a helper process that holds slots.
+- Files:
+  - `server/internal/daemon/ag_slotlock.go`, `ag_slotlock_unix.go`,
+    `ag_slotlock_other.go` (new: slot locks, wait loop, GC probe)
+  - `server/internal/daemon/ag_slotlock_test.go`, `ag_slotlock_extra_test.go` (new)
+  - `server/internal/daemon/daemon.go` (`agSlotDir` and `agSlots` fields,
+    `pollLoop` builds its slots through `agNewTaskSlots`, `runBatchPoller`; the
+    old channel helpers `newTaskSlotSemaphore`, `waitForTaskSlot`,
+    `drainAvailableSlots` moved to `ag_slotlock.go`)
+  - `server/internal/daemon/gc.go` (two heavy-GC checks call
+    `agOtherDaemonBusy`)
+  - `server/internal/daemon/repocache/ag_repolock.go`, `ag_repolock_unix.go`,
+    `ag_repolock_other.go` (new) and `ag_repolock_test.go`,
+    `ag_repolock_extra_test.go` (new)
+  - `server/internal/daemon/repocache/cache.go` (`agFlock` field, hooks in
+    `LockContext`, `Unlock`, `tryLockMaintenance`, `lockForRepo`)
+  - `server/cmd/multica/ag_daemon_pidfile.go`, `ag_daemon_pidfile_test.go` (new)
+  - `server/cmd/multica/cmd_daemon.go` (two PID-file removals call
+    `agRemoveDaemonPIDIfOwned`)
+  - Upstream tests adjusted: `daemon_test.go`, `runtime_isolation_test.go`,
+    `terminal_report_queue_test.go`, `ag_drain_test.go` (slot semaphore API and
+    a temp slot dir for `pollLoop`), `repocache/cache_test.go` (real temp bare
+    paths, since the repo lock now needs a lock file beside the repo),
+    `gc_repo_evict_test.go` (tolerates the lock file)
+  - `ag-patches/test.sh` (`repocache` package added, `AG_GO_MIN_TESTS` 45)
+  - Handoff and overlap:
+    - `server/internal/daemon/ag_handoff.go`, `ag_handoff_unix.go`,
+      `ag_handoff_other.go` (new: handoff state, `/handoff`, overlap loop,
+      predecessor-death handling, GC step preemption)
+    - `server/internal/daemon/daemon.go` (`agHandoff` field; task ID tracking in
+      `pollLoop`; `go d.agOverlapLoop`; hooks in `deregisterRuntimes`,
+      `runHeartbeatTick`, `handlePendingWorkHint`, `syncWorkspacesFromAPI`,
+      `handleRuntimeGone`, the two register calls and the two recover-orphans
+      loops), `wakeup.go` (`sendWSHeartbeats`), `agents_refresh.go` (two
+      discovery entry points), `gc.go` (`runGC` skip, heavy-step context),
+      `health.go` (`agHandoffHealth`, `/handoff`), `ag_drain.go` (`/resume`
+      refusal, restart deferral)
+    - `server/cmd/multica/ag_daemon_handoff.go` (new: flags, predecessor
+      discovery, log switch, `stop|restart --handoff`),
+      `ag_daemon_drain.go` (`drain --handoff`, 409 message, status rows),
+      `cmd_daemon.go` (one-line hooks in the launcher, `runDaemonForeground`
+      (`agOverlapStart`, `agRefuseNormalStartBesideHandoff`),
+      `runDaemonStop`, `runDaemonRestart`)
+    - `ag-patches/multica-daemon-reload` (new), `ag-patches/README.md`
+    - Tests: `server/internal/daemon/ag_handoff_test.go`,
+      `server/internal/daemon/ag_handoff_run_test.go` (new: an overlap daemon
+      driven through `Run`),
+      `server/cmd/multica/ag_daemon_handoff_test.go` (new: handoff and overlap
+      behaviour, predecessor discovery, the CLI flags; predecessor death and GC
+      step preemption are in `server/internal/daemon/ag_handoff_test.go`),
+      `server/cmd/multica/ag_daemon_handoff_run_test.go` (new: the handoff hook
+      and the plain-start guard driven through `runDaemonForeground`) and `server/cmd/multica/ag_reload_script_test.go` (new: runs
+      `multica-daemon-reload` against stub `launchctl`, `plutil` and `multica`;
+      the cases that run the script need `bash` and `jq` and skip without them)
+    - `ag-patches/test.sh` (`AG_GO_MIN_TESTS` 70)
+
+- Upstream:
+  - Status: `fork-only`. It lets two daemons overlap during a handoff, which
+    upstream's drain-then-stop work does not do, and the overlap model is not
+    something to offer upstream yet. The single-instance fixes (PID file owner
+    check, repo cache flock) are self-contained and could be offered separately
+    as bug fixes once the handoff has proven out.
+  - Overlap: [#5631](https://github.com/multica-ai/multica/pull/5631) and
+    [#6677](https://github.com/multica-ai/multica/pull/6677) (drain-then-stop,
+    not overlap). #6677's server-side "draining" runtime status would clash with
+    two processes sharing one runtime row.
+  - Fit: operator tooling for self-hosters (upgrade without a gap in service),
+    in the same spirit as drain. The machine-wide slot cap changes how every
+    daemon bounds concurrency, which upstream would want agreed first.
 
 ## Tooling (not a patch)
 
