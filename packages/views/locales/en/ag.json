@@ -68,5 +68,13 @@
       "hover_runtime_draining_unknown": "{{name}} · draining",
       "hover_runtime_drained": "{{name}} · drained"
     }
+  },
+  "settings": {
+    "labels": {
+      "reorder_failed": "Couldn't save the new order",
+      "actions": {
+        "reorder": "Reorder {{name}}"
+      }
+    }
   }
 }
