@@ -26,39 +26,58 @@ offer upstream. Every patch entry below ends with an **Upstream** line:
 - **Overlap:** related upstream PRs and issues, with their state when last checked.
 - **Fit:** how it sits with upstream's `VISION.md` and roadmap, or why it doesn't.
 
-Last checked 2026-10-23 at the rebase onto `v0.6.5`: every overlapping PR and
-issue below re-read (all still open or closed as listed; none merged or
-superseded), and the `v0.6.3..v0.6.5` commits read for anything that replaces a
-patch (none). Upstream's REST snapshot rewrite (#9332) forced a port of the PR
-snapshot extras, not a drop. The full preflight from the
-`multica-upstream-contribution` skill last ran 2026-10-16: live
-`VISION.md` and `CONTRIBUTING.md`, plus issue and PR searches, open and closed.
-Read-only: nothing has been opened, filed or commented on upstream. Re-check on
-every rebase (README, "Rebase onto a new upstream tag").
+Last checked 2026-10-23, twice: at the rebase onto `v0.6.5` (every
+overlapping PR and issue re-read, and the `v0.6.3..v0.6.5` commits read for
+anything that replaces a patch: none), and again after the deploy, when the
+ranking below was added. Since the 2026-10-19 check, [#9279](https://github.com/multica-ai/multica/issues/9279) closed as completed
+by [#9332](https://github.com/multica-ai/multica/pull/9332), upstream's REST snapshot rewrite, which forced a port of the PR
+snapshot extras rather than a drop; [#9190](https://github.com/multica-ai/multica/pull/9190) opened as the fix for [#9176](https://github.com/multica-ai/multica/issues/9176);
+and [#8679](https://github.com/multica-ai/multica/pull/8679) and RFC [#6650](https://github.com/multica-ai/multica/issues/6650) are active. None merged or was superseded. The full
+preflight from the `multica-upstream-contribution` skill last ran 2026-10-16:
+live `VISION.md` and `CONTRIBUTING.md`, plus issue and PR searches, open and
+closed. Read-only: nothing has been opened, filed or commented on upstream.
+Re-check on every rebase (README, "Rebase onto a new upstream tag").
 
-| Patch | Status | Overlapping upstream |
-| --- | --- | --- |
-| Tree-ordered parent lanes | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open, adjacent) |
-| Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) |
-| Tree view mode (outline) | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open PR, overlaps), [#5685](https://github.com/multica-ai/multica/issues/5685) (open request) |
-| Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open) |
-| Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open) |
-| Daemon handoff: machine-wide slot cap and single-instance fixes | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) |
-| GitHub PR polling (token mode) | `candidate` | [#8111](https://github.com/multica-ai/multica/issues/8111) (open feature request, same need) |
-| Daemon handoff (overlap mode) | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) |
-| Claude quota tracker and auto-hold (daemon) | `fork-only` (the `rate_limit_event` parsing alone is a `candidate`) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255), #8965 (closed), #8969 (withdrawn) |
-| PR snapshot fields and `pull-requests link` | `fork-only` | [#8145](https://github.com/multica-ai/multica/pull/8145) (open, same CLI commands, different design) |
-| Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (open, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) |
-| Label ordering (backend + web) | `candidate` | none found (searched 2026-10-19) |
-| Deferred retry until quota reset (backend) | `fork-only` | [#7887](https://github.com/multica-ai/multica/issues/7887) (closed not_planned), [#8949](https://github.com/multica-ai/multica/pull/8949) (rejected), [#9159](https://github.com/multica-ai/multica/issues/9159), [#8964](https://github.com/multica-ai/multica/pull/8964) (open), [#9310](https://github.com/multica-ai/multica/issues/9310) / [#9314](https://github.com/multica-ai/multica/pull/9314) (open, quota failure classification) |
-| Label row: show all labels, Compact/Full display (web) | `candidate` | none found; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`) |
-| Copy (Slack) comment menu item | `candidate` | none open; upstream ships the Slack mrkdwn formatter server-side (`server/internal/integrations/slack/mrkdwn.go`) |
-| 1d and Yesterday periods on usage pages (web) | `candidate` (runtime `1d`), `fork-only` (Yesterday) | none open (searched 2026-10-19); related merged [#2837](https://github.com/multica-ai/multica/pull/2837), [#6194](https://github.com/multica-ai/multica/pull/6194) |
-| Claude pacing: 80% knee, weekly curve, EWMA cap (daemon) | `fork-only` | [#6011](https://github.com/multica-ai/multica/pull/6011) (adaptive admission, open), [#8331](https://github.com/multica-ai/multica/pull/8331) (static caps, closed unmerged), [#7015](https://github.com/multica-ai/multica/issues/7015), [#4205](https://github.com/multica-ai/multica/issues/4205) (ask for static caps) |
-| Claude quota report and runtime backup setting (daemon + backend) | `fork-only` (the report alone is a `candidate` only if it lines up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (plan quota per runtime, open), [#6000](https://github.com/multica-ai/multica/issues/6000) (the request, open) |
-| Backup Claude account failover, urgent only (daemon) | `fork-only` | [#5282](https://github.com/multica-ai/multica/pull/5282), [#8579](https://github.com/multica-ai/multica/pull/8579) (fallback runtime, open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC), [#5704](https://github.com/multica-ai/multica/issues/5704), [#5618](https://github.com/multica-ai/multica/issues/5618) (resume after an account switch, fixed by [#5715](https://github.com/multica-ai/multica/pull/5715)) |
-| Runtime quota section and sidebar warning (web) | `fork-only` (the Runtimes-page section alone could line up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (open); sidebar line: none found |
-| Task GC meta on every terminal path (daemon) | `candidate` | [#9176](https://github.com/multica-ai/multica/issues/9176) (open, adjacent: GC gates on issue status), [#7469](https://github.com/multica-ai/multica/issues/7469) (closed, atomic meta writes) |
+### Ranking
+
+Rows are ordered by how likely an upstream PR built from the patch would be
+merged. Some patches appear in two parts where only one part is worth offering.
+
+- **Fit:** how closely the patch matches what upstream has asked for or already
+  ships: open requests, reactions, maintainer comments, precedent in the code.
+- **Likelihood:** the chance a PR would merge, given its route (a bug fix can go
+  straight to a PR; a feature needs a Feature Request agreed first), its size,
+  competing PRs and the maintainers' stated position. For scale, about 55% of
+  external PRs merge, at a median of 26h, and most of the rest stall unreviewed
+  (the `multica-upstream-contribution` skill's evidence, 2026-10-15).
+- **Next step:** what to do if we offer it. Nothing is opened upstream without
+  alan's go-ahead for that item.
+
+| # | Patch | Status | Overlapping upstream | Fit | Likelihood | Next step |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | Task GC meta on every terminal path (daemon) | `candidate` | [#9176](https://github.com/multica-ai/multica/issues/9176) (open bug, a different gap; its fix [#9190](https://github.com/multica-ai/multica/pull/9190) is open), [#7469](https://github.com/multica-ai/multica/issues/7469) (closed, atomic meta writes) | High: a bug fix | High | File a Bug Report and open the PR straight away; mention #9190. |
+| 2 | 1d and Yesterday periods (web): runtime `1d` | `candidate` (`1d`), `fork-only` (Yesterday) | none open; [#2837](https://github.com/multica-ai/multica/pull/2837) (merged) added `1d` to the workspace Usage tab only | High: matches a shipped period | High (`1d`) | Small PR for the runtime `1d` alone. Yesterday needs an end bound on the rollup endpoints first. |
+| 3 | Daemon handoff: single-instance fixes (PID file owner check, repo cache flock) | `candidate` once split out | none found | High: bug fixes | Medium-high | Split out of the handoff patch and show a repro first. |
+| 4 | Copy (Slack) comment menu item (web) | `candidate` | none; builds on upstream's server-side Slack mrkdwn formatter | Medium | Medium | Feature Request first. |
+| 5 | Label ordering (backend + web) | `candidate` | none (searched 2026-10-19); the status reorder endpoint is the precedent | Medium | Medium | Feature Request first; the migration raises the bar. |
+| 6 | Tree-ordered parent lanes | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open, adjacent, no reviews, last touched 2026-07-07) | Medium: improves a shipped view | Medium | Feature Request, after reading #2966. |
+| 7 | Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) | Medium | Medium (drag rules), low (jump chip) | Ride along with the tree lanes; offer the drag rules first. |
+| 8 | GitHub PR polling (token mode) | `candidate` | [#8111](https://github.com/multica-ai/multica/issues/8111) (open request; our +1 only, no maintainer reply) | High: a stated blocker for self-hosters without an App | Medium-low | Rework as a GitHub token provider in `vcs_connection` (the #5006 shape) before offering. |
+| 9 | Tree view mode (outline) | `candidate` | [#5685](https://github.com/multica-ai/multica/issues/5685) (open request, 3 👍), [#2966](https://github.com/multica-ai/multica/pull/2966) (open, overlaps) | Medium | Medium-low | After the tree lanes; read #2966 first. |
+| 10 | Label row: show all labels, Compact/Full display (web) | `candidate` | none on the display; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`; the last two from a maintainer) | Medium | Medium-low | Wait for the maintainer's board refactor to land. |
+| 11 | Sidebar agent and drain status (web) | `fork-only` (the agent count alone could go) | none found | Low-medium | Low-medium | Only if asked; the drain marker comes out first. |
+| 12 | Claude quota report and runtime backup setting (daemon + backend) | `fork-only` (the report alone is a `candidate` only if it lines up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (open; #8679 active 2026-10-23), [#6000](https://github.com/multica-ai/multica/issues/6000) (the request) | High for plan usage | Low: crowded | Don't race; offer the `rate_limit_event` parsing to #8679. |
+| 13 | Runtime quota section and sidebar warning (web) | `fork-only` (the Runtimes-page section alone could line up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (open); sidebar line: none found | High for the section | Low: crowded | As the quota report. |
+| 14 | Claude quota tracker and auto-hold (daemon) | `fork-only` (the `rate_limit_event` parsing alone is a `candidate`) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255) (open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC, active 2026-10-19, 6 👍); #8965 closed, #8969 withdrawn | Medium | Low | Add our use case to RFC #6650. |
+| 15 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631) (changes requested, last touched 2026-07-28), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High: upstream's reviewer agreed on #5631 | Low for ours | Help #5631 land, then drop ours. |
+| 16 | Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679) (changes requested), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High | Low for ours | Drop once upstream shows the drain state. |
+| 17 | PR snapshot fields and `pull-requests link` | `fork-only` | [#8145](https://github.com/multica-ai/multica/pull/8145) (open, same CLI commands, different design); [#9279](https://github.com/multica-ai/multica/issues/9279) (closed, fixed by [#9332](https://github.com/multica-ai/multica/pull/9332)) | Low | Low | Upstream dropped GraphQL to avoid the Contents permission, so an offer needs the extras over REST. |
+| 18 | Claude pacing: 80% knee, weekly curve, EWMA cap (daemon) | `fork-only` | [#6011](https://github.com/multica-ai/multica/pull/6011) (adaptive admission, open), [#8331](https://github.com/multica-ai/multica/pull/8331) (static caps, closed unmerged), [#7015](https://github.com/multica-ai/multica/issues/7015), [#4205](https://github.com/multica-ai/multica/issues/4205) | Low: upstream prefers static caps or generic admission | Low | None. |
+| 19 | Daemon handoff (overlap mode, machine-wide slot cap) | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) | Low | Low | None. |
+| 20 | Tree mode org-chart layout | `fork-only` | none beyond the tree view | Low | Low | Only after the outline lands, and only if asked. |
+| 21 | Deferred retry until quota reset (backend) | `fork-only` | [#7887](https://github.com/multica-ai/multica/issues/7887) (closed not_planned), [#8949](https://github.com/multica-ai/multica/pull/8949) (rejected), [#9159](https://github.com/multica-ai/multica/issues/9159) (open, 5 👍), [#8964](https://github.com/multica-ai/multica/pull/8964) (open), [#9310](https://github.com/multica-ai/multica/issues/9310) / [#9314](https://github.com/multica-ai/multica/pull/9314) (open, quota failure classification) | Declined by the maintainer | Very low | Watch #8964. |
+| 22 | Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (changes requested, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) | None: serves our quota-failover setup | Very low | None. |
+| 23 | Backup Claude account failover, urgent only (daemon) | `fork-only` | [#5282](https://github.com/multica-ai/multica/pull/5282), [#8579](https://github.com/multica-ai/multica/pull/8579) (fallback runtime, open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC) | Low: one subscriber's two-account setup | Very low | None. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -827,7 +846,9 @@ a REST check with no GraphQL counterpart stays unknown, so the rollup is null.
 A rate limit, a cancelled request or a head other than the REST head fails the
 snapshot, as upstream's own fetch does. Any other failure of the extras query
 (a GraphQL error, an HTTP 403 from an App without the permission, a malformed
-or non-advancing page) stores the extras as null and keeps the REST snapshot. Migration `573`
+or non-advancing page) stores the extras as null and keeps the REST snapshot.
+The extras query still needs the Contents read permission that #9332 removed
+from upstream's fetch; on an App without it, the extras are always null. Migration `573`
 adds nullable `review_decision`, `latest_reviews` (JSONB) and `base_ref_name`
 to `github_pull_request` and `is_required` to `github_pull_request_check_run`:
 additive, no index, no foreign key. The stock backend never reads or writes
@@ -884,12 +905,16 @@ a backend image from `ag-patches/build-backend.sh` and a CLI from
     ours only links an already-mirrored PR through the endpoint that exists.
     Drop our CLI half if #8145 merges and re-check the rest. No upstream issue
     or PR was found for required-check, review-decision or base-ref fields on
-    the snapshot (searched 2026-10-16); [#9279](https://github.com/multica-ai/multica/issues/9279)
-    (open) is about the Cloud GitHub App's permissions for the same snapshot
-    pipeline.
+    the snapshot (searched 2026-10-16). [#9279](https://github.com/multica-ai/multica/issues/9279)
+    (the Cloud GitHub App has no Contents permission, so the GraphQL snapshot
+    never landed) closed on 2026-10-19, fixed by
+    [#9332](https://github.com/multica-ai/multica/pull/9332), the REST rewrite this patch was ported onto.
   - Fit: the extra fields are small and additive, but upstream's snapshot
     is a card feature, not an API for gates, and an unmotivated migration is
-    hard to land. Offer nothing; watch #8145 and #9279.
+    hard to land. Our extras query reads `statusCheckRollup` over GraphQL, the
+    read #9332 removed so that an App needs no Contents permission, so upstream
+    would not take it in this shape: an offer needs the extras over REST.
+    Offer nothing; watch #8145.
 
 ### Label ordering (backend + web)
 
@@ -1626,9 +1651,12 @@ preserved `worktree/` and no meta.
 - Upstream:
   - Status: `candidate`. A plain bug fix; nothing is proposed yet.
   - Overlap: [#9176](https://github.com/multica-ai/multica/issues/9176) (open bug
-    report on GC eligibility, a different gap) and
+    report on GC eligibility, a different gap; its fix
+    [#9190](https://github.com/multica-ai/multica/pull/9190), open, bounds self-host
+    completed-task retention at 14 days) and
     [#7469](https://github.com/multica-ai/multica/issues/7469) (closed, atomic meta
-    writes, which would also close the known gap above). Searched 2026-10-22.
+    writes, which would also close the known gap above). Searched 2026-10-22,
+    re-checked 2026-10-23.
   - Fit: fixes cleanup of local_directory worktree runs; no change to what the
     product does for users.
 
