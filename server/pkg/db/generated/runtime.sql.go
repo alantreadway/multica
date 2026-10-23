@@ -2220,7 +2220,7 @@ DO UPDATE SET
     runtime_mode = EXCLUDED.runtime_mode,
     status = EXCLUDED.status,
     device_info = EXCLUDED.device_info,
-    metadata = EXCLUDED.metadata,
+    metadata = EXCLUDED.metadata || jsonb_strip_nulls(jsonb_build_object('ag_settings', agent_runtime.metadata -> 'ag_settings')), -- AG patch: keep the runtime setting
     owner_id = COALESCE(EXCLUDED.owner_id, agent_runtime.owner_id),
     last_seen_at = now(),
     updated_at = now()
@@ -2341,7 +2341,7 @@ DO UPDATE SET
     provider = EXCLUDED.provider,
     status = EXCLUDED.status,
     device_info = EXCLUDED.device_info,
-    metadata = EXCLUDED.metadata,
+    metadata = EXCLUDED.metadata || jsonb_strip_nulls(jsonb_build_object('ag_settings', agent_runtime.metadata -> 'ag_settings')), -- AG patch: keep the runtime setting
     owner_id = COALESCE(EXCLUDED.owner_id, agent_runtime.owner_id),
     last_seen_at = now(),
     updated_at = now()

@@ -749,17 +749,17 @@ type (
 )
 
 func (c *Client) SendHeartbeat(ctx context.Context, runtimeID string) (*HeartbeatResponse, error) {
-	return c.SendHeartbeatWithReports(ctx, runtimeID, nil) // AG patch: heartbeat reports
+	return c.SendHeartbeatWithReports(ctx, runtimeID, nil, nil) // AG patch: heartbeat reports
 }
 
-// SendHeartbeatWithReports is SendHeartbeat plus the AG patch drain report,
-// which an older server ignores. A nil report is omitted.
-func (c *Client) SendHeartbeatWithReports(ctx context.Context, runtimeID string, drain *protocol.DaemonDrainReport) (*HeartbeatResponse, error) {
+// SendHeartbeatWithReports is SendHeartbeat plus the AG patch drain and Claude
+// quota reports, which an older server ignores. A nil report is omitted.
+func (c *Client) SendHeartbeatWithReports(ctx context.Context, runtimeID string, drain *protocol.DaemonDrainReport, quota *protocol.DaemonQuotaReport) (*HeartbeatResponse, error) {
 	var resp HeartbeatResponse
 	if err := c.postJSON(ctx, "/api/daemon/heartbeat", agHeartbeatBody(map[string]any{
 		"runtime_id":            runtimeID,
 		"supports_batch_import": true,
-	}, drain), &resp); err != nil {
+	}, drain, quota), &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
