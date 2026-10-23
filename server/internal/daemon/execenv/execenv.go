@@ -1117,6 +1117,13 @@ type GCMeta struct {
 	// the agent did in their own tree). Pattern-based artifact cleanup is
 	// still allowed.
 	LocalDirectory bool `json:"local_directory,omitempty"`
+	// PreservedWorktree marks a worktree-mode local_directory task whose
+	// Finalize could not complete, so the task's worktree/ still holds the
+	// agent's only copy of its work. The GC treats the env root like a
+	// LocalDirectory one — artifact cleanup only, never RemoveAll — so the
+	// folder stays until someone removes it. A task whose Finalize succeeded
+	// leaves this false and is reclaimed by the ordinary TTL rules.
+	PreservedWorktree bool `json:"preserved_worktree,omitempty"`
 }
 
 const gcMetaFile = ".gc_meta.json"
