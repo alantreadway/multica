@@ -74,9 +74,15 @@ import type {
   IssueGroupBranches,
   IssueGroupPageState,
 } from "../surface/use-issue-group-branches";
-import { hiddenLaneKeys, type SwimlaneTreeInfo } from "./swimlane-tree";
+import {
+  areSiblingLanes,
+  hiddenLaneKeys,
+  laneIsWithinIssue,
+  type SwimlaneTreeInfo,
+} from "./swimlane-tree";
 import { laneBand, laneBandClass, laneGapClass } from "./swimlane-band";
 import { AgLaneAncestorPath, AgSubLanesHidden } from "./ag-swimlane-lane-header";
+import { agSiblingLaneCollision, useAgJumpToLane } from "./ag-swimlane-lane-drag";
 import { useSwimlaneTreeLanes } from "./use-swimlane-tree";
 
 const COLUMN_WIDTH = 280;
@@ -112,10 +118,14 @@ type SwimLaneMoveUpdates = SwimLaneMoveTargetUpdates & {
   after_id: string | null;
 };
 
-function makeSwimLaneCollision(cellIds: Set<string>): CollisionDetection {
+function makeSwimLaneCollision(
+  cellIds: Set<string>,
+  laneTreeParents: ReadonlyMap<string, string | null>,
+): CollisionDetection {
   return (args) => {
     const activeId = args.active.id as string;
     const isLaneDrag = activeId.startsWith("lane:");
+    if (isLaneDrag) return agSiblingLaneCollision(args, laneTreeParents); // AG patch: lane drag rules
 
     const pointer = pointerWithin(args);
     if (pointer.length > 0) {
@@ -1096,9 +1106,18 @@ function SwimLaneViewImpl({
   }, [peek, sortedStatuses, laneGroups, collapsedLanes, hiddenKeys, localCells]);
   useEffect(() => () => peek?.publishColumns(null), [peek]);
 
+  const laneTreeParents = useMemo(
+    () =>
+      new Map(
+        laneGroups
+          .filter((g) => !g.isPinned)
+          .map((g) => [laneIdFor(swimlaneGrouping, g.rawId), g.tree?.treeParentRawId ?? null]),
+      ),
+    [laneGroups, swimlaneGrouping],
+  );
   const collisionDetection = useMemo(
-    () => makeSwimLaneCollision(cellSet),
-    [cellSet],
+    () => makeSwimLaneCollision(cellSet, laneTreeParents),
+    [cellSet, laneTreeParents],
   );
 
   const sensors = useSensors(
@@ -1119,6 +1138,11 @@ function SwimLaneViewImpl({
     const issue = issueMapRef.current.get(activeId) ?? null;
     setActiveIssue(issue);
   }, []);
+
+  const parentOfLoaded = useCallback(
+    (id: string) => issueMapRef.current.get(id)?.parent_issue_id,
+    [],
+  );
 
   const handleDragOver = useCallback(
     (event: DragOverEvent) => {
@@ -1151,12 +1175,11 @@ function SwimLaneViewImpl({
           return prev;
         }
 
-        // Self-parent guard — see handleDragEnd for rationale.
+        // Self-parent / descendant guard — see handleDragEnd for rationale.
         const overLane = laneByKey.get(overCell.laneKey);
         if (
           overLane &&
-          overLane.parentIssue !== null &&
-          overLane.parentIssue.id === activeId
+          laneIsWithinIssue(overLane, activeId, parentOfLoaded)
         ) {
           return prev;
         }
@@ -1207,7 +1230,7 @@ function SwimLaneViewImpl({
         };
       });
     },
-    [cellSet, laneByKey, entryOf],
+    [cellSet, laneByKey, entryOf, parentOfLoaded],
   );
 
   const handleDragEnd = useCallback(
@@ -1235,9 +1258,15 @@ function SwimLaneViewImpl({
         overLaneRef &&
         activeLaneRef.rawId !== overLaneRef.rawId
       ) {
-        // Visible non-pinned lanes, in current render order.
+        // Siblings only: sub-lanes travel with their parent.
+        const activeLane = laneGroups.find((g) => g.rawId === activeLaneRef.rawId);
+        const overLane = laneGroups.find((g) => g.rawId === overLaneRef.rawId);
+        if (!activeLane || !overLane || !areSiblingLanes(activeLane, overLane)) {
+          return;
+        }
+        // Visible non-pinned lanes, in render order (hidden lanes keep their slot).
         const visibleOrder = laneGroups
-          .filter((g) => !g.isPinned && !g.isOrphan)
+          .filter((g) => !g.isPinned && !g.isOrphan && !hiddenKeys.has(g.key))
           .map((g) => g.rawId);
         const fromIdx = visibleOrder.indexOf(activeLaneRef.rawId);
         const toIdx = visibleOrder.indexOf(overLaneRef.rawId);
@@ -1285,15 +1314,12 @@ function SwimLaneViewImpl({
         return;
       }
 
-      // Self-parent guard (parent grouping only): refuse drops where the
-      // dragged card is the same issue as the target lane's parent. The
-      // backend rejects this as a self-cycle; intercepting client-side
-      // avoids the optimistic-move → rollback flicker.
+      // Self-parent / descendant guard: the server rejects the cycle, so skip
+      // the optimistic move → rollback flicker.
       const targetLaneForGuard = laneByKey.get(overCell.laneKey);
       if (
         targetLaneForGuard &&
-        targetLaneForGuard.parentIssue !== null &&
-        targetLaneForGuard.parentIssue.id === activeId
+        laneIsWithinIssue(targetLaneForGuard, activeId, parentOfLoaded)
       ) {
         reset();
         return;
@@ -1377,7 +1403,7 @@ function SwimLaneViewImpl({
         },
       );
     },
-    [cells, cellSet, laneByKey, laneGroups, onMoveIssue, swimlaneGrouping, viewStoreApi, entryOf],
+    [cells, cellSet, laneByKey, laneGroups, hiddenKeys, parentOfLoaded, onMoveIssue, swimlaneGrouping, viewStoreApi, entryOf],
   );
 
   // Grid template: one column per status, fixed width COLUMN_WIDTH, gap COLUMN_GAP.
@@ -1406,10 +1432,11 @@ function SwimLaneViewImpl({
   const nonPinnedLaneIds = useMemo(
     () =>
       laneGroups
-        .filter((g) => !g.isPinned)
+        .filter((g) => !g.isPinned && !hiddenKeys.has(g.key))
         .map((g) => laneIdFor(swimlaneGrouping, g.rawId)),
-    [laneGroups, swimlaneGrouping],
+    [laneGroups, hiddenKeys, swimlaneGrouping],
   );
+  const { lanesVirtuosoRef, jumpToLane } = useAgJumpToLane({ laneGroups, orderedLanes, collapsedLanes, toggleLane, scrollEl }); // AG patch: jump-to-lane chip
   // Per-status load-more sentinels ride Virtuoso's Footer so they sit at the
   // true end of the lane list; pt-4 reproduces the previous gap-4.
   const laneComponents = useMemo(
@@ -1461,6 +1488,8 @@ function SwimLaneViewImpl({
         onCreateIssue={onCreateIssue}
         statusCatalog={statusCatalog}
         groupPagination={groupBranches?.pagination}
+        headerIssueIds={headerIssueIds}
+        onJumpToLane={jumpToLane}
       />
     </div>
   );
@@ -1495,7 +1524,7 @@ function SwimLaneViewImpl({
           </button>
         )}
         {/* Sticky status header row — visually matches the top of a BoardColumn */}
-        <div className="sticky top-0 z-10 mb-2 bg-background/95 pb-2 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+        <div data-swimlane-status-header="" className="sticky top-0 z-10 mb-2 bg-background/95 pb-2 backdrop-blur supports-[backdrop-filter]:bg-background/75">
           <div style={gridStyle}>
             {sortedStatuses.map((status) => {
               const cfg = STATUS_CONFIG[categoryOf(status)];
@@ -1582,6 +1611,7 @@ function SwimLaneViewImpl({
           <div ref={laneListRef}>
             {scrollEl ? (
               <Virtuoso
+                ref={lanesVirtuosoRef}
                 customScrollParent={scrollEl}
                 data={orderedLanes}
                 computeItemKey={computeLaneKey}
@@ -1653,6 +1683,8 @@ function DraggableSwimLane({
   onCreateIssue,
   groupPagination,
   statusCatalog,
+  headerIssueIds,
+  onJumpToLane,
 }: {
   lane: LaneGroup;
   grouping: SwimlaneGrouping;
@@ -1669,6 +1701,9 @@ function DraggableSwimLane({
   onCreateIssue?: (defaults: IssueCreateDefaults) => void;
   groupPagination?: Record<string, IssueGroupPageState>;
   statusCatalog: IssueStatusCatalog;
+  /** Issues that head a lane — their cards get a jump-to-lane chip. */
+  headerIssueIds: ReadonlySet<string>;
+  onJumpToLane: (issueId: string) => void;
 }) {
   const { t } = useT("issues");
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -1793,6 +1828,8 @@ function DraggableSwimLane({
                 lane={lane}
                 projectId={projectId}
                 onCreateIssue={onCreateIssue}
+                headerIssueIds={headerIssueIds}
+                onJumpToLane={onJumpToLane}
                 readOnly={lane.isOrphan}
                 page={
                   lane.serverCellKeys?.[status]
@@ -1821,6 +1858,8 @@ function SwimLaneCell({
   readOnly = false,
   page,
   statusCatalog,
+  headerIssueIds,
+  onJumpToLane,
 }: {
   cellId: string;
   issueIds: string[];
@@ -1840,6 +1879,8 @@ function SwimLaneCell({
   readOnly?: boolean;
   page?: IssueGroupPageState;
   statusCatalog: IssueStatusCatalog;
+  headerIssueIds: ReadonlySet<string>;
+  onJumpToLane: (issueId: string) => void;
 }) {
   // The orphan cell stays enabled in the collision graph so that drops
   // onto its whitespace area are absorbed here instead of falling through
@@ -1894,6 +1935,7 @@ function SwimLaneCell({
               project={
                 issue.project_id ? projectMap?.get(issue.project_id) : undefined
               }
+              onJumpToLane={headerIssueIds.has(issue.id) ? onJumpToLane : undefined}
             />
           ))}
         </SortableContext>

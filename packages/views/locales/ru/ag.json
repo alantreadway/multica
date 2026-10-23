@@ -4,7 +4,8 @@
       "sub_lanes_hidden_one": "+{{count}} вложенная дорожка",
       "sub_lanes_hidden_other": "+{{count}} вложенной дорожки",
       "sub_lanes_hidden_few": "+{{count}} вложенные дорожки",
-      "sub_lanes_hidden_many": "+{{count}} вложенных дорожек"
+      "sub_lanes_hidden_many": "+{{count}} вложенных дорожек",
+      "jump_to_lane": "Перейти к дорожке"
     }
   }
 }
