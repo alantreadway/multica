@@ -60,6 +60,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 7 | Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) | Medium | Medium (drag rules), low (jump chip) | Ride along with the tree lanes; offer the drag rules first. |
 | 8 | GitHub PR polling (token mode) | `candidate` | [#8111](https://github.com/multica-ai/multica/issues/8111) (open request; our +1 only, no maintainer reply) | High: a stated blocker for self-hosters without an App | Medium-low | Rework as a GitHub token provider in `vcs_connection` (the #5006 shape) before offering. |
 | 9 | Tree view mode (outline) | `candidate` | [#5685](https://github.com/multica-ai/multica/issues/5685) (open request, 3 👍), [#2966](https://github.com/multica-ai/multica/pull/2966) (open, overlaps) | Medium | Medium-low | After the tree lanes; read #2966 first. |
+| 11 | Sidebar agent and drain status (web) | `fork-only` (the agent count alone could go) | none found | Low-medium | Low-medium | Only if asked; the drain marker comes out first. |
 | 15 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631) (changes requested, last touched 2026-07-28), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High: upstream's reviewer agreed on #5631 | Low for ours | Help #5631 land, then drop ours. |
 | 16 | Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679) (changes requested), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High | Low for ours | Drop once upstream shows the drain state. |
 | 19 | Daemon handoff (overlap mode, machine-wide slot cap) | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) | Low | Low | None. |
@@ -737,6 +738,36 @@ two query edits.
   - Fit: it exists for a personal quota-failover setup (a backup account that
     takes urgent work only) and has no use on a stock install, so it is not
     worth offering.
+
+### Sidebar agent and drain status (web)
+
+One compact row at the top of the sidebar footer, above Analytics: "3 agents ·
+4 running · 2 queued" with a pulsing brand dot while anything runs ("No agents
+running" when idle, a muted dash while loading, never 0). While any runtime is
+draining, a second line adds "Draining · N running", or "Drained · safe to
+restart" once every draining runtime is idle; the counts always stay. Hover lists
+the working agents (`WorkingAgentsHoverContent`) and each draining runtime;
+click goes to Agents, or to Runtimes while draining. It reads the presence map
+and runtime list that `useWorkspacePresencePrefetch` already keeps warm over
+WebSocket, so it adds no request and no polling. The drain half needs the
+daemon patch running (`multica-ag`); without it the row shows agent counts only.
+Frontend only: rollback is switching the web image back.
+
+- Test prefix: `AG patch:` (`layout/agent-status-indicator.test.tsx`, in `ag-patches/test.sh`)
+- Files:
+  - `packages/views/layout/agent-status-indicator.tsx` (new),
+    `agent-status-indicator.test.tsx` (new)
+  - `packages/views/layout/app-sidebar.tsx` (one import, one JSX line),
+    `app-sidebar.test.tsx` (mocks the indicator)
+  - `packages/views/locales/*/ag.json` (`layout.agent_status`)
+
+- Upstream:
+  - Status: `fork-only`. The drain half depends on the drain patches above, which
+    are fork-only; the agent-count half reads existing presence data.
+  - Overlap: no open upstream PR or issue found for a sidebar agent or running
+    status row (searched `multica-ai/multica` PRs, October 2026).
+  - Fit: the agent-count half could go upstream alone, as a small sidebar
+    addition with no new request. The drain marker would come out first.
 
 ## Tooling (not a patch)
 
