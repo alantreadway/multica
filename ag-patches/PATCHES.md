@@ -44,6 +44,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | --- | --- | --- | --- | --- | --- | --- |
 | 6 | Tree-ordered parent lanes | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open, adjacent, no reviews, last touched 2026-07-07) | Medium: improves a shipped view | Medium | Feature Request, after reading #2966. |
 | 7 | Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) | Medium | Medium (drag rules), low (jump chip) | Ride along with the tree lanes; offer the drag rules first. |
+| 9 | Tree view mode (outline) | `candidate` | [#5685](https://github.com/multica-ai/multica/issues/5685) (open request, 3 👍), [#2966](https://github.com/multica-ai/multica/pull/2966) (open, overlaps) | Medium | Medium-low | After the tree lanes; read #2966 first. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -145,6 +146,69 @@ Depends on the tree-ordered lanes patch.
     the base.
   - Fit: as for tree lanes. The jump chip is the more subjective part; offer the
     drag rules first.
+
+### Tree view mode (outline)
+
+A new issue view mode `tree` beside board, list, table, swimlane and gantt, on
+`/issues`, `/my-issues` and project pages (not the actor panel). The same filter
+bar and sort apply; the rows are an outline of the parent / sub-issue hierarchy
+with ├ └ connectors, a status icon, identifier, title, assignee, `done/total`
+sub-issue progress and the agent-working dot. Each node expands and collapses
+(children load page by page when a parent opens), and expand all opens to depth 2
+at most (and no more than 100 nodes). A node's focus action makes it the root,
+with a breadcrumb back up. A root whose parent the filters removed shows that
+hidden ancestor path dimmed (`MAG-1 › MAG-2 ›`); clicking a crumb focuses that
+ancestor. While a node is focused, its subtree is fetched without the filter-bar
+filters, search or surface scope (sort stays, sub-issues stay on), because the
+server only returns a branch whose parent passes the filters and a hidden
+ancestor would otherwise come back empty; the bar shows "Filters are paused
+while focused" with a clear-focus action, and leaving focus restores the
+filtered tree. Filter counts are those of the filtered view. Peek and open work
+as in List. Frontend only: it reuses the Table row
+query (`hierarchy: { enabled: true }`, one parent per request, pages of 50), so
+filtering, sort, counts and WebSocket invalidation match the other modes, and
+tree mode forces `include_sub_issues` on. Expand state persists per surface
+scope in `multica_issue_tree_view`; focus lives in the surface controller
+(`controller.tree`) so a follow-on layout can read the same rows. A stored
+`tree` mode on a surface that does not offer it falls back to that surface's
+first mode. Rollback: switch the web image back to a build without this patch.
+
+- Test prefix: `AG patch:`
+- Files:
+  - `packages/views/issues/components/tree-view.tsx` (new)
+  - `packages/views/issues/components/use-tree-rows.ts` (new)
+  - `packages/views/issues/components/tree-rows.ts` (new)
+  - `packages/views/issues/components/tree-rows.test.ts`,
+    `tree-view.test.tsx`, `issues-header.tree-mode.test.tsx` (new)
+  - `packages/views/issues/surface/tree-mode.test.tsx`,
+    `tree-mode-surfaces.test.tsx`, `packages/views/locales/ag-tree.test.ts` (new)
+  - Tree cases in siblings of upstream tests (new):
+    `save-view-dialog.tree-mode.ag.test.tsx`, `actor-issues-panel.ag.test.tsx`,
+    `project-detail.ag.test.tsx`, `issue-statuses-tab.ag.test.tsx`,
+    `issue-surface.ag.test.tsx`
+  - `packages/core/issues/stores/tree-view-store.ts`,
+    `tree-view-store.test.ts` (new)
+  - `packages/core/issues/stores/view-store.ts` (`ViewMode`, card options)
+  - `packages/core/issues/queries.ts` (append only: `IssueAncestryNode` keeps
+    `title` and `status`), `queries.tree-view.ag.test.ts` (new),
+    `queries.tree-lanes.ag.test.ts`
+  - `packages/views/issues/surface/types.ts`,
+    `use-issue-surface-controller.ts`, `issue-surface.tsx` (mode plumbing)
+  - `packages/views/issues/components/issues-header.tsx`, `issues-page.tsx`,
+    `save-view-dialog.tsx`, `packages/views/my-issues/components/my-issues-header.tsx`,
+    `my-issues-page.tsx`, `packages/views/projects/components/project-detail.tsx`
+  - `packages/views/locales/*/ag.json` (`issues.view.tree`,
+    `issues.view.tooltip_tree`, `issues.tree`)
+
+- Upstream:
+  - Status: `candidate`. Read-only check, 2026-10-16.
+  - Overlap: open request [#5685](https://github.com/multica-ai/multica/issues/5685) for a tree view and closed request
+    [#4180](https://github.com/multica-ai/multica/issues/4180); [#9266](https://github.com/multica-ai/multica/pull/9266) nests sub-issues on the board, not a
+    tree. Open [#2966](https://github.com/multica-ai/multica/pull/2966) (hierarchy views) also adds a tree view, so it overlaps and
+    must be read before proposing this. No upstream implementation has merged.
+  - Fit: a new view mode, frontend only, no new dependency. `VISION.md` says
+    nothing about views. Feature work, so it goes through a Feature Request
+    first, after reading #2966 so we don't race it.
 
 ## Tooling (not a patch)
 
