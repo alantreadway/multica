@@ -303,11 +303,11 @@ func (c *Client) claimTasksWithHints(ctx context.Context, daemonID string, runti
 	reqCtx, cancel := context.WithTimeout(ctx, batchClaimRequestTimeout)
 	defer cancel()
 	var resp claimTasksResult
-	if err := c.postJSON(reqCtx, "/api/daemon/tasks/claim", map[string]any{
+	if err := c.postJSON(reqCtx, "/api/daemon/tasks/claim", agClaimBody(ctx, map[string]any{ // AG patch: backup account
 		"daemon_id":   daemonID,
 		"runtime_ids": runtimeIDs,
 		"max_tasks":   maxTasks,
-	}, &resp); err != nil {
+	}), &resp); err != nil {
 		return claimTasksResult{}, err
 	}
 	return resp, nil
@@ -333,6 +333,7 @@ func isBatchClaimUnsupported(err error) bool {
 // claimed yet; otherwise the partial result is returned and the next poll
 // retries the rest.
 func (c *Client) claimTasksLegacy(ctx context.Context, runtimeIDs []string, maxTasks int) ([]*Task, error) {
+	runtimeIDs = agLegacyClaimIDs(ctx, runtimeIDs) // AG patch: backup account
 	if maxTasks <= 0 {
 		return nil, nil
 	}
