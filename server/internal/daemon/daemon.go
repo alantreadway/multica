@@ -5779,6 +5779,14 @@ func (d *Daemon) handleTask(ctx context.Context, task Task, slot int) {
 		return
 	}
 
+	// Stamp GC metadata on every exit from here on, not only after a clean
+	// report: a task that errors or is cancelled still leaves an env root the
+	// GC must be able to attribute to its parent record. Registered after the
+	// stale-claim return above, which belongs to another delivery. Runs before
+	// the active-root unmark defers, so the root stays guarded until the meta
+	// lands (issue #3999 race B).
+	defer func() { d.writeTaskGCMeta(task, result, err, taskLog) }()
+
 	// Report usage before any early return — the agent accumulates tokens
 	// whether the task completes, errors, or is cancelled mid-run by the poll
 	// goroutine. Both claude.go and codex.go populate result.Usage even when
@@ -5871,34 +5879,48 @@ func (d *Daemon) handleTask(ctx context.Context, task Task, slot int) {
 	}
 
 	d.reportTaskResult(ctx, task.ID, result, taskLog)
+}
 
-	// Write GC metadata after the task finishes so the periodic GC loop
-	// can look up the parent record (issue / chat session / autopilot run /
-	// task itself for quick-create) later. Written last so that a mid-task
-	// crash leaves the directory as an orphan (cleaned up by GCOrphanTTL).
-	if result.EnvRoot != "" {
-		if meta, ok := gcMetaForTask(task); ok {
-			// A local_directory project_resource matched this daemon
-			// means the agent ran in the user's own tree. Stamp the
-			// meta so the GC loop never tries to RemoveAll envRoot's
-			// sibling workdir (which is the user's path) or the envRoot
-			// itself (we want output/ and logs/ to linger for forensic
-			// access).
-			//
-			// Worktree mode is excluded: its workdir is a disposable
-			// worktree INSIDE envRoot, already removed by Finalize, and
-			// the deliverable lives on as a branch in the user's repo.
-			// Stamping it would hand every worktree task a permanently
-			// exempt env root, so the directory would accumulate one env
-			// root per task forever — the exact cost the exemption was
-			// meant to trade away for a user's own files.
-			if assignment, _ := localDirectoryAssignmentForTask(task, d.cfg.DaemonID); assignment != nil && !assignment.UsesWorktree() {
-				meta.LocalDirectory = true
-			}
-			if err := execenv.WriteGCMeta(result.EnvRoot, meta, taskLog); err != nil {
-				taskLog.Warn("write gc meta failed (non-fatal)", "error", err)
-			}
-		}
+// writeTaskGCMeta stamps the env root with the .gc_meta.json the periodic GC
+// loop needs to find the task's parent record later. handleTask defers it so
+// every terminal path writes it: completed, failed, and both cancel paths.
+// Written last so that a mid-task crash leaves the directory as an orphan
+// (cleaned up by GCOrphanTTL). A write failure is non-fatal.
+func (d *Daemon) writeTaskGCMeta(task Task, result TaskResult, runErr error, taskLog *slog.Logger) {
+	if result.EnvRoot == "" {
+		return
+	}
+	meta, ok := gcMetaForTask(task)
+	if !ok {
+		return
+	}
+	// A local_directory project_resource matched this daemon
+	// means the agent ran in the user's own tree. Stamp the
+	// meta so the GC loop never tries to RemoveAll envRoot's
+	// sibling workdir (which is the user's path) or the envRoot
+	// itself (we want output/ and logs/ to linger for forensic
+	// access).
+	//
+	// Worktree mode is excluded: its workdir is a disposable
+	// worktree INSIDE envRoot, already removed by Finalize, and
+	// the deliverable lives on as a branch in the user's repo.
+	// Stamping it would hand every worktree task a permanently
+	// exempt env root, so the directory would accumulate one env
+	// root per task forever — the exact cost the exemption was
+	// meant to trade away for a user's own files.
+	if assignment, _ := localDirectoryAssignmentForTask(task, d.cfg.DaemonID); assignment != nil && !assignment.UsesWorktree() {
+		meta.LocalDirectory = true
+	}
+	// The one worktree case that does need the exemption: Finalize failed, so
+	// worktree/ is the authoritative copy of the agent's work. Only that task
+	// is exempted; a worktree whose Finalize succeeded is gone and gets
+	// ordinary TTL treatment.
+	var preserved *worktreePreservedError
+	if errors.As(runErr, &preserved) {
+		meta.PreservedWorktree = true
+	}
+	if err := execenv.WriteGCMeta(result.EnvRoot, meta, taskLog); err != nil {
+		taskLog.Warn("write gc meta failed (non-fatal)", "error", err)
 	}
 }
 
@@ -8270,6 +8292,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		}
 	}
 	phaseRecorder.Mark(taskPhaseEnvironmentReady)
+	// Error returns below carry an empty TaskResult; name the env root on all
+	// of them so handleTask can still stamp its GC metadata.
+	defer func() {
+		if taskResult.EnvRoot == "" {
+			taskResult.EnvRoot = env.RootDir
+		}
+	}()
 	// Belt-and-suspenders: also mark whatever root we ended up with, in case
 	// future changes diverge from ResolveRootDir.
 	if env.RootDir != resolvedRoot && env.RootDir != "" {

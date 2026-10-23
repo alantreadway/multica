@@ -55,6 +55,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 
 | # | Patch | Status | Overlapping upstream | Fit | Likelihood | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Task GC meta on every terminal path (daemon) | `candidate` | [#9176](https://github.com/multica-ai/multica/issues/9176) (open bug, a different gap; its fix [#9190](https://github.com/multica-ai/multica/pull/9190) is open), [#7469](https://github.com/multica-ai/multica/issues/7469) (closed, atomic meta writes) | High: a bug fix | High | File a Bug Report and open the PR straight away; mention #9190. |
 | 2 | 1d and Yesterday periods (web): runtime `1d` | `candidate` (`1d`), `fork-only` (Yesterday) | none open; [#2837](https://github.com/multica-ai/multica/pull/2837) (merged) added `1d` to the workspace Usage tab only | High: matches a shipped period | High (`1d`) | Small PR for the runtime `1d` alone. Yesterday needs an end bound on the rollup endpoints first. |
 | 3 | Daemon handoff: single-instance fixes (PID file owner check, repo cache flock) | `candidate` once split out | none found | High: bug fixes | Medium-high | Split out of the handoff patch and show a repro first. |
 | 4 | Copy (Slack) comment menu item (web) | `candidate` | none; builds on upstream's server-side Slack mrkdwn formatter | Medium | Medium | Feature Request first. |
@@ -1664,6 +1665,49 @@ Frontend only: rollback is switching the web image back.
     backup switch and the sidebar warning are operator tooling for subscription
     users. The `ConnectRemoteDialog` filter is generic and would go upstream with
     any change that publishes non-registration `daemon:register` events.
+
+### Task GC meta on every terminal path (daemon)
+
+`handleTask` wrote `.gc_meta.json` only after a clean report. A task that errored
+or was cancelled returned early without it, and a worktree-mode local_directory
+task whose `Finalize` fails is failed by design, so those folders kept their
+preserved `worktree/` and no meta.
+
+- `writeTaskGCMeta`, deferred from `handleTask` right after the stale-claim return,
+  stamps the meta on completed, failed and both cancel paths. It runs before the
+  active-root unmark defers, so the root stays guarded until the meta lands. A write
+  failure is a warning. The `LocalDirectory` rule is unchanged: in-place yes, worktree no.
+- `runTask` names the env root on every error return once the environment is ready
+  (a deferred fallback on the named result), so a failure after setup can be stamped.
+- `GCMeta.PreservedWorktree` (`preserved_worktree`) is set when the run error carries
+  `worktreePreservedError`, that is when `Finalize` failed. `applyLocalDirectoryGCOverride`
+  gives it the `LocalDirectory` demotion: a full clean becomes artifact cleanup, an
+  orphan becomes managed-artifact cleanup, and `GCArtifactTTL <= 0` skips. Artifact
+  cleanup keeps its `.git` and `artifactDirectoryNeedsPreservation` protections. A
+  worktree task whose `Finalize` succeeded keeps the ordinary TTL treatment.
+- Lock-only stubs (`.task_lock` and `.task_owner`, no meta) already went through the
+  orphan path and are removed past `GCOrphanTTL`; the patch only adds the test.
+- Known gaps: the protection lives in the meta file, so a failed meta write, or a
+  `Finalize` failure joined to a rejected start claim, leaves the folder on the
+  72h orphan path as before.
+- Files:
+  - `server/internal/daemon/daemon.go` (`handleTask`, `writeTaskGCMeta`, `runTask`)
+  - `server/internal/daemon/gc.go` (`applyLocalDirectoryGCOverride`)
+  - `server/internal/daemon/execenv/execenv.go` (`GCMeta.PreservedWorktree`)
+  - `server/internal/daemon/ag_gc_meta_test.go` (new, `TestAGPatchGC*`)
+  - `ag-patches/test.sh` (`AG_GO_MIN_TESTS` 205)
+
+- Upstream:
+  - Status: `candidate`. A plain bug fix; nothing is proposed yet.
+  - Overlap: [#9176](https://github.com/multica-ai/multica/issues/9176) (open bug
+    report on GC eligibility, a different gap; its fix
+    [#9190](https://github.com/multica-ai/multica/pull/9190), open, bounds self-host
+    completed-task retention at 14 days) and
+    [#7469](https://github.com/multica-ai/multica/issues/7469) (closed, atomic meta
+    writes, which would also close the known gap above). Searched 2026-10-22,
+    re-checked 2026-10-23.
+  - Fit: fixes cleanup of local_directory worktree runs; no change to what the
+    product does for users.
 
 ## Tooling (not a patch)
 
