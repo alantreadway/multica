@@ -90,7 +90,7 @@ func TestAGPatchBackupSettingSpecCases(t *testing.T) {
 		}
 	})
 
-	t.Run("AG patch: an ack with a null or unknown-field setting is handled", func(t *testing.T) {
+	t.Run("AG patch: an ack with an unknown-field setting is applied and a null one disables backup", func(t *testing.T) {
 		srv := newAGReportServer(t, `{"status":"ok","ag_settings":{"backup_enabled":true,"backup_max_concurrent":3,"future_key":"x"}}`)
 		f := newAGPaceFixtureAt(t, 5, srv.URL)
 		f.d.runHeartbeatTick(context.Background(), "rt-claude")
@@ -99,8 +99,8 @@ func TestAGPatchBackupSettingSpecCases(t *testing.T) {
 		}
 		srv.setAck(`{"status":"ok","ag_settings":null}`)
 		f.d.runHeartbeatTick(context.Background(), "rt-claude")
-		if s := f.d.agBackupSetting("rt-claude"); !s.BackupEnabled {
-			t.Fatalf("a null setting cleared the last one inside the TTL: %+v", s)
+		if s := f.d.agBackupSetting("rt-claude"); s.BackupEnabled {
+			t.Fatalf("a null setting left backup enabled: %+v", s)
 		}
 	})
 

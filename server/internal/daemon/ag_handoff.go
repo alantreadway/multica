@@ -128,6 +128,7 @@ func (d *Daemon) agTrackTask(id string) {
 }
 
 func (d *Daemon) agUntrackTask(id string) {
+	d.agBackupSlotDone(id)     // AG patch: backup account
 	d.agPaceReleaseClaimed(id) // AG patch: pacing (before the handoff lock: lock order is pace, then handoff)
 	d.agHandoff.mu.Lock()
 	defer d.agHandoff.mu.Unlock()
