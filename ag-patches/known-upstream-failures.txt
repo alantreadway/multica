@@ -19,3 +19,8 @@ v0.7.0 TestCaptureCursorBackgroundLateDescendant  # fails on stock v0.7.0 in the
 v0.7.0 TestCaptureCursorBackgroundProcessReapsLeaderExitedGroup  # fails on stock v0.7.0 in the Linux test container
 v0.7.0 TestCaptureCursorBackgroundSurvivesRootExitDuringCapture  # fails on stock v0.7.0 in the Linux test container
 v0.7.0 TestCursorBackgroundLifecycle  # fails on stock v0.7.0 in the Linux test container
+v0.7.1 TestClaimTasksForRuntimes_EmptyReclaimDefersHintForRetry  # timing flake: failed on stock v0.7.1 too (9 of 20 on stock v0.7.0)
+v0.7.1 TestCaptureCursorBackgroundLateDescendant  # fails on stock v0.7.1 in the Linux test container
+v0.7.1 TestCaptureCursorBackgroundProcessReapsLeaderExitedGroup  # fails on stock v0.7.1 in the Linux test container
+v0.7.1 TestCaptureCursorBackgroundSurvivesRootExitDuringCapture  # fails on stock v0.7.1 in the Linux test container
+v0.7.1 TestCursorBackgroundLifecycle  # fails on stock v0.7.1 in the Linux test container

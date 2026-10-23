@@ -618,7 +618,7 @@ each patch's commit in turn.
 
 ## Rebase onto a new upstream tag
 
-For a new upstream tag `vX`, from the current patch branch `ag/v0.6.5`:
+For a new upstream tag `vX`, from the current patch branch `ag/v0.7.1`:
 
 1. Fetch upstream tags: `git fetch upstream --tags`.
 2. Preview the conflicts: `ag-patches/preview-rebase.sh vX`. It lists the files
@@ -633,13 +633,13 @@ For a new upstream tag `vX`, from the current patch branch `ag/v0.6.5`:
    open nothing there). If upstream merged it in `vX` or earlier, or replaced
    it, drop the patch's commit in step 5 and delete its `PATCHES.md` entry.
    Otherwise refresh its **Upstream** line and the "Last checked" date.
-4. Create the new branch: `git switch -c ag/vX ag/v0.6.5`.
+4. Create the new branch: `git switch -c ag/vX ag/v0.7.1`.
 5. Replay the patches, squashing any outstanding fixups on the way:
-   `git rebase -i --autosquash --onto vX v0.6.5`. Delete the line of any patch
-   dropped in step 3. The rebase replays about 23 commits, one per patch, so a
+   `git rebase -i --autosquash --onto vX v0.7.1`. Delete the line of any patch
+   dropped in step 3. The rebase replays about 25 commits, one per patch, so a
    conflict stops on the patch that caused it. Recorded resolutions replay
    through rerere; check each one before you `git add` it. Afterwards the tree
-   must equal `git merge-tree --write-tree ag/v0.6.5 vX` plus your conflict
+   must equal `git merge-tree --write-tree ag/v0.7.1 vX` plus your conflict
    fixes and any dropped patches; diff the two to check.
 6. Resolve conflicts. The web patches concentrate in `swimlane-view.tsx`, and the
    daemon patch hooks into `daemon.go`, `health.go`, `auto_update.go` and
@@ -648,7 +648,10 @@ For a new upstream tag `vX`, from the current patch branch `ag/v0.6.5`:
    (`TestMigrationNumericPrefixesAreUnique` fails if they do); give a new one
    the next free `9xxx` number, never upstream's next one. A fix made while
    resolving belongs in the commit being replayed; a fix found later is a
-   fixup of the patch it belongs to (see "Branch layout").
+   fixup of the patch it belongs to (see "Branch layout"). When upstream adds
+   a locale, every patch that adds `ag.json` strings needs that locale's file
+   too, and `locales/ag.ts` must list it; the `locales/ag-*.test.ts` guards
+   fail until it does.
 7. Add `vX`'s entries to `known-upstream-failures.txt`. Check them on stock
    upstream, not on the patch branch: run the script from a detached worktree
    of the tag, where every failure it reports is upstream's own (that tree has
