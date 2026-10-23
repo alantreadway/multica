@@ -611,7 +611,7 @@ each patch's commit in turn.
 
 ## Rebase onto a new upstream tag
 
-For a new upstream tag `vX`, from the current patch branch `ag/v0.6.5`:
+For a new upstream tag `vX`, from the current patch branch `ag/v0.7.0`:
 
 1. Fetch upstream tags: `git fetch upstream --tags`.
 2. Preview the conflicts: `ag-patches/preview-rebase.sh vX`. It lists the files
@@ -626,13 +626,13 @@ For a new upstream tag `vX`, from the current patch branch `ag/v0.6.5`:
    open nothing there). If upstream merged it in `vX` or earlier, or replaced
    it, drop the patch's commit in step 5 and delete its `PATCHES.md` entry.
    Otherwise refresh its **Upstream** line and the "Last checked" date.
-4. Create the new branch: `git switch -c ag/vX ag/v0.6.5`.
+4. Create the new branch: `git switch -c ag/vX ag/v0.7.0`.
 5. Replay the patches, squashing any outstanding fixups on the way:
-   `git rebase -i --autosquash --onto vX v0.6.5`. Delete the line of any patch
+   `git rebase -i --autosquash --onto vX v0.7.0`. Delete the line of any patch
    dropped in step 3. The rebase replays about 23 commits, one per patch, so a
    conflict stops on the patch that caused it. Recorded resolutions replay
    through rerere; check each one before you `git add` it. Afterwards the tree
-   must equal `git merge-tree --write-tree ag/v0.6.5 vX` plus your conflict
+   must equal `git merge-tree --write-tree ag/v0.7.0 vX` plus your conflict
    fixes and any dropped patches; diff the two to check.
 6. Resolve conflicts. The web patches concentrate in `swimlane-view.tsx`, and the
    daemon patch hooks into `daemon.go`, `health.go`, `auto_update.go` and

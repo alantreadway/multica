@@ -5,8 +5,8 @@ lands, is dropped or is reworked during a rebase.
 
 ## Upstream base
 
-- Tag: `v0.6.5`
-- Commit: `654b8ca954034f8181eb6bbb4fc298dede760156`
+- Tag: `v0.7.0`
+- Commit: `dbdbb299164347586e2650bb67684a490726a798`
 
 ## Upstream status
 
@@ -26,13 +26,16 @@ offer upstream. Every patch entry below ends with an **Upstream** line:
 - **Overlap:** related upstream PRs and issues, with their state when last checked.
 - **Fit:** how it sits with upstream's `VISION.md` and roadmap, or why it doesn't.
 
-Last checked 2026-10-23, twice: at the rebase onto `v0.6.5` (every
-overlapping PR and issue re-read, and the `v0.6.3..v0.6.5` commits read for
-anything that replaces a patch: none), and again after the deploy, when the
-ranking below was added. Since the 2026-10-19 check, [#9279](https://github.com/multica-ai/multica/issues/9279) closed as completed
+Last checked 2026-10-23, at the rebase onto `v0.7.0`: `upstream-status.sh`
+re-run and the `v0.6.5..v0.7.0` commits read for anything that replaces a
+patch: none. Since the morning's check, [#8679](https://github.com/multica-ai/multica/pull/8679) closed unmerged, with no
+comment and no successor PR. `v0.7.0` also enforces runtime ownership on the
+daemon routes (#9423), which the drain, quota and claim-filter reports ride on;
+no patch adds a daemon route, so nothing moved. Earlier the same day, at the
+rebase onto `v0.6.5`, the ranking below was added; since the 2026-10-19 check, [#9279](https://github.com/multica-ai/multica/issues/9279) closed as completed
 by [#9332](https://github.com/multica-ai/multica/pull/9332), upstream's REST snapshot rewrite, which forced a port of the PR
 snapshot extras rather than a drop; [#9190](https://github.com/multica-ai/multica/pull/9190) opened as the fix for [#9176](https://github.com/multica-ai/multica/issues/9176);
-and [#8679](https://github.com/multica-ai/multica/pull/8679) and RFC [#6650](https://github.com/multica-ai/multica/issues/6650) are active. None merged or was superseded. The full
+and RFC [#6650](https://github.com/multica-ai/multica/issues/6650) is active. None merged or was superseded. The full
 preflight from the `multica-upstream-contribution` skill last ran 2026-10-16:
 live `VISION.md` and `CONTRIBUTING.md`, plus issue and PR searches, open and
 closed. Read-only: nothing has been opened, filed or commented on upstream.
@@ -66,8 +69,8 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 9 | Tree view mode (outline) | `candidate` | [#5685](https://github.com/multica-ai/multica/issues/5685) (open request, 3 👍), [#2966](https://github.com/multica-ai/multica/pull/2966) (open, overlaps) | Medium | Medium-low | After the tree lanes; read #2966 first. |
 | 10 | Label row: show all labels, Compact/Full display (web) | `candidate` | none on the display; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`; the last two from a maintainer) | Medium | Medium-low | Wait for the maintainer's board refactor to land. |
 | 11 | Sidebar agent and drain status (web) | `fork-only` (the agent count alone could go) | none found | Low-medium | Low-medium | Only if asked; the drain marker comes out first. |
-| 12 | Claude quota report and runtime backup setting (daemon + backend) | `fork-only` (the report alone is a `candidate` only if it lines up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (open; #8679 active 2026-10-23), [#6000](https://github.com/multica-ai/multica/issues/6000) (the request) | High for plan usage | Low: crowded | Don't race; offer the `rate_limit_event` parsing to #8679. |
-| 13 | Runtime quota section and sidebar warning (web) | `fork-only` (the Runtimes-page section alone could line up with #7413 or #8679) | [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) (open); sidebar line: none found | High for the section | Low: crowded | As the quota report. |
+| 12 | Claude quota report and runtime backup setting (daemon + backend) | `fork-only` (the report alone is a `candidate` only if it lines up with #7413) | [#7413](https://github.com/multica-ai/multica/pull/7413) (open), [#8679](https://github.com/multica-ai/multica/pull/8679) (closed unmerged 2026-10-23), [#6000](https://github.com/multica-ai/multica/issues/6000) (the request) | High for plan usage | Low-medium: #8679 no longer competes | Don't race #7413; the `rate_limit_event` parsing could go to #6000 instead of #8679. |
+| 13 | Runtime quota section and sidebar warning (web) | `fork-only` (the Runtimes-page section alone could line up with #7413) | [#7413](https://github.com/multica-ai/multica/pull/7413) (open), [#8679](https://github.com/multica-ai/multica/pull/8679) (closed unmerged); sidebar line: none found | High for the section | Low: crowded | As the quota report. |
 | 14 | Claude quota tracker and auto-hold (daemon) | `fork-only` (the `rate_limit_event` parsing alone is a `candidate`) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255) (open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC, active 2026-10-19, 6 👍); #8965 closed, #8969 withdrawn | Medium | Low | Add our use case to RFC #6650. |
 | 15 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631) (changes requested, last touched 2026-07-28), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High: upstream's reviewer agreed on #5631 | Low for ours | Help #5631 land, then drop ours. |
 | 16 | Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679) (changes requested), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High | Low for ours | Drop once upstream shows the drain state. |
@@ -1726,7 +1729,8 @@ branches. They do not touch product code. Landed in
 | `ag/v0.6.2-ag.2` | `0ae4d6edc3c9651e1cfb5d2c711d062469828ab7` | `multica-web-ag:v0.6.2-ag.2` | `multica-backend-ag:v0.6.2-ag.2` | `dist/multica-v0.6.2-ag.2-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-16 |
 | `ag/v0.6.3-ag.1` | `d19013ab84e81751d031bb894f374ccae6afbffe` | `multica-web-ag:v0.6.3-ag.1` | `multica-backend-ag:v0.6.3-ag.1` | `dist/multica-v0.6.3-ag.1-darwin-arm64` | 2026-10-19 |
 | `ag/v0.6.3-ag.2` | `9b15ccc316ded86a419f0eb7f532227ff0ae3f22` | `multica-web-ag:v0.6.3-ag.2` | `multica-backend-ag:v0.6.3-ag.2` | `dist/multica-v0.6.3-ag.2-darwin-arm64` | 2026-10-20 |
-| `ag/v0.6.5-ag.1` | `bc4a44822385e3e04407e38cf19a9c8c10d0ba6b` | `multica-web-ag:v0.6.5-ag.1` | `multica-backend-ag:v0.6.5-ag.1` | `dist/multica-v0.6.5-ag.1-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-23 |
+| `ag/v0.6.5-ag.1` | `bc4a44822385e3e04407e38cf19a9c8c10d0ba6b` | `multica-web-ag:v0.6.5-ag.1` | `multica-backend-ag:v0.6.5-ag.1` | `dist/multica-v0.6.5-ag.1-darwin-arm64` | 2026-10-23 |
+| `ag/v0.7.0-ag.1` | `1e7aedc1e87f3675273b843135d5874543f34f21` | `multica-web-ag:v0.7.0-ag.1` | `multica-backend-ag:v0.7.0-ag.1` | `dist/multica-v0.7.0-ag.1-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-23 |
 
 The CLI column is the `dist/multica-<tag>-ag.<n>-darwin-arm64` binary from
 `ag-patches/build-cli.sh`; `none (stock)` means the daemon runs the upstream
@@ -1768,3 +1772,27 @@ except two upstream failures that stock `v0.6.5` shows in the same container:
 `TestClaimTasksForRuntimes_EmptyReclaimDefersHintForRetry` (timing flake, 12
 of 40 runs failed on stock) and four Cursor background-process tests in
 `pkg/agent` (`TestCaptureCursorBackground*`, `TestCursorBackgroundLifecycle`).
+
+`v0.7.0-ag.1` is the first build on `v0.7.0`: the same 23 patches, rebased.
+Two conflicts: the label row's import in `table-view.tsx` (upstream added
+`DeferredTooltip`), and in `daemon.go`'s `runTask` the backup-account resume
+now runs just before upstream's new worktree delivery repair, so a run the
+backup completes still gets the delivery check. Upstream's runtime ownership
+check (#9423) broke nine DB-backed `TestAGPatch*` handler tests, which drove
+daemon routes with a daemon token whose `daemon_id` did not match the fixture
+runtime; they now authenticate as the runtime owner (`newOwnerDaemonRequest`),
+as upstream's own tests do. One web test followed upstream's copy change
+("Computer connected" to "Machine connected"). Deployed 2026-10-23 after a
+`pg_dump` backup
+(`~/multica-selfhost/backups/multica-pre-v0.7.0-ag.1-20261023-144756.sql.gz`;
+`.env` saved as `.env.pre-v0.7.0-ag.1`, the compose file as
+`docker-compose.selfhost.yml.pre-v0.7.0` before it was replaced with
+`v0.7.0`'s): `MULTICA_IMAGE_TAG` to `v0.7.0`, backend (applied upstream's
+`585`–`592`), then frontend. The previous CLI stays beside the new one as
+`~/.local/bin/multica-ag.v0.6.5-ag.1`; the launchd daemon moves to the new
+binary at its next idle auto-reload.
+
+Full Go suite: the same upstream failures as stock `v0.7.0` in the same
+container, the four Cursor background-process tests and
+`TestClaimTasksForRuntimes_EmptyReclaimDefersHintForRetry` (failed 9 of 20 runs
+on stock `v0.7.0` and 9 of 20 on the patch branch).
