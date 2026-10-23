@@ -93,6 +93,7 @@ func newAGDrainPollDaemon(t *testing.T, s *agDrainClaimServer, pollInterval time
 
 func startAGDrainPollLoop(t *testing.T, d *Daemon, wakeups <-chan taskWakeup) {
 	t.Helper()
+	d.agSlotDir = t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {

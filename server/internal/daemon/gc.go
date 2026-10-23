@@ -84,6 +84,10 @@ type gcStats struct {
 
 // runGC performs a single GC scan across all workspace directories.
 func (d *Daemon) runGC(ctx context.Context) {
+	if d.agGCSkipped() { // AG patch: handoff — the other daemon's task dirs look orphaned to this one
+		d.logger.Debug("gc: skipped while another daemon shares the workspaces root")
+		return
+	}
 	root := d.cfg.WorkspacesRoot
 	entries, err := os.ReadDir(root)
 	if err != nil {
@@ -1593,7 +1597,7 @@ func (d *Daemon) pruneWorktreeLocked(ctx context.Context, barePath string) {
 	// in-process repository gate. Do not start heavy maintenance while any task
 	// is active; a new task or checkout that arrives after this check preempts
 	// through the maintenance context below.
-	if d.activeTasks.Load() > 0 {
+	if d.activeTasks.Load() > 0 || d.agOtherDaemonBusy() { // AG patch: another daemon's slots count too
 		d.logger.Debug("gc: heavy repo maintenance deferred while tasks are active", "repo", barePath)
 		return
 	}
@@ -1611,16 +1615,20 @@ func (d *Daemon) pruneWorktreeLocked(ctx context.Context, barePath string) {
 	}
 	completed := true
 	for _, step := range maintenance {
-		if ctx.Err() != nil || d.activeTasks.Load() > 0 {
+		if ctx.Err() != nil || d.activeTasks.Load() > 0 || d.agOtherDaemonBusy() { // AG patch
 			return
 		}
 		before := snapshotRepoMaintenanceLocks(barePath)
-		if out, err := runGitCommandContext(ctx, barePath, step.timeout, step.args...); err != nil {
+		stepCtx, releaseStep := d.agGCStepContext(ctx) // AG patch: another daemon taking a slot preempts the step
+		out, err := runGitCommandContext(stepCtx, barePath, step.timeout, step.args...)
+		cause := context.Cause(stepCtx)
+		releaseStep()
+		if err != nil {
 			completed = false
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, repocache.ErrMaintenancePreempted) {
 				d.cleanupNewRepoMaintenanceLocks(barePath, before)
 			}
-			if errors.Is(context.Cause(ctx), repocache.ErrMaintenancePreempted) {
+			if errors.Is(cause, repocache.ErrMaintenancePreempted) {
 				d.logger.Info("gc: git maintenance preempted for foreground work",
 					"repo", barePath,
 					"command", strings.Join(step.args, " "),

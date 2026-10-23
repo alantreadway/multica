@@ -77,6 +77,9 @@ func (d *Daemon) agStartDrain() {
 
 // agResume ends drain mode and wakes the poller. Idempotent.
 func (d *Daemon) agResume() {
+	if d.agHandoffActive() { // one-way; the handler already refuses
+		return
+	}
 	d.claimMu.Lock()
 	was := d.agDrain.draining
 	d.agDrain.draining = false
@@ -141,6 +144,10 @@ func agHeartbeatBody(body map[string]any, drain *protocol.DaemonDrainReport) map
 // agDeferRestart is triggerRestart's gate. While draining it records why in
 // reload_pending_reason and returns true: the restart must not go ahead.
 func (d *Daemon) agDeferRestart() bool {
+	if d.agOverlapActive() { // a self-restart would RecoverOrphans the predecessor's tasks
+		d.logger.Info("restart deferred: predecessor daemon is still running")
+		return true
+	}
 	d.claimMu.Lock()
 	defer d.claimMu.Unlock()
 	if !d.agDrain.draining {
@@ -200,6 +207,9 @@ func (d *Daemon) agDrainHandler(drain bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !drain && d.agRefuseResume(w) {
 			return
 		}
 		if drain {
