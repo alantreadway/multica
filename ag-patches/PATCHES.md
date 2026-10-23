@@ -61,6 +61,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 7 | Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) | Medium | Medium (drag rules), low (jump chip) | Ride along with the tree lanes; offer the drag rules first. |
 | 8 | GitHub PR polling (token mode) | `candidate` | [#8111](https://github.com/multica-ai/multica/issues/8111) (open request; our +1 only, no maintainer reply) | High: a stated blocker for self-hosters without an App | Medium-low | Rework as a GitHub token provider in `vcs_connection` (the #5006 shape) before offering. |
 | 9 | Tree view mode (outline) | `candidate` | [#5685](https://github.com/multica-ai/multica/issues/5685) (open request, 3 👍), [#2966](https://github.com/multica-ai/multica/pull/2966) (open, overlaps) | Medium | Medium-low | After the tree lanes; read #2966 first. |
+| 10 | Label row: show all labels, Compact/Full display (web) | `candidate` | none on the display; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`; the last two from a maintainer) | Medium | Medium-low | Wait for the maintainer's board refactor to land. |
 | 11 | Sidebar agent and drain status (web) | `fork-only` (the agent count alone could go) | none found | Low-medium | Low-medium | Only if asked; the drain marker comes out first. |
 | 14 | Claude quota tracker and auto-hold (daemon) | `fork-only` (the `rate_limit_event` parsing alone is a `candidate`) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255) (open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC, active 2026-10-19, 6 👍); #8965 closed, #8969 withdrawn | Medium | Low | Add our use case to RFC #6650. |
 | 15 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631) (changes requested, last touched 2026-07-28), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High: upstream's reviewer agreed on #5631 | Low for ours | Help #5631 land, then drop ours. |
@@ -1108,6 +1109,79 @@ migration.
     Checked 2026-10-19.
   - Fit: upstream said no to this behaviour, so it stays ours. Watch #8964; if
     it lands, rebase onto its mechanism.
+
+### Label row: show all labels, Compact/Full display (web)
+
+Frontend only. Every surface that drew a capped label list now draws all of
+them, wrapping, through one component (`AgLabelRow`), and the per-view Labels
+card property is `Off / Compact / Full` instead of on/off.
+
+- Board card (was cap 2), list row (cap 3), table cell (cap 2) and the
+  sub-issue row in issue detail (cap 2): the `slice()` caps and the `+N`
+  counter are gone and the row wraps. Order is whatever the server returns.
+- `compact` is an outlined chip with a colour dot and `text-micro` text;
+  `full` is the existing filled `LabelChip`. Table and sub-issue rows always
+  use `full`.
+- `CardProperties.labels` is `"off" | "compact" | "full"`. A fresh view
+  defaults to `off` (as before). Persisted values are normalised on read:
+  `true` -> `full`, `false` -> `off`, missing or unknown -> the default. That
+  runs in `mergeViewStatePersisted`, which the issues, my-issues, surface and
+  saved-view seeding paths all use, so a saved view's server-stored
+  `display.cardProperties.labels` boolean needs no server change.
+  `isLegacyCardDefault` in `surface-view-store.ts` counts `"off"` as off.
+- The Display popover and the save-view dialog get an Off / Compact / Full
+  chooser (`AgLabelDisplayControl`) in place of the Labels toggle. Locale keys
+  `display.labels_off|compact|full` in all five locales.
+- Sub-issue rows keep their separate boolean (`sub-issue-display-store.ts`)
+  and render the full style.
+- Detail-header pill (`issue-property-pills.tsx`): the label pill passes
+  `max-w-full flex-wrap overflow-visible rounded-xl` to `PillButton` so four
+  chips wrap instead of truncating at `max-w-56`. `PillButton`'s base class is
+  untouched.
+- List rows use `min-h` instead of a fixed `h` and Virtuoso measures each row,
+  so a row whose labels wrap onto a second line grows rather than overlapping
+  its neighbours. One-line rows stay at `--issue-row-height`.
+- Rollback: the stored value is a string. On the base image (boolean) a stored
+  `"off"` is truthy, so labels show for views that had them off, saved views
+  included, until the toggle is flipped. Switching the web image back is
+  otherwise safe.
+- Not changed: `create-issue.tsx` uses `LabelPicker` in a `PillButton` too and
+  may truncate the same way; left as a follow-up.
+
+- Test prefix: `AG patch:`
+- Tests: `packages/core/issues/stores/ag-label-display.test.ts` (migration across
+  the issues, my-issues, surface and saved-view-seed paths),
+  `packages/views/labels/ag-label-row.test.tsx`,
+  `issues/components/ag-label-surfaces.test.tsx` (board card, list row),
+  `issue-property-pills.test.tsx`, `issues-header.label-display.test.tsx`, and
+  `AG patch:` cases in `save-view-dialog.test.tsx`, `table-view-editing.test.tsx`
+  and `issue-detail.test.tsx`. All are listed in `ag-patches/test.sh`.
+- Files:
+  - `packages/core/issues/stores/ag-label-display.ts`
+  - `packages/views/labels/ag-label-row.tsx`
+  - `packages/views/labels/ag-label-display-control.tsx`
+  - one-line hooks in `board-card.tsx`, `list-row.tsx`, `table-view.tsx`,
+    `issue-detail.tsx`, `issue-property-pills.tsx`, `issues-header.tsx`,
+    `save-view-dialog.tsx`, `view-store.ts`, `surface-view-store.ts`
+  - `packages/views/locales/*/ag.json` (`issues.display`)
+  - `issue-detail.ag.test.tsx`, `save-view-dialog.label-display.ag.test.tsx`,
+    `table-view-editing.ag.test.tsx` (new: siblings of upstream tests)
+
+- Upstream:
+  - Status: `candidate`. Nothing proposed; offer it as a Feature Request first.
+  - Overlap: no upstream PR or issue covers the label display (searched
+    2026-10-19). Open PRs that edit `board-card.tsx` and are likely to conflict at
+    rebase: [#8784](https://github.com/multica-ai/multica/pull/8784) (linked PR status),
+    [#9266](https://github.com/multica-ai/multica/pull/9266) (sub-issue nesting),
+    [#8925](https://github.com/multica-ai/multica/pull/8925) (agents-working count),
+    [#9335](https://github.com/multica-ai/multica/pull/9335) and
+    [#9336](https://github.com/multica-ai/multica/pull/9336) (token and geometry
+    refactor). Merged [#1233](https://github.com/multica-ai/multica/pull/1233),
+    [#1743](https://github.com/multica-ai/multica/pull/1743) and
+    [#5721](https://github.com/multica-ai/multica/pull/5721) introduced the capped chips this replaces.
+  - Fit: small and additive, frontend only, no schema change; the persisted
+    boolean migrates client-side. The Off/Compact/Full enum is the part
+    upstream may want shaped differently.
 
 ## Tooling (not a patch)
 
