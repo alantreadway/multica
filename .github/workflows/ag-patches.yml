@@ -1,0 +1,42 @@
+name: AG patches
+
+# Fork-only guard for the patch branches (ag/<upstream-tag>). Upstream's ci.yml
+# only runs on main, so PRs into ag/** would otherwise get no checks.
+on:
+  pull_request:
+    branches: ["ag/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # test.sh diffs against the upstream tag to find the patches' tests. The
+      # fork does not carry upstream's tags, and a two-tree diff needs no history.
+      - name: Fetch the upstream base tag
+        run: |
+          tag="${GITHUB_BASE_REF#ag/}"
+          git fetch --no-tags --depth=1 https://github.com/multica-ai/multica.git "refs/tags/${tag}:refs/tags/${tag}"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Guard tests
+        run: ./ag-patches/test.sh

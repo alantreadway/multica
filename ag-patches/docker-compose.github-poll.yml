@@ -1,0 +1,11 @@
+# AG patch: passes the GitHub PR polling variables through to the backend. The
+# stock compose file lists the backend's environment explicitly, so the new
+# variables never reach the container without this. Layer it on the self-host
+# command: add `-f ag-patches/docker-compose.github-poll.yml`. See
+# ag-patches/README.md, "GitHub PR polling (token mode)".
+services:
+  backend:
+    environment:
+      GITHUB_POLL_TOKEN: ${GITHUB_POLL_TOKEN:-}
+      GITHUB_POLL_INTERVAL: ${GITHUB_POLL_INTERVAL:-}
+      GITHUB_POLL_ENABLED: ${GITHUB_POLL_ENABLED:-}
