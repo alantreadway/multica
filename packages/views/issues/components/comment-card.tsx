@@ -41,6 +41,7 @@ import { ReplyInput, type ReplyInputHandle } from "./reply-input";
 import { VirtualThreadRow, shouldVirtualizeThreadRows } from "./virtual-thread-row";
 import { CommentTriggerChips } from "./comment-trigger-chips";
 import { AppCallChips } from "./app-call-chips";
+import { useAgCopySlackAction } from "./ag_comment-share-items";
 import { useCommentTriggerPreview } from "../hooks/use-comment-trigger-preview";
 import { useRecipientActions } from "../hooks/use-recipient-actions";
 import { SteerBadge, SteerReceipts } from "./steer-receipts";
@@ -660,6 +661,7 @@ function useCommentMenuGroups({
   onDelete: () => void;
 }): RowActionItem[][] {
   const { t } = useT("issues");
+  const agCopySlack = useAgCopySlackAction(entry.content ?? ""); // AG patch: Copy (Slack)
   const respond: RowActionItem[] = [];
   if (onReply) {
     respond.push({ key: "reply", icon: <CornerUpLeft className="h-3.5 w-3.5" />, label: t(($) => $.comment.reply_action), onSelect: onReply });
@@ -689,7 +691,7 @@ function useCommentMenuGroups({
         if (ok) toast.success(t(($) => $.comment.copied_toast));
       });
     },
-  }];
+  }, agCopySlack];
   if (onCopyLink) {
     share.push({ key: "copy-link", icon: <Link2 className="h-3.5 w-3.5" />, label: t(($) => $.comment.copy_link_action), onSelect: () => onCopyLink(entry.id) });
   }

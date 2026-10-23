@@ -47,6 +47,9 @@
       "labels_off": "Выкл.",
       "labels_compact": "Компактно",
       "labels_full": "Полностью"
+    },
+    "comment": {
+      "copy_slack_action": "Копировать (Slack)"
     }
   },
   "runtimes": {

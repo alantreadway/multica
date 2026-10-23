@@ -126,6 +126,7 @@ describe("CommentCard — actions menu layout", () => {
       "Create sub-issue from here",
       SEPARATOR,
       "Copy",
+      "Copy (Slack)",
       "Copy link",
       SEPARATOR,
       "Delete",
@@ -145,6 +146,7 @@ describe("CommentCard — actions menu layout", () => {
       "Create sub-issue from here",
       SEPARATOR,
       "Copy",
+      "Copy (Slack)",
       "Copy link",
       SEPARATOR,
       "Delete",
@@ -162,6 +164,7 @@ describe("CommentCard — actions menu layout", () => {
       "Create sub-issue from here",
       SEPARATOR,
       "Copy",
+      "Copy (Slack)",
       "Copy link",
     ]);
   });
@@ -176,6 +179,7 @@ describe("CommentCard — actions menu layout", () => {
       "Create sub-issue from here",
       SEPARATOR,
       "Copy",
+      "Copy (Slack)",
       "Copy link",
     ]);
   });
@@ -198,6 +202,7 @@ describe("CommentCard — right-click", () => {
       "Resolve thread",
       "Create sub-issue from here",
       "Copy",
+      "Copy (Slack)",
       "Copy link",
       "Delete",
     ]);
@@ -226,6 +231,7 @@ describe("CommentCard — menus opened inside a comment", () => {
       "Resolve thread with comment",
       "Create sub-issue from here",
       "Copy",
+      "Copy (Slack)",
       "Copy link",
       "Delete",
     ]);
