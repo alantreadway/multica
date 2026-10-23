@@ -406,6 +406,8 @@ type AgentTaskResponse struct {
 	// cannot see (MUL-8472): only identity, status, timing and usage remain.
 	Restricted bool `json:"restricted,omitempty"`
 
+	AGIssuePriority string `json:"ag_issue_priority,omitempty"` // AG patch: urgent-only claim filter
+
 	StartClaimSupported      bool                   `json:"start_claim_supported,omitempty"`
 	CancelledByCommentChange bool                   `json:"cancelled_by_comment_change,omitempty"`
 	CancelledBy              *TaskCancellationActor `json:"cancelled_by,omitempty"`
