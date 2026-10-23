@@ -56,6 +56,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | # | Patch | Status | Overlapping upstream | Fit | Likelihood | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
 | 6 | Tree-ordered parent lanes | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open, adjacent, no reviews, last touched 2026-07-07) | Medium: improves a shipped view | Medium | Feature Request, after reading #2966. |
+| 7 | Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) | Medium | Medium (drag rules), low (jump chip) | Ride along with the tree lanes; offer the drag rules first. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -127,6 +128,31 @@ groupings are unchanged. `SwimlaneTreeInfo` gained `rootRawId` and
   - Fit: a small improvement to a shipped view, no new surface or dependency.
     `VISION.md` says nothing about views. It is feature work, so it goes through
     a Feature Request first, after reading #2966 so we don't race it.
+
+### Lane drag rules and jump-to-lane chip (landed)
+
+Drag rules between swimlanes and a chip that jumps to the related lane.
+Status: landed in [#3](https://github.com/alantreadway/multica/pull/3).
+Depends on the tree-ordered lanes patch.
+
+- Test prefix: `AG patch:`
+- Files:
+  - `packages/views/issues/components/ag-swimlane-lane-drag.ts` (new: the
+    sibling-lane collision rule, jump-to-lane scroll),
+    `ag-jump-to-lane-chip.tsx` (new)
+  - `packages/views/issues/components/swimlane-view.tsx`, `board-card.tsx` (hooks)
+  - `packages/views/issues/components/swimlane-view.lane-drag.ag.test.tsx` (new)
+  - `packages/views/locales/*/ag.json` (`issues.swimlane.jump_to_lane`)
+
+- Upstream:
+  - Status: `candidate`, bundled with tree lanes. The drag rules only make sense
+    once lanes are a tree, so it follows that proposal.
+  - Overlap: no duplicate. Open [#6704](https://github.com/multica-ai/multica/pull/6704) and [#7904](https://github.com/multica-ai/multica/pull/7904)
+    both edit `swimlane-view.tsx` (conflict risk at rebase, no behavioural
+    overlap); [#4416](https://github.com/multica-ai/multica/pull/4416) (drag settle-lock) is merged and already in
+    the base.
+  - Fit: as for tree lanes. The jump chip is the more subjective part; offer the
+    drag rules first.
 
 ## Tooling (not a patch)
 

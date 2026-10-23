@@ -26,6 +26,7 @@ import { propertyIdFromViewKey } from "@multica/core/issues/stores/view-store";
 import { ProgressRing } from "./progress-ring";
 import type { ChildProgress } from "./list-row";
 import { IssueActionsContextMenu } from "../actions";
+import { JumpToLaneChip } from "./ag-jump-to-lane-chip";
 import { LabelChip } from "../../labels/label-chip";
 import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
 import { CustomStatusChip, useIsCustomStatus } from "./custom-status-chip";
@@ -351,11 +352,14 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({
   childProgress,
   project,
   disableSorting,
+  onJumpToLane,
 }: {
   issue: Issue;
   childProgress?: ChildProgress;
   project?: Project;
   disableSorting?: boolean;
+  /** Swimlane only: when set, shows a chip that jumps to the lane this issue heads. */
+  onJumpToLane?: (issueId: string) => void;
 }) {
   const p = useWorkspacePaths();
   const peek = useIssuePeekActions();
@@ -418,6 +422,9 @@ export const DraggableBoardCard = memo(function DraggableBoardCard({
             project={project}
           />
         </AppLink>
+        {onJumpToLane && (
+          <JumpToLaneChip onJump={() => onJumpToLane(issue.id)} />
+        )}
       </div>
     </IssueActionsContextMenu>
   );
