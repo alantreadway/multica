@@ -31,11 +31,29 @@ pnpm --filter @multica/views exec vitest run \
   issues/components/swimlane-view.lane-drag.ag.test.tsx \
   issues/components/swimlane-view.tree-lanes.ag.test.tsx \
   issues/components/swimlane-tree.test.ts \
-  issues/components/swimlane-band.test.ts
+  issues/components/swimlane-band.test.ts \
+  issues/components/tree-rows.test.ts \
+  issues/components/tree-view.test.tsx \
+  issues/components/issues-header.tree-mode.test.tsx \
+  issues/surface/tree-mode.test.tsx \
+  issues/surface/tree-mode-surfaces.test.tsx \
+  issues/surface/issue-surface.test.tsx \
+  issues/surface/issue-surface.ag.test.tsx \
+  issues/components/save-view-dialog.test.tsx \
+  issues/components/save-view-dialog.tree-mode.ag.test.tsx \
+  common/actor-issues-panel.test.tsx \
+  common/actor-issues-panel.ag.test.tsx \
+  projects/components/project-detail.test.tsx \
+  projects/components/project-detail.ag.test.tsx \
+  settings/components/issue-statuses-tab.test.tsx \
+  settings/components/issue-statuses-tab.ag.test.tsx \
+  locales/ag-tree.test.ts
 
 pnpm --filter @multica/core exec vitest run \
+  issues/stores/tree-view-store.test.ts \
   issues/queries.test.ts \
   issues/queries.tree-lanes.ag.test.ts \
+  issues/queries.tree-view.ag.test.ts \
   issues/queries.test.ts
 
 pnpm --filter @multica/views typecheck

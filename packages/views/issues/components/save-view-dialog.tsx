@@ -151,6 +151,11 @@ const ROW_LABEL = "w-16 shrink-0 text-caption text-muted-foreground";
  *  DRAFT store via the surrounding provider. */
 export function DraftDefinitionFields() {
   const { t } = useT("issues");
+  const { t: tAg } = useT("ag");
+  const layoutName = (mode: ViewMode) =>
+    mode === "tree"
+      ? tAg(($) => $.issues.view.tree)
+      : t(($) => $.view[LAYOUT_LABEL_KEY[mode]]);
   const wsId = useWorkspaceId();
   const viewMode = useViewStore((s) => s.viewMode);
   const grouping = useViewStore((s) => s.grouping);
@@ -176,7 +181,7 @@ export function DraftDefinitionFields() {
     workspaceProperties.find((p) => `property:${p.id}` === key)?.name ??
     t(($) => $.save_view.custom_property);
 
-  const layoutLabel = t(($) => $.view[LAYOUT_LABEL_KEY[viewMode]]);
+  const layoutLabel = layoutName(viewMode);
   const groupingLabel =
     viewMode === "board"
       ? grouping in GROUPING_LABEL_KEY
@@ -245,9 +250,9 @@ export function DraftDefinitionFields() {
             <div className="flex items-center gap-3">
               <Label className={ROW_LABEL}>{t(($) => $.save_view.layout_label)}</Label>
               <Select
-                items={(["list", "board", "table", "swimlane"] as const).map((mode) => ({
+                items={(["list", "board", "table", "swimlane", "tree"] as const).map((mode) => ({
                   value: mode as string,
-                  label: t(($) => $.view[LAYOUT_LABEL_KEY[mode]]),
+                  label: layoutName(mode),
                 }))}
                 value={viewMode}
                 onValueChange={(v) => {
@@ -259,9 +264,9 @@ export function DraftDefinitionFields() {
                 </SelectTrigger>
                 <SelectContent align="start">
                   <SelectGroup>
-                    {(["list", "board", "table", "swimlane"] as const).map((mode) => (
+                    {(["list", "board", "table", "swimlane", "tree"] as const).map((mode) => (
                       <SelectItem key={mode} value={mode}>
-                        {t(($) => $.view[LAYOUT_LABEL_KEY[mode]])}
+                        {layoutName(mode)}
                       </SelectItem>
                     ))}
                   </SelectGroup>

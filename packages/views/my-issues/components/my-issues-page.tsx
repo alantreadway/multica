@@ -37,7 +37,7 @@ export function MyIssuesPage() {
             userId: user.id,
             relation: myIssuesRelationFromScope(scope),
           }}
-          modes={["board", "list", "table", "swimlane"]}
+          modes={["board", "list", "table", "swimlane", "tree"]}
           batchToolbar="list"
           renderHeader={({ controller }) => (
             <>
@@ -47,6 +47,7 @@ export function MyIssuesPage() {
                 workingAgents={controller.workingAgents}
                 scope={scope}
                 onScopeChange={setScope}
+                allowTree={controller.allowTree}
                 facetCountsExact={controller.facetCountsExact}
                 tableFacetCounts={controller.tableFacetCounts}
                 onTableFacetChange={controller.setActiveTableFacet}

@@ -4,6 +4,29 @@
       "sub_lanes_hidden_one": "+{{count}} sous-couloir",
       "sub_lanes_hidden_other": "+{{count}} sous-couloirs",
       "jump_to_lane": "Aller au couloir"
+    },
+    "view": {
+      "tooltip_tree": "Vue en arbre",
+      "tree": "Arbre"
+    },
+    "tree": {
+      "aria_label": "Arborescence des tickets",
+      "expand": "Développer",
+      "collapse": "Réduire",
+      "expand_all": "Tout développer",
+      "collapse_all": "Tout réduire",
+      "focus": "Se concentrer sur ce ticket",
+      "focus_root": "Tous les tickets",
+      "breadcrumb_label": "Chemin de focus",
+      "load_more": "Charger plus",
+      "loading_children": "Chargement des sous-tickets…",
+      "load_error": "Impossible de charger les sous-tickets",
+      "retry": "Réessayer",
+      "empty": "Aucun ticket à afficher",
+      "hidden_ancestors": "Tickets parents masqués par les filtres actuels",
+      "filters_paused": "Les filtres sont suspendus pendant le focus",
+      "clear_focus": "Quitter le focus",
+      "sub_issue_progress": "{{done}} sous-tickets terminés sur {{total}}"
     }
   }
 }
