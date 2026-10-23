@@ -41,6 +41,8 @@ import { ApiError } from "@multica/core/api/client";
 import type { CreateIssueViewRequest, IssueView } from "@multica/core/api/schemas";
 import { projectListOptions } from "@multica/core/projects/queries";
 import { propertyListOptions } from "@multica/core/properties";
+import { normalizeLabelDisplay } from "@multica/core/issues/stores/ag-label-display";
+import { AgLabelDisplayControl } from "../../labels/ag-label-display-control";
 import {
   viewStoreSlice,
   viewStorePersistOptions,
@@ -437,6 +439,16 @@ export function DraftDefinitionFields() {
                       <span className="truncate">{property.name}</span>
                     </Toggle>
                   ))}
+                </div>
+              </div>
+            )}
+            {availableCardPropertyOptions.length > 0 && (
+              <div className="flex items-start gap-3">
+                <Label className={`${ROW_LABEL} pt-1`}>
+                  {t(($) => $.display.card_labels)}
+                </Label>
+                <div className="min-w-0 flex-1">
+                  <AgLabelDisplayControl hideTitle value={normalizeLabelDisplay(cardProperties.labels)} onChange={act.setLabelDisplay} />
                 </div>
               </div>
             )}
