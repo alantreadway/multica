@@ -1,0 +1,26 @@
+# Go tests that fail on stock upstream, per upstream tag. test-go-full.sh reads
+# this file and reports these as known failures rather than real ones.
+#
+# One test per line: <upstream-tag> <TopLevelTestName>  # reason
+# Names are top-level tests as in `--- FAIL: TestName`, without subtests. Blank
+# lines and lines starting with # are ignored. Add the new tag's entries at each
+# rebase, after checking them on the stock tag (not on the patch branch).
+#
+#   grep '^v0.6.5 ' ag-patches/known-upstream-failures.txt
+
+v0.6.5 TestClaimTasksForRuntimes_EmptyReclaimDefersHintForRetry  # timing flake: failed 12 of 40 runs on stock v0.6.5
+v0.6.5 TestCaptureCursorBackgroundLateDescendant  # fails on stock v0.6.5 in the Linux test container
+v0.6.5 TestCaptureCursorBackgroundProcessReapsLeaderExitedGroup  # fails on stock v0.6.5 in the Linux test container
+v0.6.5 TestCaptureCursorBackgroundSurvivesRootExitDuringCapture  # fails on stock v0.6.5 in the Linux test container
+v0.6.5 TestCursorBackgroundLifecycle  # fails on stock v0.6.5 in the Linux test container
+
+v0.7.0 TestClaimTasksForRuntimes_EmptyReclaimDefersHintForRetry  # timing flake: failed 9 of 20 runs on stock v0.7.0
+v0.7.0 TestCaptureCursorBackgroundLateDescendant  # fails on stock v0.7.0 in the Linux test container
+v0.7.0 TestCaptureCursorBackgroundProcessReapsLeaderExitedGroup  # fails on stock v0.7.0 in the Linux test container
+v0.7.0 TestCaptureCursorBackgroundSurvivesRootExitDuringCapture  # fails on stock v0.7.0 in the Linux test container
+v0.7.0 TestCursorBackgroundLifecycle  # fails on stock v0.7.0 in the Linux test container
+v0.7.1 TestClaimTasksForRuntimes_EmptyReclaimDefersHintForRetry  # timing flake: failed on stock v0.7.1 too (9 of 20 on stock v0.7.0)
+v0.7.1 TestCaptureCursorBackgroundLateDescendant  # fails on stock v0.7.1 in the Linux test container
+v0.7.1 TestCaptureCursorBackgroundProcessReapsLeaderExitedGroup  # fails on stock v0.7.1 in the Linux test container
+v0.7.1 TestCaptureCursorBackgroundSurvivesRootExitDuringCapture  # fails on stock v0.7.1 in the Linux test container
+v0.7.1 TestCursorBackgroundLifecycle  # fails on stock v0.7.1 in the Linux test container
