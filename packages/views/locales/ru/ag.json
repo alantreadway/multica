@@ -67,6 +67,33 @@
       "kpi_cost_label": "Стоимость · {{period}}",
       "kpi_cache_label": "Экономия на кэше · {{period}}",
       "kpi_tokens_label": "Токены · {{period}}"
+    },
+    "quota": {
+      "title": "Квота Claude",
+      "five_hour": "5 часов",
+      "seven_day": "7 дней",
+      "resets": "сброс {{time}}",
+      "hold": "Приостановлено до {{time}}",
+      "cap": "Параллельно до {{cap}} из {{max}}",
+      "pace": "Регулировать темп запусков Claude",
+      "pace_off_note": "Выкл.: Claude запускается до максимума, пока его не остановит лимит квоты.",
+      "on_backup": "Работает на резервном аккаунте",
+      "backup_title": "Резервный аккаунт",
+      "backup_ready": "Готов",
+      "backup_not_found": "Не найден",
+      "backup_invalid": "Найден, но недействителен",
+      "reason": {
+        "not_logged_in": "Вход не выполнен",
+        "same_account": "Тот же аккаунт, что и основной",
+        "check_failed": "Проверка не удалась",
+        "unknown": "Неизвестная причина"
+      },
+      "backup_enable": "Использовать резервный аккаунт",
+      "backup_urgent_only": "На резервном аккаунте выполняются только срочные задачи.",
+      "backup_max": "Макс. параллельных запусков",
+      "backup_urgent_now": "Срочные задачи — на резервный аккаунт сейчас",
+      "backup_urgent_now_note": "До {{time}}: без регулировки темпа, до указанного выше максимума.",
+      "save_failed": "Не удалось сохранить настройку резервного аккаунта"
     }
   },
   "layout": {
@@ -86,7 +113,14 @@
       "hover_runtimes_header": "Среды выполнения, завершающие работу",
       "hover_runtime_draining": "{{name}} · выполняется: {{running}}",
       "hover_runtime_draining_unknown": "{{name}} · завершает работу",
-      "hover_runtime_drained": "{{name}} · работа завершена"
+      "hover_runtime_drained": "{{name}} · работа завершена",
+      "backup_urgent": "Резервный аккаунт · только срочные",
+      "quota_hold": "Claude приостановлен до {{time}}",
+      "quota_paced_week": "Темп Claude: {{cap}} из {{max}} · неделя {{percent}}%",
+      "quota_paced_session": "Темп Claude: {{cap}} из {{max}} · 5 часов {{percent}}%",
+      "quota_paced_unknown": "Темп Claude: {{cap}} из {{max}}",
+      "quota_pace_off": "Регулировка темпа Claude выключена",
+      "quota_urgent_backup": "Срочные на резервном аккаунте до {{time}}"
     }
   },
   "settings": {

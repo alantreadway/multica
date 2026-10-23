@@ -57,6 +57,7 @@ import { HealthBadge, HealthIcon, shortDaemonId, useHealthLabel } from "./shared
 import { ProviderLogo } from "./provider-logo";
 import { UsageSection } from "./usage-section";
 import { RateLimitSection } from "./rate-limit-section";
+import { QuotaSection } from "./quota-section";
 import { DeleteRuntimeDialog } from "./delete-runtime-dialog";
 import { RuntimeAccessEditor, RuntimeAccessReadout } from "./runtime-access-editor";
 import { RuntimeConcurrencyField } from "./runtime-concurrency-field";
@@ -246,6 +247,9 @@ export function RuntimeDetail({
             <ObjectSection title={t(($) => $.detail.usage_title)}>
               <UsageSection runtime={runtime} />
             </ObjectSection>
+          )}
+          {canReadRuntime && runtime.provider === "claude" && (
+            <QuotaSection runtime={runtime} canEdit={!!canEditRuntime} />
           )}
         </div>
       </ObjectPage>

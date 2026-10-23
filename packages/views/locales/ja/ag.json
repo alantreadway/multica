@@ -64,6 +64,33 @@
       "kpi_cost_label": "コスト · {{period}}",
       "kpi_cache_label": "キャッシュによる節約 · {{period}}",
       "kpi_tokens_label": "トークン · {{period}}"
+    },
+    "quota": {
+      "title": "Claude クォータ",
+      "five_hour": "5 時間",
+      "seven_day": "7 日間",
+      "resets": "{{time}} にリセット",
+      "hold": "{{time}} まで保留中",
+      "cap": "最大 {{max}} 件中 {{cap}} 件まで実行",
+      "pace": "Claude の実行ペースを調整",
+      "pace_off_note": "オフ: クォータ上限に達するまで最大件数で実行します。",
+      "on_backup": "バックアップで実行中",
+      "backup_title": "バックアップアカウント",
+      "backup_ready": "利用可能",
+      "backup_not_found": "見つかりません",
+      "backup_invalid": "見つかりましたが無効です",
+      "reason": {
+        "not_logged_in": "ログインしていません",
+        "same_account": "プライマリと同じアカウントです",
+        "check_failed": "確認に失敗しました",
+        "unknown": "理由不明"
+      },
+      "backup_enable": "バックアップアカウントを使用",
+      "backup_urgent_only": "バックアップでは緊急のタスクのみ実行されます。",
+      "backup_max": "最大同時実行数",
+      "backup_urgent_now": "緊急のタスクを今すぐバックアップで実行",
+      "backup_urgent_now_note": "{{time}} まで: ペース調整なしで、上記の最大同時実行数まで実行します。",
+      "save_failed": "バックアップ設定を保存できませんでした"
     }
   },
   "layout": {
@@ -80,7 +107,14 @@
       "hover_runtimes_header": "ドレイン中のランタイム",
       "hover_runtime_draining": "{{name}} · {{running}} 件実行中",
       "hover_runtime_draining_unknown": "{{name}} · ドレイン中",
-      "hover_runtime_drained": "{{name}} · ドレイン済み"
+      "hover_runtime_drained": "{{name}} · ドレイン済み",
+      "backup_urgent": "バックアップアカウント · 緊急のみ",
+      "quota_hold": "Claude は {{time}} まで保留中",
+      "quota_paced_week": "Claude 制限中: {{max}} 件中 {{cap}} 件 · 週間 {{percent}}%",
+      "quota_paced_session": "Claude 制限中: {{max}} 件中 {{cap}} 件 · 5 時間 {{percent}}%",
+      "quota_paced_unknown": "Claude 制限中: {{max}} 件中 {{cap}} 件",
+      "quota_pace_off": "Claude のペース調整オフ",
+      "quota_urgent_backup": "緊急はバックアップで実行 · {{time}} まで"
     }
   },
   "settings": {

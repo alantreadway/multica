@@ -116,10 +116,16 @@ function renderIndicator(runtimes: AgentRuntime[] = [], wsId: string | null = "w
 }
 
 beforeEach(() => {
+  // "Today" is pinned so the quota hold's same-day rule is deterministic.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 9, 18, 12, 0));
   setPresence({});
   runtimeFetch.mockClear();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("AG patch: AgentStatusIndicator", () => {
   it("AG patch: shows agents, running and queued counts with a pulsing dot", () => {
@@ -342,5 +348,151 @@ describe("AG patch: AgentStatusIndicator", () => {
     rerender(ui());
     expect(screen.getByText("No agents running")).toBeInTheDocument();
     expect(screen.getByTestId("agent-status-dot")).not.toHaveClass("animate-pulse");
+  });
+
+  describe("quota line", () => {
+    const at = (h: number, m: number) => new Date(2026, 9, 18, h, m).toISOString();
+    const quota = (q: Record<string, unknown>) => ({ ag_quota: q });
+
+    it("AG patch: shows the backup warning and links to Runtimes", () => {
+      renderIndicator([makeRuntime({ metadata: quota({ account: "backup" }) })]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        "Backup account · urgent only",
+      );
+      expect(screen.getByRole("link")).toHaveAttribute("href", "/acme/runtimes");
+    });
+
+    it("AG patch: shows a quota hold in local time", () => {
+      renderIndicator([
+        makeRuntime({ metadata: quota({ hold: { until: at(21, 10) } }) }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        "Claude on hold until 21:10",
+      );
+    });
+
+    it("AG patch: shows the day for a hold that ends on a later day", () => {
+      renderIndicator([
+        makeRuntime({
+          metadata: quota({
+            hold: { until: new Date(2026, 9, 22, 9, 0).toISOString() },
+          }),
+        }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        /Claude on hold until .*Thu.*09:00/,
+      );
+    });
+
+    it("AG patch: the backup warning wins over a hold", () => {
+      renderIndicator([
+        makeRuntime({
+          metadata: quota({ account: "backup", hold: { until: at(21, 10) } }),
+        }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        "Backup account · urgent only",
+      );
+      expect(screen.queryByText(/on hold/)).not.toBeInTheDocument();
+    });
+
+    it("AG patch: shows nothing for a healthy, missing or malformed report", () => {
+      for (const metadata of [
+        {},
+        quota({ account: "primary", effective_cap: 3 }),
+        quota({ account: 7, hold: "soon" }),
+        { ag_quota: "bad" },
+      ]) {
+        const { unmount } = renderIndicator([makeRuntime({ metadata })]);
+        expect(screen.queryByTestId("agent-status-quota")).not.toBeInTheDocument();
+        expect(screen.getByRole("link")).toHaveAttribute("href", "/acme/agents");
+        unmount();
+      }
+    });
+
+    const pacedReport = (five: number, fiveResets: string) =>
+      quota({
+        effective_cap: 1,
+        max: 5,
+        windows: {
+          five_hour: { utilization: five, resets_at: fiveResets },
+          seven_day: { utilization: 0.91, resets_at: "2099-01-03T06:00:00Z" },
+        },
+      });
+
+    it("AG patch: shows weekly pacing and links to Runtimes", () => {
+      renderIndicator([makeRuntime({ metadata: pacedReport(0.3, "2099-01-01T00:00:00Z") })]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        "Claude paced: 1 of 5 · weekly 91%",
+      );
+      expect(screen.getByRole("link")).toHaveAttribute("href", "/acme/runtimes");
+    });
+
+    it("AG patch: names the 5-hour window once it is over its knee", () => {
+      renderIndicator([makeRuntime({ metadata: pacedReport(0.86, "2099-01-01T00:00:00Z") })]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        "Claude paced: 1 of 5 · 5-hour 86%",
+      );
+    });
+
+    it("AG patch: shows a pacing override instead of the paced line", () => {
+      renderIndicator([
+        makeRuntime({
+          metadata: {
+            ...pacedReport(0.3, "2099-01-01T00:00:00Z"),
+            ag_settings: { backup_enabled: false, backup_max_concurrent: 2, pace_off: true },
+          },
+        }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent("Claude pacing off");
+    });
+
+    it("AG patch: urgent-on-backup replaces the paced line until backup_urgent_until", () => {
+      const report = pacedReport(0.3, "2099-01-01T00:00:00Z").ag_quota;
+      renderIndicator([
+        makeRuntime({
+          metadata: {
+            ag_quota: { ...report, backup: { detected: true, valid: true } },
+            ag_settings: {
+              backup_enabled: true,
+              backup_max_concurrent: 2,
+              backup_urgent_until: "2099-01-03T06:00:00Z",
+            },
+          },
+        }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(/^Urgent on backup until /);
+    });
+
+    it("AG patch: a hold wins over pacing", () => {
+      renderIndicator([
+        makeRuntime({
+          metadata: {
+            ag_quota: {
+              ...pacedReport(0.3, "2099-01-01T00:00:00Z").ag_quota,
+              hold: { until: at(21, 10) },
+            },
+          },
+        }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        "Claude on hold until 21:10",
+      );
+    });
+
+    it("AG patch: ignores an offline runtime's stale report", () => {
+      renderIndicator([
+        makeRuntime({ status: "offline", metadata: quota({ account: "backup" }) }),
+      ]);
+      expect(screen.queryByTestId("agent-status-quota")).not.toBeInTheDocument();
+    });
+
+    it("AG patch: sits beside the drain line", () => {
+      renderIndicator([
+        makeRuntime({ metadata: { ...draining(2), ...quota({ account: "backup" }) } }),
+      ]);
+      expect(screen.getByTestId("agent-status-drain")).toBeInTheDocument();
+      expect(screen.getByTestId("agent-status-quota")).toBeInTheDocument();
+    });
   });
 });
