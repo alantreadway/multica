@@ -747,6 +747,7 @@ WHERE id = (
       AND atq.runtime_id = @runtime_id
       AND atq.status = 'queued'
       AND (atq.context->>'wakeup_id' IS NULL OR EXISTS (SELECT 1 FROM issue_wakeup w WHERE w.id=(atq.context->>'wakeup_id')::uuid AND w.disabled_at IS NULL AND w.revision=(atq.context->>'wakeup_revision')::bigint))
+      AND ((sqlc.narg('ag_claim_filter')::jsonb -> atq.runtime_id::text) IS NULL OR (atq.issue_id IS NOT NULL AND EXISTS (SELECT 1 FROM issue ag_i WHERE ag_i.id = atq.issue_id AND jsonb_exists(sqlc.narg('ag_claim_filter')::jsonb -> atq.runtime_id::text, ag_i.priority)))) -- AG patch: urgent-only claim filter
       AND EXISTS (
           SELECT 1
           FROM agent a
@@ -2288,6 +2289,7 @@ SELECT atq.* FROM agent_task_queue atq
 WHERE atq.runtime_id = ANY(@runtime_ids::uuid[])
   AND atq.status = 'queued'
       AND (atq.context->>'wakeup_id' IS NULL OR EXISTS (SELECT 1 FROM issue_wakeup w WHERE w.id=(atq.context->>'wakeup_id')::uuid AND w.disabled_at IS NULL AND w.revision=(atq.context->>'wakeup_revision')::bigint))
+  AND ((sqlc.narg('ag_claim_filter')::jsonb -> atq.runtime_id::text) IS NULL OR (atq.issue_id IS NOT NULL AND EXISTS (SELECT 1 FROM issue ag_i WHERE ag_i.id = atq.issue_id AND jsonb_exists(sqlc.narg('ag_claim_filter')::jsonb -> atq.runtime_id::text, ag_i.priority)))) -- AG patch: urgent-only claim filter
   AND EXISTS (
       -- Keep this authorization fence in sync with ClaimAgentTask.
       SELECT 1

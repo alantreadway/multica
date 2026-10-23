@@ -443,6 +443,7 @@ type DaemonHeartbeatAckPayload struct {
 	RuntimeID               string                                  `json:"runtime_id"`
 	Status                  string                                  `json:"status"`
 	ServerCapabilities      []string                                `json:"server_capabilities,omitempty"`
+	AGCapabilities          []string                                `json:"ag_capabilities,omitempty"` // AG patch: urgent-only claim filter
 	RuntimeGone             bool                                    `json:"runtime_gone,omitempty"`
 	PendingUpdate           *DaemonHeartbeatPendingUpdate           `json:"pending_update,omitempty"`
 	PendingModelList        *DaemonHeartbeatPendingModelList        `json:"pending_model_list,omitempty"`
