@@ -45,6 +45,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 6 | Tree-ordered parent lanes | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open, adjacent, no reviews, last touched 2026-07-07) | Medium: improves a shipped view | Medium | Feature Request, after reading #2966. |
 | 7 | Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) | Medium | Medium (drag rules), low (jump chip) | Ride along with the tree lanes; offer the drag rules first. |
 | 9 | Tree view mode (outline) | `candidate` | [#5685](https://github.com/multica-ai/multica/issues/5685) (open request, 3 👍), [#2966](https://github.com/multica-ai/multica/pull/2966) (open, overlaps) | Medium | Medium-low | After the tree lanes; read #2966 first. |
+| 15 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631) (changes requested, last touched 2026-07-28), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High: upstream's reviewer agreed on #5631 | Low for ours | Help #5631 land, then drop ours. |
 | 20 | Tree mode org-chart layout | `fork-only` | none beyond the tree view | Low | Low | Only after the outline lands, and only if asked. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
@@ -269,6 +270,61 @@ Rollback: switch the web image back to a build without this patch.
   - Overlap: none found beyond the tree view entry (open [#2966](https://github.com/multica-ai/multica/pull/2966) is an outline, not a chart).
   - Fit: a second renderer for a view that does not exist upstream yet. Offer it
     only after the outline lands, and only if asked.
+
+### Daemon drain mode (landed)
+
+The daemon can be put into drain: it stops claiming new tasks, lets running
+tasks finish, reports `idle` on `/health` (no active tasks, no claim in flight,
+no update installing), and resumes on request. Held in memory only, so any
+restart comes back claiming; `triggerRestart` refuses while draining
+(self-reload, auto-update and server-triggered update all go through it) and
+says so in `reload_pending_reason`. Auto-update and server-triggered update
+also skip the upgrade itself when draining starts first. The daemon core
+(`POST /drain`, `POST /resume`, `/health` fields `draining`, `drain_started_at`,
+`idle`) and the CLI commands (`daemon drain [--wait] [--timeout]`, `daemon
+resume`, `daemon stop|restart --drain [--timeout]`, extra `daemon status` lines)
+are in; the web badge is the next patch. Needs a CLI built with
+`ag-patches/build-cli.sh`: see README "Daemon/CLI patch". Overlaps upstream
+multica-ai/multica#5631 and #6677: drop this patch if either merges.
+
+- Test prefix: `TestAGPatch` / `AG patch:` (run by `ag-patches/test.sh` and the
+  `guard` job; the script asserts a minimum number of passing tests)
+- Files:
+  - `server/internal/daemon/ag_drain.go` (new)
+  - `server/internal/daemon/ag_drain_test.go` (new)
+  - `server/internal/daemon/daemon.go` (one-line hooks: `agDrain` field,
+    `tryEnterClaim`, `triggerRestart`, `tryBeginServerUpdate`,
+    `handleUpdate`, `pollLoop`; upstream's `triggerRestart` doc comment is kept)
+  - `server/internal/daemon/auto_update.go` (`tryAutoUpdate` skips while
+    draining)
+  - `server/internal/daemon/health.go` (routes and `/health` fields)
+  - `server/cmd/multica/ag_daemon_drain.go` (new: `daemon drain`, `daemon
+    resume`, `--drain`/`--timeout` handling, status rows)
+  - `server/cmd/multica/ag_daemon_drain_test.go`,
+    `server/cmd/multica/ag_daemon_drain_status_test.go` (new: command, status
+    and human-only guard tests)
+  - `server/cmd/multica/ag_build_cli_test.go` (new: `build-cli.sh` tests)
+  - `server/cmd/multica/cmd_daemon.go` (one-line hooks: `daemon stop` and
+    `daemon restart` call `agDrainBeforeStop` / `agDrainBeforeRestart`,
+    `printDaemonStatusReport` adds `agDaemonStatusRows`)
+  - `ag-patches/build-cli.sh` (new, tooling: builds the CLI binary) and
+    `ag-patches/lib.sh` (new, tooling: preamble and Go runner shared with
+    `build-web.sh` and `test.sh`)
+
+- Upstream:
+  - Status: `fork-only`. Upstream has open PRs for the same feature and we won't
+    race them. Drop this patch if [#5631](https://github.com/multica-ai/multica/pull/5631) or
+    [#6677](https://github.com/multica-ai/multica/pull/6677) merges; re-evaluate what is left (the in-memory-only
+    design, the `daemon stop|restart --drain` wrapper) once they land.
+  - Overlap: [#5631](https://github.com/multica-ai/multica/pull/5631) (CLI `daemon restart --drain`, open since
+    2026-07-19, changes requested then addressed, awaiting re-review; closes
+    issue [#5630](https://github.com/multica-ai/multica/issues/5630)); [#6677](https://github.com/multica-ai/multica/pull/6677) (daemon-core drain
+    with a `/drain` endpoint, three-state `/health`, persistence in
+    `drain.json`, open since 2026-08-10). Ours holds drain in memory only and
+    uses `/drain` and `/resume`, so the APIs differ.
+  - Fit: operator tooling for self-hosters (maintenance without failing
+    in-flight agent work), which upstream's own reviewer judged right for the
+    product on #5631. The obstacle is the open PRs, not the vision.
 
 ## Tooling (not a patch)
 
