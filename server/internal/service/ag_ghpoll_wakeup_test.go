@@ -49,15 +49,25 @@ func TestAGPatchTokenPolledPRFiresChecksAndMergedWakeups(t *testing.T) {
 
 	var mu sync.Mutex
 	var auths, paths []string
-	checks := `"state":"PENDING"`
+	// The one check run: running until the test flips it to a success.
+	ciRun := `"status":"in_progress","conclusion":null`
 	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
 		auths = append(auths, r.Header.Get("Authorization"))
 		paths = append(paths, r.URL.Path)
-		_, _ = w.Write([]byte(`{"data":{"repository":{"pullRequest":{"headRefOid":"polledhead","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN",` +
-			`"commits":{"nodes":[{"commit":{"statusCheckRollup":{` + checks + `,"contexts":{"pageInfo":{"hasNextPage":false,"endCursor":""},` +
-			`"nodes":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://example.test/ci"}]}}}}]}}}}}`))
+		switch {
+		case r.URL.Path == "/graphql":
+			_, _ = w.Write([]byte(`{"data":{"repository":{"pullRequest":{"headRefOid":"polledhead","baseRefName":"main","reviewDecision":null,"latestReviews":{"nodes":[]},` +
+				`"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false,"endCursor":""},` +
+				`"nodes":[{"__typename":"CheckRun","name":"ci","isRequired":true}]}}}}]}}}}}`))
+		case strings.HasSuffix(r.URL.Path, "/check-runs"):
+			_, _ = w.Write([]byte(`{"total_count":1,"check_runs":[{"id":1,"head_sha":"polledhead","name":"ci",` + ciRun + `,"details_url":"https://example.test/ci"}]}`))
+		case strings.HasSuffix(r.URL.Path, "/status"):
+			_, _ = w.Write([]byte(`{"total_count":0,"statuses":[]}`))
+		default:
+			_, _ = w.Write([]byte(`{"head":{"sha":"polledhead"},"mergeable":true,"mergeable_state":"clean"}`))
+		}
 	}))
 	t.Cleanup(github.Close)
 	target, _ := url.Parse(github.URL)
@@ -123,7 +133,7 @@ func TestAGPatchTokenPolledPRFiresChecksAndMergedWakeups(t *testing.T) {
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		if len(auths) == 0 || paths[0] != "/graphql" {
+		if len(auths) == 0 || !strings.HasPrefix(paths[0], "/repos/acme/polled-wakeups/pulls/") {
 			t.Fatalf("GitHub calls = %v", paths)
 		}
 		for i, a := range auths {
@@ -139,7 +149,7 @@ func TestAGPatchTokenPolledPRFiresChecksAndMergedWakeups(t *testing.T) {
 			t.Fatalf("pending checks started %d runs", n)
 		}
 		mu.Lock()
-		checks = `"state":"SUCCESS"`
+		ciRun = `"status":"completed","conclusion":"success"`
 		mu.Unlock()
 		manager.Enqueue(0, "acme", "polled-wakeups", number)
 		select {

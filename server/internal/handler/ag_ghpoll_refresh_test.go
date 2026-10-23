@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,16 +17,18 @@ import (
 	"github.com/multica-ai/multica/server/internal/integrations/ghsnapshot"
 )
 
-// snapshotCall is one GraphQL snapshot request the refresh worker made.
+// snapshotCall is one GitHub API request the refresh worker made. Extras is
+// true for the AG extras query, which a snapshot makes exactly once.
 type snapshotCall struct {
 	Repo   string
 	Number int32
 	Auth   string
+	Extras bool
 }
 
 // recordingGitHubAPI stands in for api.github.com on http.DefaultTransport,
-// which the snapshot client uses, and records every snapshot query. Requests to
-// other hosts (the httptest GitHub the poller lists PRs from) pass through.
+// which the snapshot client uses, and records every snapshot request. Requests
+// to other hosts (the httptest GitHub the poller lists PRs from) pass through.
 type recordingGitHubAPI struct {
 	next http.RoundTripper
 	mu   sync.Mutex
@@ -35,19 +39,37 @@ func (r *recordingGitHubAPI) RoundTrip(req *http.Request) (*http.Response, error
 	if req.URL.Host != "api.github.com" {
 		return r.next.RoundTrip(req)
 	}
-	body, _ := io.ReadAll(req.Body)
-	var q struct {
-		Variables struct {
-			Repo   string `json:"repo"`
-			Number int32  `json:"number"`
-		} `json:"variables"`
-	}
-	_ = json.Unmarshal(body, &q)
-	r.mu.Lock()
-	r.got = append(r.got, snapshotCall{q.Variables.Repo, q.Variables.Number, req.Header.Get("Authorization")})
-	r.mu.Unlock()
+	call := snapshotCall{Auth: req.Header.Get("Authorization")}
 	// A decided snapshot (mergeable, no checks) so the worker neither chases nor retries.
-	const reply = `{"data":{"repository":{"pullRequest":{"headRefOid":"abc123","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","commits":{"nodes":[]}}}}}`
+	reply := `{"head":{"sha":"abc123"},"mergeable":true,"mergeable_state":"clean"}`
+	switch parts := strings.Split(strings.Trim(req.URL.Path, "/"), "/"); {
+	case req.URL.Path == "/graphql":
+		body, _ := io.ReadAll(req.Body)
+		var q struct {
+			Variables struct {
+				Repo   string `json:"repo"`
+				Number int32  `json:"number"`
+			} `json:"variables"`
+		}
+		_ = json.Unmarshal(body, &q)
+		call.Repo, call.Number, call.Extras = q.Variables.Repo, q.Variables.Number, true
+		reply = `{"data":{"repository":{"pullRequest":{"headRefOid":"abc123","baseRefName":"main","reviewDecision":null,"latestReviews":{"nodes":[]},"commits":{"nodes":[]}}}}}`
+	case len(parts) >= 4 && parts[0] == "repos":
+		call.Repo = parts[2]
+		if parts[3] == "pulls" && len(parts) == 5 {
+			n, _ := strconv.Atoi(parts[4])
+			call.Number = int32(n)
+		}
+		switch {
+		case strings.HasSuffix(req.URL.Path, "/check-runs"):
+			reply = `{"total_count":0,"check_runs":[]}`
+		case strings.HasSuffix(req.URL.Path, "/status"):
+			reply = `{"total_count":0,"statuses":[]}`
+		}
+	}
+	r.mu.Lock()
+	r.got = append(r.got, call)
+	r.mu.Unlock()
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
@@ -118,6 +140,9 @@ func TestAGPatchPollerEnqueuesSnapshotRefreshes(t *testing.T) {
 			}
 			if c.Auth != "Bearer "+token {
 				t.Fatalf("snapshot call for PR %d authenticated as %q, want the poll token", c.Number, c.Auth)
+			}
+			if !c.Extras {
+				continue
 			}
 			switch c.Number {
 			case 31:
