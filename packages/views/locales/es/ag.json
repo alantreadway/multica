@@ -57,6 +57,14 @@
       "idle": "Inactivo",
       "draining_hint": "No acepta tareas nuevas. Las tareas en curso terminarán.",
       "idle_hint": "Vaciado sin tareas en curso. Se puede reiniciar o actualizar."
+    },
+    "usage": {
+      "ag_period_days": "{{days}} d",
+      "ag_period_yesterday": "Ayer",
+      "ag_cost_by_agent_single_day": "El coste por agente de un solo día está en la página de Analítica.",
+      "kpi_cost_label": "Coste · {{period}}",
+      "kpi_cache_label": "Ahorro de caché · {{period}}",
+      "kpi_tokens_label": "Tokens · {{period}}"
     }
   },
   "layout": {
@@ -83,6 +91,23 @@
       "actions": {
         "reorder": "Reordenar {{name}}"
       }
+    }
+  },
+  "usage": {
+    "ag_period": {
+      "days": "{{days}} d",
+      "yesterday": "Ayer"
+    },
+    "kpi": {
+      "cost_label": "Coste · {{period}}",
+      "tokens_label": "Tokens · {{period}}",
+      "run_time_label": "Tiempo de ejecución · {{period}}",
+      "tasks_label": "Ejecuciones · {{period}}"
+    },
+    "errors": {
+      "kpi_failed_label": "Ejecuciones fallidas · {{period}}",
+      "kpi_rate_label": "Tasa de fallos · {{period}}",
+      "kpi_agents_label": "Agentes afectados · {{period}}"
     }
   }
 }

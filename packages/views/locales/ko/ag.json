@@ -56,6 +56,14 @@
       "idle": "유휴",
       "draining_hint": "새 작업을 받지 않습니다. 실행 중인 작업은 끝까지 진행됩니다.",
       "idle_hint": "드레인되어 실행 중인 작업이 없습니다. 재시작하거나 업그레이드해도 안전합니다."
+    },
+    "usage": {
+      "ag_period_days": "{{days}}일",
+      "ag_period_yesterday": "어제",
+      "ag_cost_by_agent_single_day": "하루 단위의 에이전트별 비용은 '분석' 페이지에서 확인할 수 있습니다.",
+      "kpi_cost_label": "비용 · {{period}}",
+      "kpi_cache_label": "캐시 절감 · {{period}}",
+      "kpi_tokens_label": "토큰 · {{period}}"
     }
   },
   "layout": {
@@ -81,6 +89,23 @@
       "actions": {
         "reorder": "{{name}} 순서 변경"
       }
+    }
+  },
+  "usage": {
+    "ag_period": {
+      "days": "{{days}}일",
+      "yesterday": "어제"
+    },
+    "kpi": {
+      "cost_label": "비용 · {{period}}",
+      "tokens_label": "토큰 · {{period}}",
+      "run_time_label": "실행 시간 · {{period}}",
+      "tasks_label": "실행 · {{period}}"
+    },
+    "errors": {
+      "kpi_failed_label": "실패한 실행 · {{period}}",
+      "kpi_rate_label": "실패율 · {{period}}",
+      "kpi_agents_label": "영향받은 에이전트 · {{period}}"
     }
   }
 }

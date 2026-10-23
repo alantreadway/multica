@@ -57,6 +57,14 @@
       "idle": "Idle",
       "draining_hint": "Not claiming new tasks. Running tasks will finish.",
       "idle_hint": "Drained with no tasks running. Safe to restart or upgrade."
+    },
+    "usage": {
+      "ag_period_days": "{{days}}D",
+      "ag_period_yesterday": "Yesterday",
+      "ag_cost_by_agent_single_day": "Per-agent cost for a single day is on the Analytics page.",
+      "kpi_cost_label": "Cost · {{period}}",
+      "kpi_cache_label": "Cache savings · {{period}}",
+      "kpi_tokens_label": "Tokens · {{period}}"
     }
   },
   "layout": {
@@ -83,6 +91,23 @@
       "actions": {
         "reorder": "Reorder {{name}}"
       }
+    }
+  },
+  "usage": {
+    "ag_period": {
+      "days": "{{days}}D",
+      "yesterday": "Yesterday"
+    },
+    "kpi": {
+      "cost_label": "Cost · {{period}}",
+      "tokens_label": "Tokens · {{period}}",
+      "run_time_label": "Run time · {{period}}",
+      "tasks_label": "Runs · {{period}}"
+    },
+    "errors": {
+      "kpi_failed_label": "Failed runs · {{period}}",
+      "kpi_rate_label": "Failure rate · {{period}}",
+      "kpi_agents_label": "Agents affected · {{period}}"
     }
   }
 }

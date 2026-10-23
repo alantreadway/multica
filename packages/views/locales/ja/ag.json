@@ -56,6 +56,14 @@
       "idle": "アイドル",
       "draining_hint": "新しいタスクを受け付けません。実行中のタスクは完了まで続行されます。",
       "idle_hint": "ドレイン済みで、実行中のタスクはありません。再起動やアップグレードを安全に行えます。"
+    },
+    "usage": {
+      "ag_period_days": "{{days}} 日",
+      "ag_period_yesterday": "昨日",
+      "ag_cost_by_agent_single_day": "1 日単位のエージェント別コストは「分析」ページで確認できます。",
+      "kpi_cost_label": "コスト · {{period}}",
+      "kpi_cache_label": "キャッシュによる節約 · {{period}}",
+      "kpi_tokens_label": "トークン · {{period}}"
     }
   },
   "layout": {
@@ -81,6 +89,23 @@
       "actions": {
         "reorder": "{{name}} を並べ替え"
       }
+    }
+  },
+  "usage": {
+    "ag_period": {
+      "days": "{{days}}日",
+      "yesterday": "昨日"
+    },
+    "kpi": {
+      "cost_label": "コスト · {{period}}",
+      "tokens_label": "トークン · {{period}}",
+      "run_time_label": "実行時間 · {{period}}",
+      "tasks_label": "実行 · {{period}}"
+    },
+    "errors": {
+      "kpi_failed_label": "失敗した実行 · {{period}}",
+      "kpi_rate_label": "失敗率 · {{period}}",
+      "kpi_agents_label": "影響を受けたエージェント · {{period}}"
     }
   }
 }

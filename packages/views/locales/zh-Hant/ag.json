@@ -56,6 +56,14 @@
       "idle": "空閒",
       "draining_hint": "不再領取新任務，執行中的任務會執行完畢。",
       "idle_hint": "已排空且沒有執行中的任務，可安全重啟或升級。"
+    },
+    "usage": {
+      "ag_period_days": "{{days}} 天",
+      "ag_period_yesterday": "昨天",
+      "ag_cost_by_agent_single_day": "單日的按智慧體費用請在“統計”頁面檢視。",
+      "kpi_cost_label": "費用 · {{period}}",
+      "kpi_cache_label": "快取節省 · {{period}}",
+      "kpi_tokens_label": "Token · {{period}}"
     }
   },
   "layout": {
@@ -81,6 +89,23 @@
       "actions": {
         "reorder": "調整 {{name}} 的順序"
       }
+    }
+  },
+  "usage": {
+    "ag_period": {
+      "days": "{{days}}天",
+      "yesterday": "昨天"
+    },
+    "kpi": {
+      "cost_label": "費用 · {{period}}",
+      "tokens_label": "Token · {{period}}",
+      "run_time_label": "耗時 · {{period}}",
+      "tasks_label": "執行數 · {{period}}"
+    },
+    "errors": {
+      "kpi_failed_label": "失敗執行 · {{period}}",
+      "kpi_rate_label": "失敗率 · {{period}}",
+      "kpi_agents_label": "受影響智慧體 · {{period}}"
     }
   }
 }
