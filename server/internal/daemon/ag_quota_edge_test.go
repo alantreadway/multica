@@ -20,7 +20,7 @@ func TestAGPatchQuotaHoldNeverShortens(t *testing.T) {
 		return newAGQuotaDaemon(t, s.URL, filepath.Join(t.TempDir(), "ag_quota.json"), clock), clock
 	}
 	send := func(d *Daemon, raw string) {
-		d.agQuotaObserver(Task{ID: "t"}, "claude", nil)(json.RawMessage(raw))
+		agQuotaObs(d, Task{ID: "t"}, "claude", nil)(json.RawMessage(raw))
 	}
 	held := func(d *Daemon) *agQuotaHold {
 		_, h := d.agQuotaDefaultHold()
@@ -113,7 +113,7 @@ func TestAGPatchQuotaConcurrentUse(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				obs := d.agQuotaObserver(Task{ID: "t"}, "claude", nil)
+				obs := agQuotaObs(d, Task{ID: "t"}, "claude", nil)
 				for j := 0; j < 25; j++ {
 					obs(json.RawMessage(`{"status":"rejected","rateLimitType":"five_hour","resetsAt":1792272600}`))
 					obs(json.RawMessage(`{"status":"rej`))
