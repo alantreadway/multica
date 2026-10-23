@@ -75,6 +75,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 20 | Tree mode org-chart layout | `fork-only` | none beyond the tree view | Low | Low | Only after the outline lands, and only if asked. |
 | 21 | Deferred retry until quota reset (backend) | `fork-only` | [#7887](https://github.com/multica-ai/multica/issues/7887) (closed not_planned), [#8949](https://github.com/multica-ai/multica/pull/8949) (rejected), [#9159](https://github.com/multica-ai/multica/issues/9159) (open, 5 👍), [#8964](https://github.com/multica-ai/multica/pull/8964) (open), [#9310](https://github.com/multica-ai/multica/issues/9310) / [#9314](https://github.com/multica-ai/multica/pull/9314) (open, quota failure classification) | Declined by the maintainer | Very low | Watch #8964. |
 | 22 | Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (changes requested, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) | None: serves our quota-failover setup | Very low | None. |
+| 23 | Backup Claude account failover, urgent only (daemon) | `fork-only` | [#5282](https://github.com/multica-ai/multica/pull/5282), [#8579](https://github.com/multica-ai/multica/pull/8579) (fallback runtime, open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC) | Low: one subscriber's two-account setup | Very low | None. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -1468,6 +1469,142 @@ unpatched server ignores `ag_quota` and sends no `ag_settings`.
   - Fit: showing plan quota on the Runtimes page is a plausible product feature
     (the three above); a per-runtime backup-account setting stored in metadata is
     operator tooling for subscription users.
+
+### Backup Claude account failover, urgent only (daemon)
+
+When the daemon's own Claude account is on hold (the quota tracker), urgent issues
+can keep running on a second subscription. Off by default: it needs a backup login,
+the setting turned on from the runtime page, and a patched server (the claim filter).
+
+- Backup dir: `~/.claude-backup`, or `MULTICA_AG_CLAUDE_BACKUP_DIR`. Claude Code
+  picks the account from `CLAUDE_CONFIG_DIR`, so the backup is a second config dir
+  with its own login. `ag-patches/claude-backup-setup.sh` creates it, copies
+  `.claude.json` once (it holds `oauthAccount`, so it is per account and never
+  symlinked) and symlinks the shared parts of `~/.claude` into it: `settings.json`,
+  `CLAUDE.md`, `keybindings.json`, `statusline.*`, `plugins/`, `skills/`, `agents/`,
+  `commands/`, `hooks/`, `projects/`, `file-history/`, `todos/`, `shell-snapshots/`,
+  `session-env/`, `plans/` (only those that exist). A shared `projects/` is what
+  lets a session resume across accounts. It is idempotent, never overwrites a real
+  file or a foreign symlink (it reports a conflict and exits 1 after doing the
+  rest), and copies no credentials: they live in a separate macOS Keychain item
+  keyed by a hash of the config dir, so Alan runs
+  `CLAUDE_CONFIG_DIR=$HOME/.claude-backup claude auth login` once.
+- Detection (no quota spent): `CLAUDE_CONFIG_DIR=<dir> claude auth status --json`
+  with the claude binary the daemon already resolves, 10s timeout, at start and
+  every 30 minutes. The loop does nothing while the dir does not exist.
+  `detected` = the dir exists. `valid` = `loggedIn` and `authMethod == "claude.ai"`
+  and a subscription type and a different account from the primary's (checked the
+  same way). Accounts are told apart by `orgId` from the same output: two logins can
+  share an email and differ only in org and plan (a personal Max and a company
+  Enterprise login do). Same dir is the same account; both `orgId`s present and equal
+  is the same account, and different is a different one whatever the emails say. Only
+  when either `orgId` is missing are the emails compared, case-insensitively. `reason`
+  when not valid: `not_detected` (no dir), `not_logged_in` (including a backup with
+  neither `orgId` nor email), `same_account` (same dir, `orgId` or email) or
+  `check_failed` (the CLI failed, timed out or printed something unreadable, the
+  primary could not be read or has neither `orgId` nor email, or the two cannot be
+  compared: one side has only an `orgId` and the other only an email). A result
+  older than an hour is treated as `check_failed`.
+- Account state is keyed on the config dir, not the email: `agQuotaAccountKey`
+  (holds, windows) and the pacing state use the effective `CLAUDE_CONFIG_DIR`, so two
+  logins with one email keep separate holds and pacing (`TestAGPatchBackupAccountState`).
+- Enterprise logins: checked 2026-10-19 with a one-line `claude -p` on an Enterprise
+  login (`subscriptionType=enterprise`). The `rate_limit_event` carries
+  `rateLimitType: "overage"` (with `overageStatus`, `overageResetsAt`,
+  `isUsingOverage`, `overageInUse`) and no `five_hour` or `seven_day` window, so
+  `backup_windows` stays empty and pacing has no state: the cap is
+  `backup_max_concurrent`. A `rejected` overage event still holds that account. No
+  code change was needed; the tests pin it.
+- Failing over needs all of: the primary on hold; the runtime's setting enabled and
+  received within 10 minutes; the backup valid; and the server's heartbeat ack
+  carrying `ag_capabilities: ["claim_filter"]` (also within 10 minutes).
+- Claim: while failing over, a Claude runtime with the backup enabled stays in the
+  batch claim, with `ag_min_issue_priority: {<runtime id>: "urgent"}` and
+  `max_tasks = min(pacing room, backup_max_concurrent - active on backup)`. Active
+  counts runs on the backup plus tasks claimed and not yet running. The pacing room
+  is the pacing maths of the previous patch run on the backup's own windows. Tasks without an issue (chat,
+  autopilot) are not claimed on the backup. A runtime without the setting, the
+  backup being held itself, or no room leaves Claude out of the claim, as any hold
+  does. The per-runtime legacy claim (`client.go`, used on a 404 from the batch
+  route) cannot filter, so it is never used for the filtered runtimes, and a daemon
+  already on the legacy route does not claim Claude while on hold.
+- Env swap: an urgent task starting while the primary is held gets
+  `CLAUDE_CONFIG_DIR` = the backup, only when its effective dir was the primary (an
+  agent's own `custom_env` dir is left alone). A task that is not urgent is not
+  moved, even if it was claimed just before the hold started; it fails as quota and
+  comes back at the reset through the deferred retry. The same goes for an urgent
+  task that finds the backup held or already at `backup_max_concurrent`: each task
+  takes a backup slot at the swap, held until its run is counted, so tasks claimed
+  just before the hold cannot all move over. When the hold ends at the
+  primary's reset, new tasks go back to the primary.
+- In-place resume: a run that saw `rejected` on the primary resumes on the backup
+  with `--resume <this run's session>` and the prompt "You hit a usage limit and
+  have been moved to another account; continue where you left off", only for an
+  urgent issue, with the backup valid, enabled and not held, and a free slot under
+  `backup_max_concurrent` (a slot reserved the same way, counted once: it is released when the resumed run
+  is counted). Usage
+  from both runs is summed. If the backup rejects the resume the run fails as quota
+  with its original result: no fresh-session retry, because tools already ran.
+- Report: `ag_quota.account` is `backup` while failing over, with the backup's
+  `max` and `effective_cap` (0 when the backup is held too); `windows` and `hold`
+  stay the primary's, which is why it failed over. `backup.{detected,valid,reason}`
+  and `backup_windows` (the backup's five_hour and seven_day) are always filled.
+- Change to the report and settings patch: a received ack with no `ag_settings` now
+  disables backup at once; the 10 minute TTL covers only acks that never arrive.
+- Checked 2026-10-20 on this machine, with the backup login in place: a one-shot
+  launchd job in the `gui/<uid>` domain, with `CLAUDE_CONFIG_DIR=~/.claude-backup`
+  and a minimal `PATH`, ran `claude auth status --json` and got `loggedIn: true`,
+  so the backup's Keychain item is readable from a launchd-started process. A
+  one-line `claude -p` session started under one config dir resumed under the
+  other with `--resume`, in both directions (backup to primary and primary to
+  backup), because `projects/` is shared.
+
+Fail policy (everything fails closed for failover): backup check fails then
+`valid:false, reason: check_failed`, retried next interval; no `ag_settings` on a
+received ack, or none for 10 minutes, disables backup; no `claim_filter` capability
+means no Claude claims on the backup; the legacy claim is never used for Claude on
+the backup; a rejected resume is a normal quota failure.
+
+- Test prefix: `TestAGPatchBackup*` (`Detection`, `AckGates`, `EnvSwap`, `Claim`,
+  `Report`, `AccountState`, `Pacing`, `ResumeInPlace`, `ResumeSessionAndPrompt`, `ConcurrentResumes`,
+  `SwapLimit`, `RunTaskSwap`, `NoIssueTaskStaysOnPrimary`, `SetupScript`,
+  `SetupLinksEverySpecItem`, `IdentityEdges`), plus the null-ack cases in
+  `TestAGPatchBackupSetting*`. They use a test-created `claude` and a fake claim
+  server; no installed CLI is used.
+- Files:
+  - `server/internal/daemon/ag_quota_backup.go`, `ag_quota_backup_test.go`,
+    `ag_quota_backup_run_test.go`, `ag_quota_backup_setup_test.go`,
+    `ag_quota_backup_spec_test.go`, `ag_quota_backup_limit_test.go`,
+    `ag_quota_backup_org_test.go` (new), `ag_quota_backup_identity_test.go` (new)
+  - `server/internal/daemon/ag_quota_report.go` (null ack disables; report fill),
+    `ag_quota.go` (rejection note and slot release in the observer, one hook in
+    `agQuotaClaim`), `ag_handoff.go` (slot release in `agUntrackTask`)
+  - hooks: `daemon.go` (the `agBackup` field, `agApplyAck` in
+    `handleHeartbeatActions`, `agApplyClaudeAccount` after the custom env,
+    `agQuotaResumeOnBackup` after the fresh-session retry, `agBackupLoop` at start),
+    `client.go` and `wsrpc.go` (`agClaimBody` on the batch claim body,
+    `agLegacyClaimIDs` in `claimTasksLegacy`), `types.go` (`AGIssuePriority` on
+    `Task`)
+  - `server/pkg/protocol/messages.go` (`AGCapabilities` on the ack, the same line as
+    the claim filter patch)
+  - `ag-patches/claude-backup-setup.sh` (new), `ag-patches/test.sh`
+    (`AG_GO_MIN_TESTS` 196)
+
+- Upstream:
+  - Status: `fork-only`. It encodes one subscriber's two-account setup.
+  - Overlap: fallback-runtime work [#5282](https://github.com/multica-ai/multica/pull/5282)
+    and [#8579](https://github.com/multica-ai/multica/pull/8579) (open) and the RFC
+    [#6650](https://github.com/multica-ai/multica/issues/6650); they fail over to a
+    different runtime, ours to a different account on the same CLI. Inherits the
+    resume risk from [#5704](https://github.com/multica-ai/multica/issues/5704) and
+    [#5618](https://github.com/multica-ai/multica/issues/5618) (resume after an
+    account switch, fixed by [#5715](https://github.com/multica-ai/multica/pull/5715)).
+    Last checked 2026-10-18.
+  - Fit: provider fallback is on upstream's radar; switching accounts under a
+    personal subscription is operator tooling and unlikely to be accepted.
+  - Identity: comparing accounts by `orgId` serves our same-email, two-org setup
+    only; the overlapping PRs above do not compare accounts at all. Last checked
+    2026-10-19.
 
 ## Tooling (not a patch)
 

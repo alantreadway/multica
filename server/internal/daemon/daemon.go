@@ -688,6 +688,7 @@ type Daemon struct {
 	agPace  agPaceState  // AG patch: Claude pacing (see ag_quota_pace.go)
 
 	agSettings agSettingsState // AG patch: runtime backup setting (see ag_quota_report.go)
+	agBackup   agBackupState   // AG patch: backup Claude account (see ag_quota_backup.go)
 
 	agSlotDir string                      // AG patch: slot dir override for tests (see ag_slotlock.go)
 	agSlots   atomic.Pointer[agTaskSlots] // AG patch: set by pollLoop (see ag_slotlock.go)
@@ -2159,6 +2160,7 @@ func (d *Daemon) run(ctx context.Context, healthLn net.Listener) error {
 
 	// Start workspace sync loop to discover newly created workspaces.
 	go d.agOverlapLoop(ctx) // AG patch: handoff
+	go d.agBackupLoop(ctx)  // AG patch: backup account
 	go d.workspaceSyncLoop(ctx)
 	go d.terminalReportReplayLoop(ctx)
 
@@ -4537,7 +4539,7 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 	if resp == nil {
 		return
 	}
-	d.agApplySettings(runtimeID, resp.AGSettings) // AG patch: runtime backup setting
+	d.agApplyAck(runtimeID, resp.AGSettings, resp.AGCapabilities) // AG patch: runtime backup setting
 	if resp.PendingUpdate != nil || resp.PendingModelList != nil || resp.PendingLocalSkills != nil || resp.PendingLocalSkillImport != nil {
 		d.logger.Debug("heartbeat: pending actions",
 			"runtime_id", runtimeID,
@@ -8592,6 +8594,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		agentCustomEnv = task.Agent.CustomEnv
 	}
 	layerCustomEnvAndHermesHome(agentEnv, agentCustomEnv, env.HermesHome, d.logger)
+	d.agApplyClaudeAccount(provider, task, agentEnv) // AG patch: backup account
 	if provider == "reasonix" {
 		reasonixStateHome, err := prepareReasonixTaskStateHome(d.cfg.Profile, task.RuntimeID, task.AgentID)
 		if err != nil {
@@ -8906,6 +8909,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		// than being relabeled resumable by a benign-looking second error.
 		result, tools = reconcileFreshRetryResult(firstResult, firstUsage, firstTools, retryResult, retryTools, retryErr)
 	}
+	result, tools = d.agQuotaResumeOnBackup(ctx, backend, task, provider, agentEnv, execOpts, taskLog, env.CodexHome, &msgSeq, result, tools) // AG patch: backup account
 
 	// Worktree mode: if the agent finished with its work somewhere Finalize
 	// will refuse to record — squashed past its baseline, or committed off its
