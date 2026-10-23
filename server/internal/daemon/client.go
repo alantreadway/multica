@@ -841,6 +841,7 @@ func (c *Client) failTaskWithRetrySchedule(ctx context.Context, report terminalT
 	if !body.NoToolCallsStarted && body.FailureReason == taskfailure.ReasonAgentProviderNetwork.String() && taskfailure.IsTraePromptStreamDisconnect(body.Error) {
 		body.FailureReason = taskfailure.ReasonAgentProviderServerError.String()
 	}
+	agAddRetryNotBefore(&body, report.taskID) // AG patch: quota
 	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/tasks/%s/fail", report.taskID), body, nil, schedule)
 }
 

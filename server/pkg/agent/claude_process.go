@@ -304,8 +304,10 @@ func (p *claudeProcess) readStdout() {
 		var msg claudeSDKMessage
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			p.dispatch((*claudeTurn).noteInvalidEvent)
+			p.agDispatchRateLimit(nil, line) // AG patch: quota
 			continue
 		}
+		p.agDispatchRateLimit(&msg, line) // AG patch: quota
 		p.dispatch(func(turn *claudeTurn) { turn.handleMessage(msg) })
 	}
 	scanErr := scanner.Err()

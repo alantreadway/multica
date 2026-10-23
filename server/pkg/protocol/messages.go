@@ -252,6 +252,8 @@ type TaskFailRequest struct {
 	RetiredSessionID string `json:"retired_session_id,omitempty"`
 	// Older daemons and incomplete transcripts leave this proof unset.
 	NoToolCallsStarted bool `json:"no_tool_calls_started,omitempty"`
+	// AG patch: quota. RFC 3339 time the provider's usage window reopens.
+	AGRetryNotBefore string `json:"ag_retry_not_before,omitempty"`
 }
 
 // TaskCompletedPayload is sent from daemon to server when a task finishes.
