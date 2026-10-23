@@ -54,9 +54,14 @@ pnpm --filter @multica/views exec vitest run \
   projects/components/project-detail.ag.test.tsx \
   settings/components/issue-statuses-tab.test.tsx \
   settings/components/issue-statuses-tab.ag.test.tsx \
+  runtimes/components/drain-badge.test.tsx \
+  runtimes/components/runtime-list-drain.test.tsx \
+  runtimes/components/runtime-detail-drain.test.tsx \
+  locales/ag-drain.test.ts \
   locales/ag-tree.test.ts
 
 pnpm --filter @multica/core exec vitest run \
+  runtimes/ag-drain.test.ts \
   issues/stores/tree-view-store.test.ts \
   issues/stores/tree-layout-store.test.ts \
   issues/stores/tree-layout-store.persist.test.ts \
@@ -73,7 +78,7 @@ AG_GO_MIN_TESTS=1
 
 go_out="$(mktemp)"
 trap 'rm -f "$go_out"' EXIT
-if ! ag_go test ./internal/daemon ./cmd/multica -run '^TestAGPatch' -count=1 -v >"$go_out" 2>&1; then
+if ! ag_go test ./internal/daemon ./cmd/multica ./internal/daemonws ./internal/agdrain ./pkg/protocol -run '^TestAGPatch' -count=1 -v >"$go_out" 2>&1; then
   cat "$go_out"
   echo "ag-patches/test.sh: Go patch tests failed" >&2
   exit 1

@@ -1030,6 +1030,8 @@ func (h *Handler) DaemonDeregister(w http.ResponseWriter, r *http.Request) {
 type DaemonHeartbeatRequest struct {
 	RuntimeID           string `json:"runtime_id"`
 	SupportsBatchImport bool   `json:"supports_batch_import,omitempty"`
+	// AGDrain: AG patch drain report; nil from a stock daemon.
+	AGDrain *protocol.DaemonDrainReport `json:"ag_drain,omitempty"`
 }
 
 // heartbeatHasPendingTimeout bounds the cheap HasPending probe on the
@@ -1171,6 +1173,8 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	updateMs = time.Since(updateStart).Milliseconds()
 
+	h.agApplyHTTPDrainReport(r.Context(), rt, req.AGDrain) // AG patch: drain badge
+
 	ack, m, err := h.processHeartbeat(r.Context(), runtimeID, req.SupportsBatchImport)
 	probeModelMs = m.ProbeModelMs
 	popModelMs = m.PopModelMs
@@ -1235,6 +1239,7 @@ func (h *Handler) HandleDaemonWSHeartbeat(ctx context.Context, identity daemonws
 		}
 		return nil, err
 	}
+	h.agApplyWSDrainReport(ctx, runtimeID, lease) // AG patch: drain badge
 	ack, _, err := h.processHeartbeat(ctx, runtimeID, supportsBatchImport)
 	return ack, err
 }

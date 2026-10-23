@@ -59,6 +59,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 7 | Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) | Medium | Medium (drag rules), low (jump chip) | Ride along with the tree lanes; offer the drag rules first. |
 | 9 | Tree view mode (outline) | `candidate` | [#5685](https://github.com/multica-ai/multica/issues/5685) (open request, 3 👍), [#2966](https://github.com/multica-ai/multica/pull/2966) (open, overlaps) | Medium | Medium-low | After the tree lanes; read #2966 first. |
 | 15 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631) (changes requested, last touched 2026-07-28), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High: upstream's reviewer agreed on #5631 | Low for ours | Help #5631 land, then drop ours. |
+| 16 | Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679) (changes requested), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High | Low for ours | Drop once upstream shows the drain state. |
 | 20 | Tree mode org-chart layout | `fork-only` | none beyond the tree view | Low | Low | Only after the outline lands, and only if asked. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
@@ -333,6 +334,70 @@ multica-ai/multica#5631 and #6677: drop this patch if either merges.
   - Fit: operator tooling for self-hosters (maintenance without failing
     in-flight agent work), which upstream's own reviewer judged right for the
     product on #5631. The obstacle is the open PRs, not the vision.
+
+### Drain badge (backend + web)
+
+Shows drain state on the runtimes page: "Draining · N running" while a patched
+daemon is draining, "Idle" once it is drained and empty (safe to restart or
+upgrade). A patched daemon attaches an `ag_drain` report
+(`draining`, `idle`, `active_tasks`) to every heartbeat, over HTTP and
+WebSocket. The backend merges it into `agent_runtime.metadata` under `ag_drain`
+with a JSONB `||`, the way `offline_reason` is merged: no column and no
+migration. It writes only when the report differs from what is stored (two
+guarded `UPDATE`s, rows-affected tells whether anything changed), so a steady
+heartbeat costs no query; the WebSocket path remembers the stored state on the
+connection's runtime lease, and re-runs the guarded no-op `UPDATE` on a
+connection's first beat and every 60s, draining or not (the HTTP pending-work
+hint heartbeat writes the key behind the lease's memo, so a resume would
+otherwise leave a stale "Draining"): one no-op query per WS runtime per minute.
+A heartbeat without the field (stock or Homebrew daemon) leaves metadata alone, and registration's wholesale metadata overwrite
+clears a stale key. A change publishes the existing `daemon:register` event
+(`action: "drain"`) so open runtimes pages refetch. The web side parses the key
+through a zod schema with `parseWithFallback`; an offline runtime shows no badge.
+Needs the backend image from `ag-patches/build-backend.sh`, and the self-host on
+v0.6.2. A server-triggered update refused because the daemon is draining shows as
+a failed update result, not as drain state: the badge reports drain only.
+Depends on the daemon drain core patch above.
+
+- Test prefix: `TestAGPatch` / `AG patch:`. Hermetic ones
+  (`server/internal/agdrain`, `server/internal/daemon`, `server/internal/daemonws`, `server/pkg/protocol`, views, core) run in
+  `ag-patches/test.sh`; the DB-backed ones in `server/internal/handler` need
+  Postgres (see README)
+- Files:
+  - `server/internal/agdrain/agdrain.go` (new), `agdrain_test.go` (new)
+  - `server/pkg/protocol/ag_drain_test.go` (new)
+  - `server/internal/handler/ag_drain.go` (new), `ag_drain_test.go` (new)
+  - `server/internal/handler/daemon.go` (request field and one-line hooks into
+    `ag_drain.go`)
+  - `server/internal/daemonws/ag_drain.go` (new: lease memo accessors), `hub.go`
+    (one memo field, report into the handler context), `ag_drain_test.go` (new)
+  - `server/pkg/protocol/messages.go` (`DaemonDrainReport`, heartbeat field)
+  - `server/pkg/db/queries/ag_runtime_drain.sql` (new: `SetAgentRuntimeAGDrain`,
+    `ClearAgentRuntimeAGDrain`), `server/pkg/db/generated/ag_runtime_drain.sql.go`
+    (new, sqlc)
+  - `server/internal/daemon/ag_drain.go` (`agDrainReport`, `SendHeartbeatWithDrain`),
+    `ag_drain_report_test.go` (new), `client.go`, `daemon.go`, `wakeup.go`
+    (send the report)
+  - `packages/core/runtimes/ag-drain.ts` (new), `ag-drain.test.ts` (new),
+    `packages/core/package.json` (export)
+  - `packages/views/runtimes/components/drain-badge.tsx` (new),
+    `drain-badge.test.tsx` (new), `runtime-list.tsx`, `runtime-list-drain.test.tsx` (new),
+    `runtime-detail.tsx`, `runtime-detail-drain.test.tsx` (new)
+  - `packages/views/locales/*/ag.json` (`runtimes.drain`), `packages/views/locales/ag-drain.test.ts` (new)
+  - `ag-patches/build-backend.sh` (new), `ag-patches/lib.sh` (new, release gate shared with `build-web.sh`)
+
+- Upstream:
+  - Status: `fork-only`. Upstream is building the same feature in the open
+    [#6679](https://github.com/multica-ai/multica/pull/6679) (server: runtime draining status, heartbeat
+    keep-alive, `runtime_drained` attribution) and [#6678](https://github.com/multica-ai/multica/pull/6678)
+    (desktop daemon draining UI), on top of [#6677](https://github.com/multica-ai/multica/pull/6677). Their server
+    side adds a migration; ours merges an `ag_drain` key into
+    `agent_runtime.metadata` and needs none.
+  - Overlap: #6679, #6678, #6677 above, all open and last touched in August.
+    Drop this patch once the drain state is shown upstream.
+  - Fit: the metadata-only design is a stopgap that avoids a migration on the
+    self-host, not a shape upstream would want next to its own column-backed
+    status. Offer nothing; watch the three PRs.
 
 ## Tooling (not a patch)
 
