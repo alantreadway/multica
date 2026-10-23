@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"00000000-0000-4000-8000-000000000003"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1792272600,"rateLimitType":"five_hour","unifiedWindows":{"five_hour":{"utilization":1,"resetsAt":1792272600},"seven_day":{"utilization":0.4,"resetsAt":1792821600}}},"uuid":"00000000-0000-4000-8000-000000000004","session_id":"00000000-0000-4000-8000-000000000003"}
+{"type":"result","subtype":"success","is_error":true,"session_id":"00000000-0000-4000-8000-000000000003","result":"5-hour limit reached"}

@@ -709,6 +709,7 @@ type Daemon struct {
 	claimsInFlight int  // pollers that have decided to claim but haven't yet handed the task off to handleTask
 
 	agDrain agDrainState // AG patch: drain mode, guarded by claimMu (see ag_drain.go)
+	agQuota agQuotaState // AG patch: Claude quota tracker and hold (see ag_quota.go)
 
 	agSlotDir string                      // AG patch: slot dir override for tests (see ag_slotlock.go)
 	agSlots   atomic.Pointer[agTaskSlots] // AG patch: set by pollLoop (see ag_slotlock.go)
@@ -5648,7 +5649,7 @@ func (d *Daemon) runBatchPoller(pollerCtx, parentCtx context.Context, sem *agTas
 		// queued task until the TTL (#7452). Intersect with the live runtime set
 		// so a runtime deleted since it was woken (#7969) is never force-rechecked.
 		forceRecheck := d.filterLiveRuntimes(d.drainWokenRuntimes())
-		claimResult, err := d.claimTasksWSFirst(pollerCtx, d.cfg.DaemonID, runtimeIDs, len(slots), forceRecheck...)
+		claimResult, err := d.agQuotaClaim(pollerCtx, d.cfg.DaemonID, runtimeIDs, len(slots), forceRecheck...) // AG patch: quota
 		if err != nil {
 			d.exitClaim()
 			releaseSlots(slots)
@@ -9350,6 +9351,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		ClaudeSettingsPath:     env.ClaudeSettingsPath,
 		QwenpawWorkspace:       env.QwenpawWorkspace,
 	}
+	execOpts.AGOnRateLimit = d.agQuotaObserver(task, provider, agentEnv) // AG patch: quota
 	// Some providers do not reliably load the per-task runtime config files we
 	// write into the task workdir:
 	//   - openclaw is pinned to the task workdir via the per-task config we

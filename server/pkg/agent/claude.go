@@ -314,6 +314,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 			var msg claudeSDKMessage
 			if err := json.Unmarshal([]byte(line), &msg); err != nil {
 				invalidEventCount++
+				agRateLimitGarbled(opts, line) // AG patch: quota
 				continue
 			}
 			eventCount++
@@ -332,6 +333,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 					sawAsyncLaunch = true
 				}
 			case "rate_limit_event":
+				agRateLimit(opts, msg.RateLimitInfo, line) // AG patch: quota
 				if update, ok := parseClaudeRateLimitEvent(msg.RateLimitInfo); ok {
 					rateLimits.apply(update)
 				}
