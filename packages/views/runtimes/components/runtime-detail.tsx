@@ -51,6 +51,7 @@ import {
 } from "../../layout/object-page";
 import { AppLink, useNavigation } from "../../navigation";
 import { availabilityConfig, workloadConfig } from "../../agents/presence";
+import { DrainBadge } from "./drain-badge";
 import { HealthBadge, HealthIcon, shortDaemonId, useHealthLabel } from "./shared";
 import { ProviderLogo } from "./provider-logo";
 import { UsageSection } from "./usage-section";
@@ -209,6 +210,7 @@ export function RuntimeDetail({
             trailing={
               <>
                 <HealthBadge health={health} />
+                <DrainBadge runtime={runtime} />
                 {!canEditRuntime && (
                   <span className="inline-flex shrink-0 items-center gap-1 text-caption text-muted-foreground">
                     <Lock className="size-3" />

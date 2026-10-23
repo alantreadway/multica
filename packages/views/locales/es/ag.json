@@ -41,5 +41,14 @@
       "chart_too_many_title": "Demasiadas tareas para dibujar",
       "chart_too_many_body": "Hay {{count}} tareas abiertas, más de las {{max}} que dibuja el organigrama. Contrae ramas o céntrate en un subárbol más pequeño."
     }
+  },
+  "runtimes": {
+    "drain": {
+      "draining": "Vaciando · {{running}} en curso",
+      "draining_unknown": "Vaciando",
+      "idle": "Inactivo",
+      "draining_hint": "No acepta tareas nuevas. Las tareas en curso terminarán.",
+      "idle_hint": "Vaciado sin tareas en curso. Se puede reiniciar o actualizar."
+    }
   }
 }

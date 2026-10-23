@@ -41,5 +41,14 @@
       "chart_too_many_title": "Too many issues to draw",
       "chart_too_many_body": "{{count}} issues are open, more than the {{max}} the chart draws. Collapse branches or focus on a smaller subtree."
     }
+  },
+  "runtimes": {
+    "drain": {
+      "draining": "Draining · {{running}} running",
+      "draining_unknown": "Draining",
+      "idle": "Idle",
+      "draining_hint": "Not claiming new tasks. Running tasks will finish.",
+      "idle_hint": "Drained with no tasks running. Safe to restart or upgrade."
+    }
   }
 }

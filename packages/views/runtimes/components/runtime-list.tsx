@@ -53,6 +53,7 @@ import {
 } from "../../layout/collection-list";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { useViewingTimezone } from "../../common/use-viewing-timezone";
+import { DrainBadge } from "./drain-badge";
 import { ProviderLogo } from "./provider-logo";
 import { HealthIcon, useHealthLabel } from "./shared";
 import { DeleteRuntimeDialog } from "./delete-runtime-dialog";
@@ -157,6 +158,7 @@ function RuntimeNameCell({
           <RuntimeKindBadge runtime={runtime} />
           <PendingRuntimeBadge runtime={runtime} />
           <VisibilityBadge runtime={runtime} />
+          <DrainBadge runtime={runtime} />
         </>
       }
     />
