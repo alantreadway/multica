@@ -31,7 +31,6 @@ import {
   aggregateCostByModel,
   collectUnmappedModels,
   pctChange,
-  sliceWindow,
   type CostByKey,
 } from "../utils";
 import { KpiCard } from "./shared";
@@ -54,16 +53,21 @@ import {
   type TimeRange as DashboardTimeRange,
 } from "../../dashboard/components/dashboard-shared";
 import { DimSegmented } from "../../dashboard/components/dim-segmented";
+import {
+  agPeriodDays,
+  agWithYesterday,
+  YESTERDAY,
+  type AgPeriod,
+} from "../../common/ag_period";
+import { agIsSingleDay, agSlicePeriod } from "../ag_slice-period";
 
 // Single source of truth for the period selector. KPIs, the When-chart, the
 // Cost-by tabs, and the CSV export all read from the same `days` value so
 // the labels ("· 30D") and the data slice never disagree. Same ranges as the
-// Analytics page except 1d.
-const PERIODS = TIME_RANGES.filter(
-  (r): r is Exclude<(typeof TIME_RANGES)[number], { days: 1 }> => r.days !== 1,
-);
+// Analytics page, 1d included (AG patch), plus Yesterday.
+const PERIODS = TIME_RANGES;
 
-type TimeRange = Exclude<DashboardTimeRange, 1>;
+type TimeRange = DashboardTimeRange;
 
 // Top-level orchestrator. Owns the time window, fetches a 180-day usage
 // cache once, slices it into "current" / "prior" windows for delta math,
@@ -76,6 +80,7 @@ type TimeRange = Exclude<DashboardTimeRange, 1>;
 
 export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
   const { t, i18n } = useT("runtimes");
+  const { t: tAg } = useT("ag");
   const runtimeId = runtime.id;
   // Reports render in the viewer's timezone — the backend slices the UTC
   // hourly rollup on the same `tz` we pass here, so every frontend window
@@ -84,7 +89,8 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
   const { data: usage = [], isLoading: loading } = useQuery(
     runtimeUsageOptions(runtimeId, 180, tz),
   );
-  const [days, setDays] = useState<TimeRange>(30);
+  const [period, setPeriod] = useState<AgPeriod<TimeRange>>(30);
+  const days = agPeriodDays(period) as TimeRange;
   // Subscribe so the KPI cards (which call estimateCost at render-time, not
   // through a memo) re-evaluate when the user saves a custom rate. The
   // aggregate sub-components (WhenChart, CostByBlock, ActivityHeatmap) each
@@ -99,7 +105,9 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
   // prev") then compares like-for-like ranges instead of "this period vs
   // all of history". Tz-aware so the cutoff lands on the same calendar
   // boundary the backend used when bucketing rows.
-  const { filtered, prevFiltered } = sliceWindow(usage, days, tz);
+  const { filtered, prevFiltered } = agSlicePeriod(usage, period, tz);
+  // Day periods keep upstream's own "· 30D" labels; only Yesterday needs ours.
+  const periodLabel = tAg(($) => $.runtimes.usage.ag_period_yesterday);
 
   const totals = computeTotals(filtered);
   const prevTotals = computeTotals(prevFiltered);
@@ -126,9 +134,12 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
         </span>
         <Segmented
           label={t(($) => $.usage.period_label)}
-          value={days}
-          onChange={setDays}
-          options={PERIODS.map((r) => ({ label: r.label, value: r.days }))}
+          value={period}
+          onChange={setPeriod}
+          options={agWithYesterday(
+            PERIODS.map((r) => ({ label: r.label as string, value: r.days })),
+            { label: tAg(($) => $.runtimes.usage.ag_period_yesterday) },
+          )}
         />
       </div>
 
@@ -149,7 +160,11 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
           orientation so the row still reads as one grouped card. */}
       <div className="grid grid-cols-1 divide-y rounded-lg border bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <KpiCard
-          label={t(($) => $.usage.kpi_cost_label, { days })}
+          label={
+            period === YESTERDAY
+              ? tAg(($) => $.runtimes.usage.kpi_cost_label, { period: periodLabel })
+              : t(($) => $.usage.kpi_cost_label, { days })
+          }
           value={
             <CurrencyNumberFlow
               value={totals.cost}
@@ -177,7 +192,11 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
           }
         />
         <KpiCard
-          label={t(($) => $.usage.kpi_cache_label, { days })}
+          label={
+            period === YESTERDAY
+              ? tAg(($) => $.runtimes.usage.kpi_cache_label, { period: periodLabel })
+              : t(($) => $.usage.kpi_cache_label, { days })
+          }
           value={
             <CurrencyNumberFlow
               value={totals.cacheSavings}
@@ -198,7 +217,11 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
           }
         />
         <KpiCard
-          label={t(($) => $.usage.kpi_tokens_label, { days })}
+          label={
+            period === YESTERDAY
+              ? tAg(($) => $.runtimes.usage.kpi_tokens_label, { period: periodLabel })
+              : t(($) => $.usage.kpi_tokens_label, { days })
+          }
           value={
             <CompactNumberFlow
               value={tokensTotal}
@@ -221,7 +244,13 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
       <WhenChart usage={usage} filtered={filtered} days={days} tz={tz} />
 
       {/* Layer 3 — WHO/WHAT burned the spend. */}
-      <CostByBlock runtimeId={runtimeId} days={days} usage={filtered} tz={tz} />
+      <CostByBlock
+        runtimeId={runtimeId}
+        days={days}
+        usage={filtered}
+        tz={tz}
+        agentUnavailable={agIsSingleDay(period)}
+      />
 
       {/* Layer 4 — Folded raw view. The Heatmap used to live here too; it
           was promoted into the WHEN chart's toggle, leaving only the
@@ -565,13 +594,18 @@ function CostByBlock({
   days,
   usage,
   tz,
+  agentUnavailable = false,
 }: {
   runtimeId: string;
   days: number;
   usage: RuntimeUsage[];
   tz: string;
+  /** AG patch: the period is one calendar day, which the per-agent rollup
+   *  cannot be narrowed to. */
+  agentUnavailable?: boolean;
 }) {
   const { t } = useT("runtimes");
+  const { t: tAg } = useT("ag");
   const [tab, setTab] = useState<"agent" | "model">("agent");
   // Memo dep — same reason as WhenChart: aggregateCostBy{Agent,Model} call
   // estimateCost, which now reads the override store.
@@ -581,7 +615,7 @@ function CostByBlock({
   // by-model derives from the daily cache the parent already has — free.
   const { data: byAgentRows = [] } = useQuery({
     ...runtimeUsageByAgentOptions(runtimeId, days, tz),
-    enabled: tab === "agent",
+    enabled: tab === "agent" && !agentUnavailable,
   });
 
   const wsId = useWorkspaceId();
@@ -598,7 +632,9 @@ function CostByBlock({
 
   const caption =
     tab === "agent"
-      ? t(($) => $.usage.cost_by_caption_agent, { count: byAgent.length })
+      ? agentUnavailable
+        ? null
+        : t(($) => $.usage.cost_by_caption_agent, { count: byAgent.length })
       : t(($) => $.usage.cost_by_caption_model, { count: byModel.length });
 
   return (
@@ -627,7 +663,12 @@ function CostByBlock({
       <div className="pt-4">
         {tab === "agent" && (
           <CostByList
-            rows={byAgent}
+            rows={agentUnavailable ? [] : byAgent}
+            emptyHint={
+              agentUnavailable
+                ? tAg(($) => $.runtimes.usage.ag_cost_by_agent_single_day)
+                : undefined
+            }
             renderKey={(key) => {
               const agent = agents.find((a) => a.id === key);
               return (

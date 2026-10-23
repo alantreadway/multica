@@ -1,5 +1,6 @@
 import { keepPreviousData, queryOptions } from "@tanstack/react-query";
 import { api } from "../api";
+import { agFetchWindow, agWindowKey } from "./ag_closed-window";
 
 export const dashboardKeys = {
   all: (wsId: string) => ["dashboard", wsId] as const,
@@ -11,13 +12,13 @@ export const dashboardKeys = {
   ) => [...dashboardKeys.all(wsId), "daily", days, projectId, tz] as const,
   byAgent: (
     wsId: string,
-    days: number,
+    days: number | string,
     projectId: string | null,
     tz: string,
   ) => [...dashboardKeys.all(wsId), "by-agent", days, projectId, tz] as const,
   agentRuntime: (
     wsId: string,
-    days: number,
+    days: number | string,
     projectId: string | null,
     tz: string,
   ) => [...dashboardKeys.all(wsId), "agent-runtime", days, projectId, tz] as const,
@@ -35,7 +36,7 @@ export const dashboardKeys = {
   ) => [...dashboardKeys.all(wsId), "failures-daily", days, projectId, tz] as const,
   failuresByAgent: (
     wsId: string,
-    days: number,
+    days: number | string,
     projectId: string | null,
     tz: string,
   ) =>
@@ -98,16 +99,27 @@ export function dashboardUsageByAgentOptions(
   days: number,
   projectId: string | null,
   tz: string,
+  endOffset = 0,
 ) {
-  const queryKey = dashboardKeys.byAgent(wsId, days, projectId, tz);
+  const queryKey = dashboardKeys.byAgent(
+    wsId,
+    agWindowKey(days, endOffset),
+    projectId,
+    tz,
+  );
   return queryOptions({
     queryKey,
     queryFn: () =>
-      api.getDashboardUsageByAgent({
+      agFetchWindow(
+        (d) =>
+          api.getDashboardUsageByAgent({
+            days: d,
+            project_id: projectId ?? undefined,
+            tz,
+          }),
         days,
-        project_id: projectId ?? undefined,
-        tz,
-      }),
+        endOffset,
+      ),
     enabled: !!wsId,
     staleTime: STALE_TIME,
     refetchInterval: REFETCH_INTERVAL,
@@ -123,16 +135,27 @@ export function dashboardAgentRunTimeOptions(
   days: number,
   projectId: string | null,
   tz: string,
+  endOffset = 0,
 ) {
-  const queryKey = dashboardKeys.agentRuntime(wsId, days, projectId, tz);
+  const queryKey = dashboardKeys.agentRuntime(
+    wsId,
+    agWindowKey(days, endOffset),
+    projectId,
+    tz,
+  );
   return queryOptions({
     queryKey,
     queryFn: () =>
-      api.getDashboardAgentRunTime({
+      agFetchWindow(
+        (d) =>
+          api.getDashboardAgentRunTime({
+            days: d,
+            project_id: projectId ?? undefined,
+            tz,
+          }),
         days,
-        project_id: projectId ?? undefined,
-        tz,
-      }),
+        endOffset,
+      ),
     enabled: !!wsId,
     staleTime: STALE_TIME,
     refetchInterval: REFETCH_INTERVAL,
@@ -198,16 +221,27 @@ export function dashboardFailuresByAgentOptions(
   days: number,
   projectId: string | null,
   tz: string,
+  endOffset = 0,
 ) {
-  const queryKey = dashboardKeys.failuresByAgent(wsId, days, projectId, tz);
+  const queryKey = dashboardKeys.failuresByAgent(
+    wsId,
+    agWindowKey(days, endOffset),
+    projectId,
+    tz,
+  );
   return queryOptions({
     queryKey,
     queryFn: () =>
-      api.getDashboardFailuresByAgent({
+      agFetchWindow(
+        (d) =>
+          api.getDashboardFailuresByAgent({
+            days: d,
+            project_id: projectId ?? undefined,
+            tz,
+          }),
         days,
-        project_id: projectId ?? undefined,
-        tz,
-      }),
+        endOffset,
+      ),
     enabled: !!wsId,
     staleTime: STALE_TIME,
     refetchInterval: REFETCH_INTERVAL,
