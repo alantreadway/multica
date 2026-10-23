@@ -68,5 +68,13 @@
       "hover_runtime_draining_unknown": "{{name}} · drainage",
       "hover_runtime_drained": "{{name}} · drainé"
     }
+  },
+  "settings": {
+    "labels": {
+      "reorder_failed": "Impossible d'enregistrer le nouvel ordre",
+      "actions": {
+        "reorder": "Réorganiser {{name}}"
+      }
+    }
   }
 }

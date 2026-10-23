@@ -3,6 +3,7 @@ export {
   useCreateLabel,
   useUpdateLabel,
   useDeleteLabel,
+  useReorderLabels,
   useAttachLabel,
   useAttachLabelToIssue,
   useDetachLabel,
