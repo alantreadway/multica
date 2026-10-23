@@ -64,6 +64,29 @@
       "kpi_cost_label": "費用 · {{period}}",
       "kpi_cache_label": "快取節省 · {{period}}",
       "kpi_tokens_label": "Token · {{period}}"
+    },
+    "quota": {
+      "title": "Claude 配額",
+      "five_hour": "5 小時",
+      "seven_day": "7 天",
+      "resets": "{{time}} 重置",
+      "hold": "暫停至 {{time}}",
+      "cap": "最多同時執行 {{cap}} / {{max}}",
+      "on_backup": "正在使用備用帳號",
+      "backup_title": "備用帳號",
+      "backup_ready": "就緒",
+      "backup_not_found": "未找到",
+      "backup_invalid": "已找到但無效",
+      "reason": {
+        "not_logged_in": "未登入",
+        "same_account": "與主帳號相同",
+        "check_failed": "檢查失敗",
+        "unknown": "原因未知"
+      },
+      "backup_enable": "使用備用帳號",
+      "backup_urgent_only": "備用帳號上只執行緊急任務。",
+      "backup_max": "最大併發數",
+      "save_failed": "無法儲存備用帳號設定"
     }
   },
   "layout": {
@@ -80,7 +103,9 @@
       "hover_runtimes_header": "排空中的執行時",
       "hover_runtime_draining": "{{name}} · {{running}} 個執行中",
       "hover_runtime_draining_unknown": "{{name}} · 排空中",
-      "hover_runtime_drained": "{{name}} · 已排空"
+      "hover_runtime_drained": "{{name}} · 已排空",
+      "backup_urgent": "備用帳號 · 僅限緊急",
+      "quota_hold": "Claude 暫停至 {{time}}"
     }
   },
   "settings": {
