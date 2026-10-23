@@ -49,5 +49,22 @@
       "draining_hint": "새 작업을 받지 않습니다. 실행 중인 작업은 끝까지 진행됩니다.",
       "idle_hint": "드레인되어 실행 중인 작업이 없습니다. 재시작하거나 업그레이드해도 안전합니다."
     }
+  },
+  "layout": {
+    "agent_status": {
+      "agents_other": "에이전트 {{count}}개",
+      "running": "{{count}}개 실행 중",
+      "queued": "{{count}}개 대기 중",
+      "none": "실행 중인 에이전트 없음",
+      "none_queued": "실행 중인 에이전트 없음 · {{count}}개 대기 중",
+      "unknown": "에이전트 상태를 불러오지 않음",
+      "draining": "드레인 중 · {{running}}개 실행 중",
+      "draining_unknown": "드레인 중",
+      "drained": "드레인 완료 · 재시작해도 안전",
+      "hover_runtimes_header": "드레인 중인 런타임",
+      "hover_runtime_draining": "{{name}} · {{running}}개 실행 중",
+      "hover_runtime_draining_unknown": "{{name}} · 드레인 중",
+      "hover_runtime_drained": "{{name}} · 드레인 완료"
+    }
   }
 }

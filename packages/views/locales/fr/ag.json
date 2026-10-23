@@ -50,5 +50,23 @@
       "draining_hint": "Ne prend plus de nouvelles tâches. Les tâches en cours vont se terminer.",
       "idle_hint": "Drainé, aucune tâche en cours. Redémarrage ou mise à niveau sans risque."
     }
+  },
+  "layout": {
+    "agent_status": {
+      "agents_one": "{{count}} agent",
+      "agents_other": "{{count}} agents",
+      "running": "{{count}} en cours",
+      "queued": "{{count}} en attente",
+      "none": "Aucun agent en cours",
+      "none_queued": "Aucun agent en cours · {{count}} en attente",
+      "unknown": "État des agents non chargé",
+      "draining": "Drainage · {{running}} en cours",
+      "draining_unknown": "Drainage",
+      "drained": "Drainé · redémarrage sans risque",
+      "hover_runtimes_header": "Runtimes en drainage",
+      "hover_runtime_draining": "{{name}} · {{running}} en cours",
+      "hover_runtime_draining_unknown": "{{name}} · drainage",
+      "hover_runtime_drained": "{{name}} · drainé"
+    }
   }
 }
