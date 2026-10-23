@@ -1,0 +1,7 @@
+{
+  "issues": {
+    "swimlane": {
+      "sub_lanes_hidden_other": "+{{count}} サブレーン"
+    }
+  }
+}
