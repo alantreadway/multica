@@ -58,7 +58,8 @@ pnpm --filter @multica/views exec vitest run \
   runtimes/components/runtime-list-drain.test.tsx \
   runtimes/components/runtime-detail-drain.test.tsx \
   locales/ag-drain.test.ts \
-  locales/ag-tree.test.ts
+  locales/ag-tree.test.ts \
+  layout/agent-status-indicator.test.tsx
 
 pnpm --filter @multica/core exec vitest run \
   runtimes/ag-drain.test.ts \
