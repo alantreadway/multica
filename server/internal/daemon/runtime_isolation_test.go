@@ -179,7 +179,7 @@ func TestRunBatchPollerClaimsAcrossRuntimes(t *testing.T) {
 		return TaskResult{Status: "completed"}, nil
 	})
 
-	sem := newTaskSlotSemaphore(d.cfg.MaxConcurrentTasks)
+	sem := newTaskSlotSemaphore(t.TempDir(), d.cfg.MaxConcurrentTasks, nil)
 	var taskWG sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -317,7 +317,7 @@ func testRunBatchPollerTaskExitWakeup(t *testing.T, maxConcurrent int, releaseDe
 		return TaskResult{Status: "completed"}, nil
 	})
 
-	sem := newTaskSlotSemaphore(d.cfg.MaxConcurrentTasks)
+	sem := newTaskSlotSemaphore(t.TempDir(), d.cfg.MaxConcurrentTasks, nil)
 	wakeup := make(chan struct{}, 1)
 	var taskWG sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
@@ -400,8 +400,10 @@ func TestRunBatchPollerSkipsClaimWhenAtCapacity(t *testing.T) {
 	}, slog.New(slog.NewTextHandler(noopWriter{}, nil)))
 	d.workspaces["ws-1"] = &workspaceState{workspaceID: "ws-1", runtimeIDs: []string{"rt-1"}}
 
-	sem := newTaskSlotSemaphore(d.cfg.MaxConcurrentTasks)
-	<-sem // hold the only slot for the whole test
+	sem := newTaskSlotSemaphore(t.TempDir(), d.cfg.MaxConcurrentTasks, nil)
+	if _, ok, err := sem.tryAcquire(); !ok || err != nil { // hold the only slot for the whole test
+		t.Fatalf("take the only slot: ok=%v err=%v", ok, err)
+	}
 
 	var taskWG sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
@@ -448,6 +450,7 @@ func TestPollLoopBatchShutdown(t *testing.T) {
 		return TaskResult{Status: "completed"}, nil
 	})
 
+	d.agSlotDir = t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	pollDone := make(chan error, 1)
 	go func() { pollDone <- d.pollLoop(ctx, nil) }()

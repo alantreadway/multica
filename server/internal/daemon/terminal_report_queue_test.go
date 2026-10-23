@@ -562,7 +562,7 @@ func TestRunBatchPollerReleasesSlotAfterTerminalRetryExhaustion(t *testing.T) {
 		return TaskResult{Status: "completed"}, nil
 	})
 
-	sem := newTaskSlotSemaphore(1)
+	sem := newTaskSlotSemaphore(t.TempDir(), 1, nil)
 	wakeup := make(chan struct{}, 1)
 	var taskWG sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())

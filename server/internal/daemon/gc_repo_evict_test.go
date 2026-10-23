@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -73,10 +74,19 @@ func TestEvictRepoCache_RemovesIdleDetachedRepo(t *testing.T) {
 	if stats.bytesReclaimed <= 0 {
 		t.Errorf("bytes_reclaimed = %d, want > 0", stats.bytesReclaimed)
 	}
-	// The per-workspace directory is now empty and should go with it.
+	// The per-workspace directory is now empty and should go with it. AG patch:
+	// the repo's cross-process lock file (see repocache/ag_repolock.go) is kept
+	// on purpose, since unlinking a flock file another daemon may hold is unsafe,
+	// so allow it to remain.
 	wsDir := filepath.Join(d.cfg.WorkspacesRoot, reposDirName, wsID)
-	if _, err := os.Stat(wsDir); !os.IsNotExist(err) {
-		t.Errorf("expected empty workspace cache dir to be removed, stat err = %v", err)
+	if entries, err := os.ReadDir(wsDir); err == nil {
+		for _, e := range entries {
+			if !strings.HasSuffix(e.Name(), ".multica-lock") {
+				t.Errorf("expected empty workspace cache dir, found %q", e.Name())
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		t.Errorf("read workspace cache dir: %v", err)
 	}
 }
 
