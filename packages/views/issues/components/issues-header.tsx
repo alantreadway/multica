@@ -143,6 +143,7 @@ import {
   useFilterFieldLabels,
   useFilterValueCatalog,
 } from "./filter-field-options";
+import { TreeLayoutMenuSection } from "./tree-layout-menu";
 
 type LocalDateRange = {
   from: Date | undefined;
@@ -2168,6 +2169,7 @@ export function IssueDisplayControls({
               </div>
             )}
             <div className="space-y-3">
+              {allowTree && viewMode === "tree" && <TreeLayoutMenuSection />}
               {viewMode === "board" && (
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-caption font-medium text-muted-foreground">

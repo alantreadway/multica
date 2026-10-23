@@ -25,7 +25,20 @@
       "hidden_ancestors": "현재 필터로 숨겨진 상위 이슈",
       "filters_paused": "집중하는 동안 필터가 일시 중지됩니다",
       "clear_focus": "집중 해제",
-      "sub_issue_progress": "하위 이슈 {{total}}개 중 {{done}}개 완료"
+      "sub_issue_progress": "하위 이슈 {{total}}개 중 {{done}}개 완료",
+      "layout_section": "레이아웃",
+      "layout_outline": "개요",
+      "layout_chart": "조직도",
+      "chart_hint": "이슈에 포커스하면 조직도로 볼 수 있습니다.",
+      "chart_aria_label": "이슈 조직도",
+      "chart_zoom_in": "확대",
+      "chart_zoom_out": "축소",
+      "chart_fit": "화면에 맞추기",
+      "chart_reset": "초기화",
+      "chart_expand_level": "다음 단계 표시",
+      "chart_use_outline": "개요로 전환",
+      "chart_too_many_title": "그리기에는 이슈가 너무 많습니다",
+      "chart_too_many_body": "열려 있는 이슈 {{count}}개가 조직도가 그릴 수 있는 {{max}}개를 넘습니다. 브랜치를 접거나 더 작은 하위 트리에 포커스하세요."
     }
   }
 }
