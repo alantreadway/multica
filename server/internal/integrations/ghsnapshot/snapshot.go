@@ -23,6 +23,13 @@ type CheckContext struct {
 	Conclusion      string
 	DetailsURL      string
 	IsStatusContext bool
+	// Required is isRequired(pullRequestNumber:), nil when GitHub did not say.
+	Required *bool
+	// AGCheckRunID is the Checks API id of a check run (0 for a status context),
+	// the key AGRun is matched on; AGRun is set when the extras query answered
+	// for that run. See ag_extras.go.
+	AGCheckRunID int64
+	AGRun        *AGCheckRun
 }
 
 // PRSnapshot is the atomic unit written per fetch. It mirrors exactly what the
@@ -38,6 +45,7 @@ type PRSnapshot struct {
 	// as passed (acceptance criterion 5).
 	HasChecks bool
 	Contexts  []CheckContext
+	AG        AGSnapshotExtras
 }
 
 // Decided reports whether the snapshot has settled: no check is still running
@@ -158,7 +166,7 @@ func FetchPRSnapshot(ctx context.Context, c *Client, installationID int64, owner
 			// refresh queue and the persisted running-check counts.
 			status, conclusion = "queued", ""
 		}
-		snap.Contexts = append(snap.Contexts, CheckContext{Name: run.Name, Status: status, Conclusion: conclusion, DetailsURL: run.DetailsURL})
+		snap.Contexts = append(snap.Contexts, CheckContext{Name: run.Name, Status: status, Conclusion: conclusion, DetailsURL: run.DetailsURL, AGCheckRunID: run.ID})
 	}
 	seenStatuses := make(map[string]struct{}, len(statuses))
 	for _, entry := range statuses {
@@ -173,6 +181,9 @@ func FetchPRSnapshot(ctx context.Context, c *Client, installationID int64, owner
 		snap.Contexts = append(snap.Contexts, CheckContext{Name: entry.Context, Status: status, Conclusion: conclusion, DetailsURL: entry.TargetURL, IsStatusContext: true})
 	}
 
+	if err := c.agFetchSnapshotExtras(ctx, installationID, owner, repo, number, snap); err != nil {
+		return nil, err
+	}
 	latest, err := fetchSnapshotPR(ctx, c, installationID, prPath)
 	if err != nil {
 		return nil, err
