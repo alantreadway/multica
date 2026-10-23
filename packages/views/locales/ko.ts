@@ -1,4 +1,5 @@
 import type { LocaleResources } from "@multica/core/i18n";
+import { withAg } from "./ag"; // AG patch: fork strings
 import koCommon from "./ko/common.json";
 import koAuth from "./ko/auth.json";
 import koSettings from "./ko/settings.json";
@@ -53,4 +54,4 @@ const resources: LocaleResources = {
   billing: koBilling,
 };
 
-export default resources;
+export default withAg("ko", resources);
