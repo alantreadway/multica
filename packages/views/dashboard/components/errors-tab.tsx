@@ -77,7 +77,7 @@ function useFailureClassLabel(): (c: FailureClass) => string {
  * a fifth option on a toggle whose other four were spend metrics.
  */
 export function ErrorsTab({
-  days,
+  period,
   allowedDims,
   totals,
   classRows,
@@ -88,7 +88,8 @@ export function ErrorsTab({
   agents,
   locales,
 }: {
-  days: number;
+  /** Window suffix for the KPI labels: "30D", "Yesterday". */
+  period: string;
   allowedDims: readonly Dim[];
   totals: FailureTotals;
   classRows: FailureClassRow[];
@@ -100,6 +101,7 @@ export function ErrorsTab({
   locales?: Intl.LocalesArgument;
 }) {
   const { t } = useT("usage");
+  const { t: tAg } = useT("ag");
   const classLabel = useFailureClassLabel();
 
   // Agents affected counts the rows of the offender list below, so the tile and
@@ -118,7 +120,7 @@ export function ErrorsTab({
     <div className="space-y-5">
       <div className="grid grid-cols-1 divide-y rounded-lg border bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         <KpiCard
-          label={t(($) => $.errors.kpi_failed_label, { days })}
+          label={tAg(($) => $.usage.errors.kpi_failed_label, { period })}
           value={
             <NumberFlow
               value={totals.failed}
@@ -135,7 +137,7 @@ export function ErrorsTab({
             two denominators read as a contradiction unless each says what it
             is counting. */}
         <KpiCard
-          label={t(($) => $.errors.kpi_rate_label, { days })}
+          label={tAg(($) => $.usage.errors.kpi_rate_label, { period })}
           value={formatRate(totals.failed, totals.total)}
           hint={t(($) => $.errors.summary, {
             failed: totals.failed,
@@ -144,7 +146,7 @@ export function ErrorsTab({
           })}
         />
         <KpiCard
-          label={t(($) => $.errors.kpi_agents_label, { days })}
+          label={tAg(($) => $.usage.errors.kpi_agents_label, { period })}
           value={
             <NumberFlow
               value={affectedAgents}
