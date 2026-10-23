@@ -28,7 +28,7 @@ export function MyIssuesPage() {
             userId: user.id,
             relation: myIssuesRelationFromScope(scope),
           }}
-          modes={["board", "list", "table", "swimlane"]}
+          modes={["board", "list", "table", "swimlane", "tree"]}
           batchToolbar="list"
           renderHeader={({ controller }) => <IssueViewHeader controller={controller} base={MY_BASE} />}
           renderEmpty={({ controller }) => (

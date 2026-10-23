@@ -725,6 +725,9 @@ export interface IssueAncestryNode {
   id: string;
   identifier: string;
   parentId: string | null;
+  // Display fields for the tree view's dimmed ancestor path.
+  title: string;
+  status: Issue["status"];
 }
 
 /**
@@ -755,6 +758,8 @@ async function fetchIssueAncestry(
         id: issue.id,
         identifier: issue.identifier,
         parentId: issue.parent_issue_id,
+        title: issue.title,
+        status: issue.status,
       });
       if (issue.parent_issue_id && !requested.has(issue.parent_issue_id)) {
         next.add(issue.parent_issue_id);

@@ -524,7 +524,7 @@ export function ProjectDetail({ projectId }: { projectId: string }) {
         <div ref={rightSidebarShortcutTargetRef} className="flex h-full flex-col">
           <IssueSurface
             scope={issueScope}
-            modes={["board", "list", "table", "swimlane", "gantt"]}
+            modes={["board", "list", "table", "swimlane", "gantt", "tree"]}
             renderHeader={({ controller }) => (
               <ProjectWorkflowMenuHost project={project}>
                 {(workflowSubmenu) => (

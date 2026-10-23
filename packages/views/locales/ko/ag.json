@@ -3,6 +3,29 @@
     "swimlane": {
       "sub_lanes_hidden_other": "+{{count}} 하위 레인",
       "jump_to_lane": "레인으로 이동"
+    },
+    "view": {
+      "tooltip_tree": "트리 보기",
+      "tree": "트리"
+    },
+    "tree": {
+      "aria_label": "이슈 트리",
+      "expand": "펼치기",
+      "collapse": "접기",
+      "expand_all": "모두 펼치기",
+      "collapse_all": "모두 접기",
+      "focus": "이 이슈에 집중",
+      "focus_root": "모든 이슈",
+      "breadcrumb_label": "집중 경로",
+      "load_more": "더 불러오기",
+      "loading_children": "하위 이슈 불러오는 중…",
+      "load_error": "하위 이슈를 불러오지 못했습니다",
+      "retry": "다시 시도",
+      "empty": "표시할 이슈가 없습니다",
+      "hidden_ancestors": "현재 필터로 숨겨진 상위 이슈",
+      "filters_paused": "집중하는 동안 필터가 일시 중지됩니다",
+      "clear_focus": "집중 해제",
+      "sub_issue_progress": "하위 이슈 {{total}}개 중 {{done}}개 완료"
     }
   }
 }

@@ -3,6 +3,29 @@
     "swimlane": {
       "sub_lanes_hidden_other": "+{{count}} 個子泳道",
       "jump_to_lane": "跳轉到泳道"
+    },
+    "view": {
+      "tooltip_tree": "樹狀檢視",
+      "tree": "樹狀"
+    },
+    "tree": {
+      "aria_label": "問題樹",
+      "expand": "展開",
+      "collapse": "摺疊",
+      "expand_all": "全部展開",
+      "collapse_all": "全部摺疊",
+      "focus": "聚焦此問題",
+      "focus_root": "所有問題",
+      "breadcrumb_label": "聚焦路徑",
+      "load_more": "載入更多",
+      "loading_children": "正在載入子問題…",
+      "load_error": "無法載入子問題",
+      "retry": "重試",
+      "empty": "沒有可顯示的問題",
+      "hidden_ancestors": "被當前篩選隱藏的父問題",
+      "filters_paused": "聚焦時篩選已暫停",
+      "clear_focus": "取消聚焦",
+      "sub_issue_progress": "{{total}} 個子問題中已完成 {{done}} 個"
     }
   }
 }
