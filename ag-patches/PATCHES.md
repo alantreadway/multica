@@ -53,6 +53,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 10 | Label row: show all labels, Compact/Full display (web) | `candidate` | none on the display; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`; the last two from a maintainer) | Medium | Medium-low | Wait for the maintainer's board refactor to land. |
 | 11 | Sidebar agent and drain status (web) | `fork-only` (the agent count alone could go) | none found | Low-medium | Low-medium | Only if asked; the drain marker comes out first. |
 | 12 | Claude quota report and runtime backup setting (daemon + backend) | `fork-only` (the report alone is a `candidate` only if it lines up with #7413) | [#7413](https://github.com/multica-ai/multica/pull/7413) (open), [#8679](https://github.com/multica-ai/multica/pull/8679) (closed unmerged 2026-10-23), [#6000](https://github.com/multica-ai/multica/issues/6000) (the request) | High for plan usage | Low-medium: #8679 no longer competes | Don't race #7413; the `rate_limit_event` parsing could go to #6000 instead of #8679. |
+| 13 | Runtime hold/pacing/backup section and sidebar warning (web) | `fork-only` (upstream's Limits section, [#10752](https://github.com/multica-ai/multica/pull/10752), replaced the usage bars) | none found for the hold, pacing and backup controls or the sidebar line | Low: operator tooling | Low: crowded | As the quota report. |
 | 14 | Claude quota tracker and auto-hold (daemon) | `fork-only` (the `rate_limit_event` parsing alone is a `candidate`) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255) (open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC, active 2026-10-19, 6 👍); #8965 closed, #8969 withdrawn | Medium | Low | Add our use case to RFC #6650. |
 | 15 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631) (changes requested, last touched 2026-07-28), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High: upstream's reviewer agreed on #5631 | Low for ours | Help #5631 land, then drop ours. |
 | 16 | Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679) (changes requested), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High | Low for ours | Drop once upstream shows the drain state. |
@@ -1691,6 +1692,82 @@ the backup; a rejected resume is a normal quota failure.
   - Identity: comparing accounts by `orgId` serves our same-email, two-org setup
     only; the overlapping PRs above do not compare accounts at all. Last checked
     2026-10-19.
+
+### Runtime hold, pacing and backup section, and sidebar warning (web)
+
+The Runtimes detail page gets a "Claude quota" card directly below upstream's
+Limits section (v0.11.0, [#10752](https://github.com/multica-ai/multica/pull/10752)) for a Claude runtime
+that carries `metadata.ag_quota`. Upstream's Limits section now shows the plan-limit
+windows (5-hour, 7-day) with their used percentage and reset time, so this card no
+longer draws those usage bars. It keeps what upstream lacks: the hold ("On hold
+until 21:10") and the current pacing cap ("Running up to 3 of 5"), both hidden
+while the runtime is offline, then the backup account: status (not found, found
+but invalid with the reason, or ready), a switch, the `backup_max_concurrent`
+input and one help line ("Only urgent issues run on the backup."). Above the
+backup block a "Pace Claude runs" switch, on by default, saves `pace_off` when
+turned off and then shows one warning line ("Off: Claude runs up to the max
+until the quota limit stops it."); it needs edit rights but not a valid backup.
+While the backup is on, an "Urgent issues on the backup now" switch saves
+`backup_urgent_until` as the primary's weekly reset (it is disabled without a
+future one), shows "Until <time>: no pacing, up to the max above." while that time
+is ahead, and sends `""` when switched off. Every save sends the three other
+fields; `backup_urgent_until` only from that switch, so the server keeps it. The switch
+and input are disabled unless the backup is valid, the input also while the
+switch is off, and both for anyone who cannot edit the runtime. Saves go to
+`PUT /api/runtimes/{id}/ag-settings` with both fields; the form awaits the server
+and shows server state again on failure, with a toast.
+
+The sidebar status row (`agent-status-indicator.tsx`) gets one more line while any
+online runtime is on the backup account ("Backup account · urgent only") or, if
+none is, held ("Claude on hold until 21:10", earliest end across runtimes, local
+time, with the weekday and date when the hold ends on another day, as the weekly
+window's can). Failing both, while an online runtime's Claude cap is below its
+max, it shows the pace ("Claude paced: 1 of 5 · weekly 91%", the most-limited
+runtime; the 5-hour window's utilisation instead when that window is at 80% or
+more and not expired, which is when it can pace). Backup wins over a hold, and a
+hold over pacing. While a stored `backup_urgent_until` is ahead (backup enabled and
+valid) it shows "Urgent on backup until <time>" after a hold and before pacing. With pacing overridden it shows "Claude pacing off" instead
+of that runtime's paced line, from the stored setting, so it shows before the
+daemon's next report. The row then links to Runtimes. It reads the
+same cached runtime list as the drain line: no new request.
+
+The saved setting is read from `metadata.ag_settings`, which the PUT writes at
+once, in preference to the `ag_quota.backup` echo, which only catches up on the
+daemon's next report (up to about a minute on the WebSocket path). A missing or
+malformed `ag_quota` shows no section and no sidebar line.
+
+Upstream's `ConnectRemoteDialog` confirms a new computer only from the refreshed
+runtime list, so the AG refreshes (`daemon:register` with `action` `quota`,
+`drain` or `ag_settings`) cannot complete "Connect a computer" falsely and need no
+guard. Frontend only: rollback is switching the web image back.
+
+- Test prefix: `AG patch:` (`ag-quota-format.test.ts`, `quota-section.test.tsx`, `runtime-detail-quota.test.tsx`,
+  `locales/ag-quota.test.ts`,
+  `layout/agent-status-indicator.test.tsx` and core `runtimes/ag-quota.test.ts` and `ag-quota.api.test.ts`, all in `ag-patches/test.sh`)
+- Files:
+  - `packages/core/runtimes/ag-quota.ts`, `ag-quota.test.ts`, `ag-quota.api.test.ts` (new: schema,
+    sidebar state, save mutation); `packages/core/package.json`
+    (one export); `packages/core/api/ag-client.ts` (`updateAGRuntimeSettings`)
+  - `packages/views/runtimes/ag-quota-format.ts`, `ag-quota-format.test.ts` (new: hold time label)
+  - `packages/views/runtimes/components/quota-section.tsx`, `quota-section.test.tsx`,
+    `runtime-detail-quota.test.tsx` (new)
+  - `packages/views/runtimes/components/runtime-detail.tsx` (one import, one JSX line, after the Limits section)
+  - `packages/views/layout/agent-status-indicator.tsx`, `agent-status-indicator.test.tsx`
+  - `packages/views/locales/*/ag.json` (`runtimes.quota`,
+    `layout.agent_status.backup_urgent`, `quota_hold`, `quota_paced_week`,
+    `quota_paced_session`, `quota_paced_unknown`, `quota_pace_off`, `quota_urgent_backup`;
+    `runtimes.quota.pace`, `pace_off_note`, `backup_urgent_now`, `backup_urgent_now_note`),
+    `locales/ag-quota.test.ts` (new)
+
+- Upstream:
+  - Status: `fork-only`. Needs the quota report and settings patch above.
+  - Overlap: the plan-limit windows are upstream's Limits section (v0.11.0,
+    [#10752](https://github.com/multica-ai/multica/pull/10752)), which replaced this
+    card's usage bars; the hold, pacing and backup state and the sidebar line have no
+    upstream counterpart.
+  - Fit: the backup switch, pacing state and the sidebar warning are operator
+    tooling for subscription users. The `ConnectRemoteDialog` filter is generic and would go upstream with
+    any change that publishes non-registration `daemon:register` events.
 
 ## Tooling (not a patch)
 

@@ -67,6 +67,30 @@
       "kpi_cost_label": "Стоимость · {{period}}",
       "kpi_cache_label": "Экономия на кэше · {{period}}",
       "kpi_tokens_label": "Токены · {{period}}"
+    },
+    "quota": {
+      "title": "Квота Claude",
+      "hold": "Приостановлено до {{time}}",
+      "cap": "Выполняется не более {{cap}} из {{max}}",
+      "pace": "Регулировать запуски Claude",
+      "pace_off_note": "Выключено: Claude выполняет до максимума, пока лимит квоты не остановит запуски.",
+      "on_backup": "Работает на резервном аккаунте",
+      "backup_title": "Резервный аккаунт",
+      "backup_ready": "Готов",
+      "backup_not_found": "Не найден",
+      "backup_invalid": "Найден, но недействителен",
+      "reason": {
+        "not_logged_in": "Вход не выполнен",
+        "same_account": "Тот же аккаунт, что и основной",
+        "check_failed": "Проверка не удалась",
+        "unknown": "Причина неизвестна"
+      },
+      "backup_enable": "Использовать резервный аккаунт",
+      "backup_urgent_only": "На резервном аккаунте выполняются только срочные задачи.",
+      "backup_max": "Максимум одновременно",
+      "backup_urgent_now": "Срочные задачи на резервном аккаунте сейчас",
+      "backup_urgent_now_note": "До {{time}}: без регулирования, до максимума выше.",
+      "save_failed": "Не удалось сохранить настройку резервного аккаунта"
     }
   },
   "layout": {
@@ -86,7 +110,14 @@
       "hover_runtimes_header": "Рантаймы в режиме осушения",
       "hover_runtime_draining": "{{name}} · выполняется: {{running}}",
       "hover_runtime_draining_unknown": "{{name}} · осушение",
-      "hover_runtime_drained": "{{name}} · осушено"
+      "hover_runtime_drained": "{{name}} · осушено",
+      "backup_urgent": "Резервный аккаунт · только срочные",
+      "quota_hold": "Claude приостановлен до {{time}}",
+      "quota_paced_week": "Claude ограничен: {{cap}} из {{max}} · неделя {{percent}}%",
+      "quota_paced_session": "Claude ограничен: {{cap}} из {{max}} · 5 часов {{percent}}%",
+      "quota_paced_unknown": "Claude ограничен: {{cap}} из {{max}}",
+      "quota_pace_off": "Регулирование Claude выключено",
+      "quota_urgent_backup": "Срочные на резервном аккаунте · до {{time}}"
     }
   },
   "settings": {
