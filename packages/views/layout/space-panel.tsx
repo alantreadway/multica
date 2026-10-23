@@ -9,6 +9,7 @@ import { useIsGuest } from "@multica/core/permissions";
 import { UI_EASE_IN, UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { cn } from "@multica/ui/lib/utils";
 import { useSidebar } from "@multica/ui/components/ui/sidebar";
+import { AgentStatusPanelFooter } from "./agent-status-indicator";
 import { useAppShell } from "./app-shell-context";
 import { PanelResizeHandle } from "./panel-resize-handle";
 import { AutopilotsPanel } from "./panels/autopilots-panel";
@@ -137,6 +138,7 @@ export function SpacePanel() {
         >
           <div className="flex h-full w-(--sidebar-width) shrink-0 flex-col overflow-hidden border-r">
             <SpacePanelContent space={space} />
+            <AgentStatusPanelFooter />
           </div>
         </aside>
       )}

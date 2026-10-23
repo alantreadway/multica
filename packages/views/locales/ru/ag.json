@@ -52,5 +52,25 @@
       "draining_hint": "Новые задачи не принимаются. Выполняющиеся задачи завершатся.",
       "idle_hint": "Осушен, задач нет. Можно безопасно перезапускать или обновлять."
     }
+  },
+  "layout": {
+    "agent_status": {
+      "agents_one": "{{count}} агент",
+      "agents_few": "{{count}} агента",
+      "agents_many": "{{count}} агентов",
+      "agents_other": "{{count}} агента",
+      "running": "в работе: {{count}}",
+      "queued": "в очереди: {{count}}",
+      "none": "Нет работающих агентов",
+      "none_queued": "Нет работающих агентов · в очереди: {{count}}",
+      "unknown": "Состояние агентов не загружено",
+      "draining": "Осушение · выполняется: {{running}}",
+      "draining_unknown": "Осушение",
+      "drained": "Осушение завершено · можно перезапускать",
+      "hover_runtimes_header": "Рантаймы в режиме осушения",
+      "hover_runtime_draining": "{{name}} · выполняется: {{running}}",
+      "hover_runtime_draining_unknown": "{{name}} · осушение",
+      "hover_runtime_drained": "{{name}} · осушено"
+    }
   }
 }
