@@ -51,6 +51,7 @@ import {
 } from "../settings/components/catalog-table";
 import { useLocale, useT } from "../i18n";
 import { paletteColor } from "@multica/core/appearance";
+import { AgSortableLabelList, AgSortableLabelRow, useAgLabelReorder } from "./ag-label-reorder";
 
 /**
  * Label catalogs a user can manage. Narrower than `LabelResourceType`:
@@ -64,6 +65,9 @@ interface LabelDraft {
   description: string;
   color: string;
 }
+
+// Stable reference: the reorder hook resyncs its order from `labels`.
+const NO_LABELS: Label[] = [];
 
 const EMPTY_DRAFT: LabelDraft = {
   name: "",
@@ -86,18 +90,19 @@ export function LabelManager({ scope }: { scope: LabelScope }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Label | null>(null);
 
-  const { data: labels = [], isLoading } = useQuery(
+  const { data: labels = NO_LABELS, isLoading } = useQuery(
     labelListOptions(wsId, resourceType),
   );
+  const agReorder = useAgLabelReorder(labels, resourceType, query); // AG patch: label ordering
   const filteredLabels = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return labels;
-    return labels.filter(
+    if (!normalized) return agReorder.order;
+    return agReorder.order.filter(
       (label) =>
         label.name.toLowerCase().includes(normalized) ||
         (label.description ?? "").toLowerCase().includes(normalized),
     );
-  }, [labels, query]);
+  }, [agReorder.order, query]);
 
   const scopeLabel = t(($) => $.labels.scopes[resourceType]);
 
@@ -142,12 +147,15 @@ export function LabelManager({ scope }: { scope: LabelScope }) {
               </p>
             </div>
           ) : (
+            <AgSortableLabelList reorder={agReorder} labels={filteredLabels}>
             <CatalogRows>
               {filteredLabels.map((label) => (
+                <AgSortableLabelRow key={label.id} label={label} canReorder={agReorder.canReorder}>
+                {(agHandle) => (
                 <CatalogRow
-                  key={label.id}
                   name={
                     <div className="flex min-w-0 items-center gap-3">
+                      {agHandle}
                       <span
                         className="size-2.5 shrink-0 rounded-full"
                         style={{ backgroundColor: paletteColor(label.color) }}
@@ -204,8 +212,11 @@ export function LabelManager({ scope }: { scope: LabelScope }) {
                     </DropdownMenu>
                   }
                 />
+                )}
+                </AgSortableLabelRow>
               ))}
             </CatalogRows>
+            </AgSortableLabelList>
           )}
         </CatalogTable>
       </div>

@@ -72,5 +72,13 @@
       "hover_runtime_draining_unknown": "{{name}} · осушение",
       "hover_runtime_drained": "{{name}} · осушено"
     }
+  },
+  "settings": {
+    "labels": {
+      "reorder_failed": "Не удалось сохранить новый порядок",
+      "actions": {
+        "reorder": "Изменить порядок: {{name}}"
+      }
+    }
   }
 }
