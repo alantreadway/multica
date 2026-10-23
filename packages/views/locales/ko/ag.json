@@ -1,7 +1,8 @@
 {
   "issues": {
     "swimlane": {
-      "sub_lanes_hidden_other": "+{{count}} 하위 레인"
+      "sub_lanes_hidden_other": "+{{count}} 하위 레인",
+      "jump_to_lane": "레인으로 이동"
     }
   }
 }
