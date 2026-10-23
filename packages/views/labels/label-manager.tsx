@@ -43,6 +43,7 @@ import {
 } from "@multica/ui/components/ui/dropdown-menu";
 import { ColorPicker, COLOR_PICKER_PRESETS } from "../common/color-picker";
 import { useLocale, useT } from "../i18n";
+import { AgSortableLabelList, AgSortableLabelRow, useAgLabelReorder } from "./ag-label-reorder";
 
 /**
  * Label catalogs a user can manage. Narrower than `LabelResourceType`:
@@ -56,6 +57,9 @@ interface LabelDraft {
   description: string;
   color: string;
 }
+
+// Stable reference: the reorder hook resyncs its order from `labels`.
+const NO_LABELS: Label[] = [];
 
 const EMPTY_DRAFT: LabelDraft = {
   name: "",
@@ -79,18 +83,19 @@ export function LabelManager({ scope }: { scope: LabelScope }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Label | null>(null);
 
-  const { data: labels = [], isLoading } = useQuery(
+  const { data: labels = NO_LABELS, isLoading } = useQuery(
     labelListOptions(wsId, resourceType),
   );
+  const agReorder = useAgLabelReorder(labels, resourceType, query); // AG patch: label ordering
   const filteredLabels = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return labels;
-    return labels.filter(
+    if (!normalized) return agReorder.order;
+    return agReorder.order.filter(
       (label) =>
         label.name.toLowerCase().includes(normalized) ||
         (label.description ?? "").toLowerCase().includes(normalized),
     );
-  }, [labels, query]);
+  }, [agReorder.order, query]);
 
   const scopeLabel = t(($) => $.labels.scopes[resourceType]);
 
@@ -114,7 +119,7 @@ export function LabelManager({ scope }: { scope: LabelScope }) {
         </div>
 
         <div className="overflow-hidden rounded-lg border border-surface-border bg-card">
-          <div className="hidden grid-cols-[minmax(11rem,1fr)_minmax(12rem,1.4fr)_6rem_7rem_2rem] gap-4 border-b border-surface-border bg-muted/20 px-4 py-2.5 text-caption font-medium text-muted-foreground md:grid">
+          <div className="hidden grid-cols-[minmax(11rem,1fr)_minmax(12rem,1.4fr)_6rem_7rem_2rem] gap-4 border-b border-surface-border bg-muted/20 py-2.5 pl-10 pr-4 text-caption font-medium text-muted-foreground md:grid">
             <span>{t(($) => $.labels.columns.name)}</span>
             <span>{t(($) => $.labels.columns.description)}</span>
             <span>{t(($) => $.labels.columns.usage)}</span>
@@ -136,11 +141,16 @@ export function LabelManager({ scope }: { scope: LabelScope }) {
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-surface-border">
+            <AgSortableLabelList
+              reorder={agReorder}
+              labels={filteredLabels}
+              className="divide-y divide-surface-border"
+            >
               {filteredLabels.map((label) => (
-                <div
+                <AgSortableLabelRow
                   key={label.id}
-                  className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(11rem,1fr)_minmax(12rem,1.4fr)_6rem_7rem_2rem] md:items-center md:gap-4"
+                  label={label}
+                  canReorder={agReorder.canReorder}
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <span
@@ -184,9 +194,9 @@ export function LabelManager({ scope }: { scope: LabelScope }) {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
-                </div>
+                </AgSortableLabelRow>
               ))}
-            </div>
+            </AgSortableLabelList>
           )}
         </div>
       </div>
