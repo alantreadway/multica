@@ -66,3 +66,23 @@ pnpm --filter @multica/core exec vitest run \
   issues/queries.test.ts
 
 pnpm --filter @multica/views typecheck
+
+# --- Go: daemon, CLI, drain-badge and GitHub polling patch guard ------------
+
+AG_GO_MIN_TESTS=1
+
+go_out="$(mktemp)"
+trap 'rm -f "$go_out"' EXIT
+if ! ag_go test ./internal/daemon ./cmd/multica -run '^TestAGPatch' -count=1 -v >"$go_out" 2>&1; then
+  cat "$go_out"
+  echo "ag-patches/test.sh: Go patch tests failed" >&2
+  exit 1
+fi
+
+passed="$(grep -c '^--- PASS: TestAGPatch' "$go_out" || true)"
+if [ "$passed" -lt "$AG_GO_MIN_TESTS" ]; then
+  cat "$go_out"
+  echo "ag-patches/test.sh: expected at least $AG_GO_MIN_TESTS passing TestAGPatch tests, saw $passed" >&2
+  exit 1
+fi
+echo "Go patch tests: $passed passed"
