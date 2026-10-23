@@ -25,6 +25,12 @@ import {
   type TimeRangeOption,
 } from "./dashboard-shared";
 import { isRangeAllowed, type UpgradePlan } from "../history-range";
+import {
+  agParsePeriod,
+  agPeriodHistoryDays,
+  agWithYesterday,
+  type AgPeriod,
+} from "../../common/ag_period";
 
 type DashboardProject = { id: string; title: string; icon: string | null };
 type DashboardSquad = { id: string; name: string; avatar_url: string | null; archived_at?: string | null };
@@ -54,16 +60,26 @@ export function TimeRangeFilter({
   onViewPlans = null,
   ranges = TIME_RANGES,
 }: {
-  days: TimeRange;
-  onChange: (days: TimeRange) => void;
+  days: AgPeriod<TimeRange>;
+  onChange: (days: AgPeriod<TimeRange>) => void;
   maxDays?: number | null;
   planForDays?: (days: TimeRange) => UpgradePlan | null;
   onViewPlans?: (() => void) | null;
   ranges?: readonly TimeRangeOption[];
 }) {
   const { t } = useT("usage");
-  const current = ranges.find((r) => r.days === days) ?? TIME_RANGES[2];
-  const hasLocked = ranges.some((r) => !isRangeAllowed(r.days, maxDays));
+  const { t: tAg } = useT("ag");
+  const options = agWithYesterday(
+    ranges.map((r) => ({ label: r.label as string, value: r.days })),
+    { label: tAg(($) => $.usage.ag_period.yesterday) },
+  );
+  // Yesterday reads two days of history, so it is gated as a 2-day range.
+  const allowedFor = (value: AgPeriod<TimeRange>) =>
+    isRangeAllowed(agPeriodHistoryDays(value) as TimeRange, maxDays);
+  const current =
+    options.find((o) => o.value === days) ??
+    options.find((o) => o.value === 30)!;
+  const hasLocked = options.some((o) => !allowedFor(o.value));
 
   return (
     <DropdownMenu>
@@ -85,17 +101,19 @@ export function TimeRangeFilter({
         <DropdownMenuRadioGroup
           value={String(days)}
           onValueChange={(value) => {
-            const next = Number(value) as TimeRange;
-            if (isRangeAllowed(next, maxDays)) onChange(next);
+            const next = agParsePeriod<TimeRange>(value);
+            if (allowedFor(next)) onChange(next);
           }}
         >
-          {ranges.map((range) => {
-            const allowed = isRangeAllowed(range.days, maxDays);
-            const plan = allowed ? null : planForDays(range.days);
+          {options.map((range) => {
+            const allowed = allowedFor(range.value);
+            const plan = allowed
+              ? null
+              : planForDays(agPeriodHistoryDays(range.value) as TimeRange);
             return (
               <DropdownMenuRadioItem
-                key={range.days}
-                value={String(range.days)}
+                key={range.value}
+                value={String(range.value)}
                 disabled={!allowed}
                 className="tabular-nums"
               >

@@ -59,6 +59,14 @@
       "idle": "Простаивает",
       "draining_hint": "Новые задачи не принимаются. Выполняющиеся задачи завершатся.",
       "idle_hint": "Осушен, задач нет. Можно безопасно перезапускать или обновлять."
+    },
+    "usage": {
+      "ag_period_days": "{{days}} дн.",
+      "ag_period_yesterday": "Вчера",
+      "ag_cost_by_agent_single_day": "Стоимость по агентам за один день доступна на странице «Аналитика».",
+      "kpi_cost_label": "Стоимость · {{period}}",
+      "kpi_cache_label": "Экономия на кэше · {{period}}",
+      "kpi_tokens_label": "Токены · {{period}}"
     }
   },
   "layout": {
@@ -87,6 +95,23 @@
       "actions": {
         "reorder": "Изменить порядок: {{name}}"
       }
+    }
+  },
+  "usage": {
+    "ag_period": {
+      "days": "{{days}} дн.",
+      "yesterday": "Вчера"
+    },
+    "kpi": {
+      "cost_label": "Стоимость · {{period}}",
+      "tokens_label": "Токены · {{period}}",
+      "run_time_label": "Время выполнения · {{period}}",
+      "tasks_label": "Запуски · {{period}}"
+    },
+    "errors": {
+      "kpi_failed_label": "Запуски с ошибкой · {{period}}",
+      "kpi_rate_label": "Доля ошибок · {{period}}",
+      "kpi_agents_label": "Затронуто агентов · {{period}}"
     }
   }
 }

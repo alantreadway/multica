@@ -92,6 +92,13 @@ import {
   planForRange,
 } from "../history-range";
 import { dashboardTimeRanges } from "./dashboard-shared";
+import {
+  agPeriodDays,
+  agPeriodEndOffset,
+  agPeriodHistoryDays,
+  YESTERDAY,
+  type AgPeriod,
+} from "../../common/ag_period";
 
 // Stable references — `data ?? []` would create a new empty array on
 // every render while the query is loading, which breaks useMemo's
@@ -178,6 +185,7 @@ function useDataFreshness(
  */
 export function DashboardPage() {
   const { t, i18n } = useT("usage");
+  const { t: tAg } = useT("ag");
   const wsId = useWorkspaceId();
   const viewTZ = useViewingTimezone();
   const navigation = useNavigation();
@@ -185,10 +193,21 @@ export function DashboardPage() {
   // What the reader picked. The page reads `days`, the longest range the plan
   // covers up to that pick (MUL-9490), derived rather than written back so an
   // upgrade restores the pick.
-  const [selectedDays, setSelectedDays] = useState<TimeRange>(30);
+  const [selectedPeriod, setSelectedPeriod] = useState<AgPeriod<TimeRange>>(30);
   const history = useDashboardHistoryLimit(wsId);
   const ranges = dashboardTimeRanges(useFeatureEnabled(DASHBOARD_HISTORY_365D_FLAG, false));
-  const days = effectiveRange(selectedDays, history.maxDays, ranges);
+  // AG patch: Yesterday reads two days of history, so a limit under two days
+  // moves it to the longest allowed range like any other locked pick.
+  const period: AgPeriod<TimeRange> =
+    selectedPeriod === YESTERDAY && isRangeAllowed(2 as TimeRange, history.maxDays)
+      ? YESTERDAY
+      : effectiveRange(agPeriodDays(selectedPeriod) as TimeRange, history.maxDays, ranges);
+  const days = agPeriodDays(period) as TimeRange;
+  const endOffset = agPeriodEndOffset(period);
+  const periodLabel =
+    period === YESTERDAY
+      ? tAg(($) => $.usage.ag_period.yesterday)
+      : tAg(($) => $.usage.ag_period.days, { days });
   // Every dashboard query waits for the limit and is keyed on it.
   const historyLimit = history.ready ? history.maxDays : undefined;
   const billingEnabled = useFeatureEnabled(BILLING_WORKSPACE_SUBSCRIPTIONS_FLAG, false);
@@ -212,7 +231,7 @@ export function DashboardPage() {
     previousMaxDays.current = history.ready ? history.maxDays : undefined;
     if (!history.ready || previous === undefined || history.maxDays === null) return;
     const tightened = previous === null || history.maxDays < previous;
-    if (!tightened || isRangeAllowed(selectedDays, history.maxDays)) return;
+    if (!tightened || isRangeAllowed(agPeriodHistoryDays(selectedPeriod) as TimeRange, history.maxDays)) return;
     const message = t(($) => $.history_limit.fell_back, { days: history.maxDays });
     if (billingEnabled) {
       toast(message, {
@@ -293,6 +312,7 @@ export function DashboardPage() {
       viewTZ,
       historyLimit,
       squadFilterParam,
+      endOffset,
     ),
   );
   const bySquadQuery = useQuery({
@@ -303,6 +323,7 @@ export function DashboardPage() {
       viewTZ,
       historyLimit,
       squadFilterParam,
+      endOffset,
     ),
     enabled:
       !!wsId &&
@@ -317,6 +338,7 @@ export function DashboardPage() {
       viewTZ,
       historyLimit,
       squadFilterParam,
+      endOffset,
     ),
   );
   const squadRunTimeQuery = useQuery({
@@ -327,6 +349,7 @@ export function DashboardPage() {
       viewTZ,
       historyLimit,
       squadFilterParam,
+      endOffset,
     ),
     enabled:
       !!wsId &&
@@ -361,6 +384,7 @@ export function DashboardPage() {
       viewTZ,
       historyLimit,
       squadFilterParam,
+      endOffset,
     ),
   );
   const failuresBySquadQuery = useQuery({
@@ -371,6 +395,7 @@ export function DashboardPage() {
       viewTZ,
       historyLimit,
       squadFilterParam,
+      endOffset,
     ),
     enabled:
       !!wsId &&
@@ -423,20 +448,34 @@ export function DashboardPage() {
   // both dims so 1d strictly means "today" even at the midnight edge where a
   // wall-clock cutoff would otherwise include yesterday.
   const dailyCutoffIso = useMemo(
-    () => addDaysIso(todayIso(viewTZ), -(days - 1)),
-    [days, viewTZ],
+    () => addDaysIso(todayIso(viewTZ), -(days - 1 + endOffset)),
+    [days, endOffset, viewTZ],
+  );
+  // AG patch: last day in the window, before today for Yesterday.
+  const dailyEndIso = useMemo(
+    () => addDaysIso(todayIso(viewTZ), -endOffset),
+    [endOffset, viewTZ],
   );
   const dailyUsageInWindow = useMemo(
-    () => dailyUsage.filter((u) => u.date >= dailyCutoffIso),
-    [dailyUsage, dailyCutoffIso],
+    () =>
+      dailyUsage.filter(
+        (u) => u.date >= dailyCutoffIso && u.date <= dailyEndIso,
+      ),
+    [dailyUsage, dailyCutoffIso, dailyEndIso],
   );
   const runTimeDailyInWindow = useMemo(
-    () => runTimeDailyRows.filter((r) => r.date >= dailyCutoffIso),
-    [runTimeDailyRows, dailyCutoffIso],
+    () =>
+      runTimeDailyRows.filter(
+        (r) => r.date >= dailyCutoffIso && r.date <= dailyEndIso,
+      ),
+    [runTimeDailyRows, dailyCutoffIso, dailyEndIso],
   );
   const failureDailyInWindow = useMemo(
-    () => failureDailyRows.filter((r) => r.date >= dailyCutoffIso),
-    [failureDailyRows, dailyCutoffIso],
+    () =>
+      failureDailyRows.filter(
+        (r) => r.date >= dailyCutoffIso && r.date <= dailyEndIso,
+      ),
+    [failureDailyRows, dailyCutoffIso, dailyEndIso],
   );
 
   // Loading and empty are per tab: the Usage tab has no reason to wait on the
@@ -676,8 +715,8 @@ export function DashboardPage() {
             </span>
           ) : null}
           <TimeRangeFilter
-            days={days}
-            onChange={setSelectedDays}
+            days={period}
+            onChange={setSelectedPeriod}
             maxDays={history.maxDays}
             planForDays={(range) => planForRange(range, planLimits)}
             onViewPlans={billingEnabled ? viewPlans : null}
@@ -724,7 +763,7 @@ export function DashboardPage() {
                     section uses, expanded to four tiles. */}
                 <div className="grid grid-cols-1 divide-y rounded-lg border bg-card sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
                   <KpiCard
-                    label={t(($) => $.kpi.cost_label, { days })}
+                    label={tAg(($) => $.usage.kpi.cost_label, { period: periodLabel })}
                     value={<CurrencyNumberFlow value={totals.cost} locales={locales} />}
                     hint={
                       selectedSquad
@@ -738,7 +777,7 @@ export function DashboardPage() {
                     }
                   />
                   <KpiCard
-                    label={t(($) => $.kpi.tokens_label, { days })}
+                    label={tAg(($) => $.usage.kpi.tokens_label, { period: periodLabel })}
                     value={
                       <CompactNumberFlow
                         value={
@@ -756,7 +795,7 @@ export function DashboardPage() {
                     })}
                   />
                   <KpiCard
-                    label={t(($) => $.kpi.run_time_label, { days })}
+                    label={tAg(($) => $.usage.kpi.run_time_label, { period: periodLabel })}
                     value={
                       <DurationNumberFlow
                         seconds={runTimeTotals.totalSeconds}
@@ -769,7 +808,7 @@ export function DashboardPage() {
                     })}
                   />
                   <KpiCard
-                    label={t(($) => $.kpi.tasks_label, { days })}
+                    label={tAg(($) => $.usage.kpi.tasks_label, { period: periodLabel })}
                     value={
                       <NumberFlow
                         value={runTimeTotals.taskCount}
@@ -827,7 +866,7 @@ export function DashboardPage() {
               <DashboardSkeleton />
             ) : (
               <ErrorsTab
-                days={days}
+                period={periodLabel}
                 allowedDims={allowedDims}
                 totals={failureTotals}
                 classRows={failureClassRows}

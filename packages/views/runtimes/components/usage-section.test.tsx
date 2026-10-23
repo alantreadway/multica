@@ -5,12 +5,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import type { AgentRuntime } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
+import enAg from "../../locales/en/ag.json";
 import enCommon from "../../locales/en/common.json";
 import enRuntimes from "../../locales/en/runtimes.json";
 import enUsage from "../../locales/en/usage.json";
 
 const TEST_RESOURCES = {
-  en: { common: enCommon, runtimes: enRuntimes, usage: enUsage },
+  en: { ag: enAg, common: enCommon, runtimes: enRuntimes, usage: enUsage },
 };
 
 // The viewer's tz (Viewing layer) drives both the trend and the heatmap.

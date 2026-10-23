@@ -1,5 +1,6 @@
 import { keepPreviousData, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { agFetchWindow, agWindowKey } from "./ag_closed-window";
 import type { DashboardRequestParams } from "../api/client";
 import {
   DashboardHistoryLimitTightenedError,
@@ -30,7 +31,7 @@ type DashboardKeyPart =
 const dashboardKey = (
   wsId: string,
   part: DashboardKeyPart,
-  days: number,
+  days: number | string,
   projectId: string | null,
   tz: string,
   historyLimit: DashboardHistoryLimitParam = null,
@@ -52,7 +53,7 @@ export const dashboardKeys = {
   ) => dashboardKey(wsId, "daily", days, projectId, tz, historyLimit, squadId),
   byAgent: (
     wsId: string,
-    days: number,
+    days: number | string,
     projectId: string | null,
     tz: string,
     historyLimit?: DashboardHistoryLimitParam,
@@ -60,7 +61,7 @@ export const dashboardKeys = {
   ) => dashboardKey(wsId, "by-agent", days, projectId, tz, historyLimit, squadId),
   bySquad: (
     wsId: string,
-    days: number,
+    days: number | string,
     projectId: string | null,
     tz: string,
     historyLimit?: DashboardHistoryLimitParam,
@@ -68,7 +69,7 @@ export const dashboardKeys = {
   ) => dashboardKey(wsId, "by-squad", days, projectId, tz, historyLimit, squadId),
   agentRuntime: (
     wsId: string,
-    days: number,
+    days: number | string,
     projectId: string | null,
     tz: string,
     historyLimit?: DashboardHistoryLimitParam,
@@ -76,7 +77,7 @@ export const dashboardKeys = {
   ) => dashboardKey(wsId, "agent-runtime", days, projectId, tz, historyLimit, squadId),
   squadRuntime: (
     wsId: string,
-    days: number,
+    days: number | string,
     projectId: string | null,
     tz: string,
     historyLimit?: DashboardHistoryLimitParam,
@@ -100,7 +101,7 @@ export const dashboardKeys = {
   ) => dashboardKey(wsId, "failures-daily", days, projectId, tz, historyLimit, squadId),
   failuresByAgent: (
     wsId: string,
-    days: number,
+    days: number | string,
     projectId: string | null,
     tz: string,
     historyLimit?: DashboardHistoryLimitParam,
@@ -108,7 +109,7 @@ export const dashboardKeys = {
   ) => dashboardKey(wsId, "failures-by-agent", days, projectId, tz, historyLimit, squadId),
   failuresBySquad: (
     wsId: string,
-    days: number,
+    days: number | string,
     projectId: string | null,
     tz: string,
     historyLimit?: DashboardHistoryLimitParam,
@@ -153,7 +154,7 @@ type DashboardFetcher<T> = (params: DashboardRequestParams) => Promise<T[]>;
 // page was open, and reportDashboardHistoryLimit refreshes it. A response cut
 // to a stricter limit than its key fails the query rather than caching rows
 // that cover less than the key says.
-function dashboardOptions<T>(
+function dashboardOptions<T extends object>(
   part: DashboardKeyPart,
   fetcher: DashboardFetcher<T>,
   wsId: string,
@@ -162,22 +163,36 @@ function dashboardOptions<T>(
   tz: string,
   historyLimit: DashboardHistoryLimitParam,
   squadId: string | null = null,
+  endOffset = 0,
 ) {
-  const queryKey = dashboardKey(wsId, part, days, projectId, tz, historyLimit, squadId);
+  const queryKey = dashboardKey(
+    wsId,
+    part,
+    agWindowKey(days, endOffset),
+    projectId,
+    tz,
+    historyLimit,
+    squadId,
+  );
   return queryOptions({
     queryKey,
     queryFn: async ({ client }: { client: QueryClient }) => {
       const requestedUnder = historyLimit ?? null;
       let served: number | null | undefined;
-      const rows = await fetcher({
+      const rows = await agFetchWindow(
+        (d) =>
+          fetcher({
+            days: d,
+            project_id: projectId ?? undefined,
+            squad_id: squadId ?? undefined,
+            tz,
+            onHistoryLimit: (limit) => {
+              served = limit;
+            },
+          }),
         days,
-        project_id: projectId ?? undefined,
-        squad_id: squadId ?? undefined,
-        tz,
-        onHistoryLimit: (limit) => {
-          served = limit;
-        },
-      });
+        endOffset,
+      );
       if (served !== undefined) {
         reportDashboardHistoryLimit(client, wsId, requestedUnder, served);
         // Rows cut to a stricter limit than this key promises must not be
@@ -229,6 +244,7 @@ export function dashboardUsageByAgentOptions(
   tz: string,
   historyLimit: DashboardHistoryLimitParam,
   squadId: string | null = null,
+  endOffset = 0,
 ) {
   return dashboardOptions(
     "by-agent",
@@ -239,6 +255,7 @@ export function dashboardUsageByAgentOptions(
     tz,
     historyLimit,
     squadId,
+    endOffset,
   );
 }
 
@@ -249,6 +266,7 @@ export function dashboardUsageBySquadOptions(
   tz: string,
   historyLimit: DashboardHistoryLimitParam,
   squadId: string | null = null,
+  endOffset = 0,
 ) {
   return dashboardOptions(
     "by-squad",
@@ -259,6 +277,7 @@ export function dashboardUsageBySquadOptions(
     tz,
     historyLimit,
     squadId,
+    endOffset,
   );
 }
 
@@ -269,6 +288,7 @@ export function dashboardAgentRunTimeOptions(
   tz: string,
   historyLimit: DashboardHistoryLimitParam,
   squadId: string | null = null,
+  endOffset = 0,
 ) {
   return dashboardOptions(
     "agent-runtime",
@@ -279,6 +299,7 @@ export function dashboardAgentRunTimeOptions(
     tz,
     historyLimit,
     squadId,
+    endOffset,
   );
 }
 
@@ -289,6 +310,7 @@ export function dashboardSquadRunTimeOptions(
   tz: string,
   historyLimit: DashboardHistoryLimitParam,
   squadId: string | null = null,
+  endOffset = 0,
 ) {
   return dashboardOptions(
     "squad-runtime",
@@ -299,6 +321,7 @@ export function dashboardSquadRunTimeOptions(
     tz,
     historyLimit,
     squadId,
+    endOffset,
   );
 }
 
@@ -349,6 +372,7 @@ export function dashboardFailuresByAgentOptions(
   tz: string,
   historyLimit: DashboardHistoryLimitParam,
   squadId: string | null = null,
+  endOffset = 0,
 ) {
   return dashboardOptions(
     "failures-by-agent",
@@ -359,6 +383,7 @@ export function dashboardFailuresByAgentOptions(
     tz,
     historyLimit,
     squadId,
+    endOffset,
   );
 }
 
@@ -369,6 +394,7 @@ export function dashboardFailuresBySquadOptions(
   tz: string,
   historyLimit: DashboardHistoryLimitParam,
   squadId: string | null = null,
+  endOffset = 0,
 ) {
   return dashboardOptions(
     "failures-by-squad",
@@ -379,5 +405,6 @@ export function dashboardFailuresBySquadOptions(
     tz,
     historyLimit,
     squadId,
+    endOffset,
   );
 }
