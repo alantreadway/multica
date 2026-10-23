@@ -56,6 +56,14 @@
       "idle": "空闲",
       "draining_hint": "不再领取新任务，运行中的任务会执行完毕。",
       "idle_hint": "已排空且没有运行中的任务，可安全重启或升级。"
+    },
+    "usage": {
+      "ag_period_days": "{{days}} 天",
+      "ag_period_yesterday": "昨天",
+      "ag_cost_by_agent_single_day": "单日的按智能体费用请在“统计”页面查看。",
+      "kpi_cost_label": "费用 · {{period}}",
+      "kpi_cache_label": "缓存节省 · {{period}}",
+      "kpi_tokens_label": "Token · {{period}}"
     }
   },
   "layout": {
@@ -81,6 +89,23 @@
       "actions": {
         "reorder": "调整 {{name}} 的顺序"
       }
+    }
+  },
+  "usage": {
+    "ag_period": {
+      "days": "{{days}}天",
+      "yesterday": "昨天"
+    },
+    "kpi": {
+      "cost_label": "费用 · {{period}}",
+      "tokens_label": "Token · {{period}}",
+      "run_time_label": "耗时 · {{period}}",
+      "tasks_label": "运行数 · {{period}}"
+    },
+    "errors": {
+      "kpi_failed_label": "失败运行 · {{period}}",
+      "kpi_rate_label": "失败率 · {{period}}",
+      "kpi_agents_label": "受影响智能体 · {{period}}"
     }
   }
 }
