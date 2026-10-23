@@ -125,6 +125,13 @@ func agQuotaReplay(t *testing.T, observer func(json.RawMessage), fixture string)
 
 func agQuotaClaimAll(t *testing.T, d *Daemon) {
 	t.Helper()
+	// These tests are about the hold, not the pacing cap, so the limiter starts
+	// at Max instead of the cold-start floor.
+	d.agPace.mu.Lock()
+	if l := &d.agPace.accountLocked(agQuotaAccountKey(nil)).limiter; !l.set {
+		*l = agPaceLimiter{cap: d.cfg.MaxConcurrentTasks, set: true}
+	}
+	d.agPace.mu.Unlock()
 	if _, err := d.agQuotaClaim(context.Background(), "daemon-test", []string{"rt-claude", "rt-codex", "rt-claude-b"}, 2); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -154,7 +161,7 @@ func TestAGPatchQuotaHoldsClaudeClaims(t *testing.T) {
 			t.Fatalf("before any event the claim should list every runtime, got %v", got)
 		}
 
-		observer := d.agQuotaObserver(Task{ID: "t1"}, "claude", nil)
+		observer := agQuotaObs(d, Task{ID: "t1"}, "claude", nil)
 		if n := agQuotaReplay(t, observer, "claude-code-rate-limit-rejected.jsonl"); n != 1 {
 			t.Fatalf("replayed %d events, want 1", n)
 		}
@@ -182,7 +189,7 @@ func TestAGPatchQuotaHoldsClaudeClaims(t *testing.T) {
 		s := newAGQuotaClaimServer(t)
 		clock := &agQuotaClock{t: agQuotaResets.Add(-time.Hour)}
 		d := newAGQuotaDaemon(t, s.URL, filepath.Join(t.TempDir(), "ag_quota.json"), clock)
-		agQuotaReplay(t, d.agQuotaObserver(Task{ID: "t1"}, "claude", nil), "claude-code-rate-limit-rejected.jsonl")
+		agQuotaReplay(t, agQuotaObs(d, Task{ID: "t1"}, "claude", nil), "claude-code-rate-limit-rejected.jsonl")
 
 		res, err := d.agQuotaClaim(context.Background(), "daemon-test", []string{"rt-claude", "rt-claude-b"}, 2)
 		if err != nil || len(res.Tasks) != 0 {
@@ -198,8 +205,8 @@ func TestAGPatchQuotaHoldsClaudeClaims(t *testing.T) {
 		s := newAGQuotaClaimServer(t)
 		clock := &agQuotaClock{t: agQuotaResets.Add(-time.Hour)}
 		d := newAGQuotaDaemon(t, s.URL, filepath.Join(t.TempDir(), "ag_quota.json"), clock)
-		agQuotaReplay(t, d.agQuotaObserver(Task{ID: "t1"}, "claude", nil), "claude-code-2.1.299-rate-limit-allowed.jsonl")
-		if obs := d.agQuotaObserver(Task{ID: "t2"}, "codex", nil); obs != nil {
+		agQuotaReplay(t, agQuotaObs(d, Task{ID: "t1"}, "claude", nil), "claude-code-2.1.299-rate-limit-allowed.jsonl")
+		if obs := agQuotaObs(d, Task{ID: "t2"}, "codex", nil); obs != nil {
 			t.Fatal("a Codex run must get no observer")
 		}
 		agQuotaClaimAll(t, d)
@@ -222,7 +229,7 @@ func TestAGPatchQuotaHoldsClaudeClaims(t *testing.T) {
 		clock := &agQuotaClock{t: agQuotaResets.Add(-time.Hour)}
 		d := newAGQuotaDaemon(t, s.URL, filepath.Join(t.TempDir(), "ag_quota.json"), clock)
 		other := filepath.Join(t.TempDir(), "other-claude")
-		agQuotaReplay(t, d.agQuotaObserver(Task{ID: "t1"}, "claude", map[string]string{"CLAUDE_CONFIG_DIR": other}), "claude-code-rate-limit-rejected.jsonl")
+		agQuotaReplay(t, agQuotaObs(d, Task{ID: "t1"}, "claude", map[string]string{"CLAUDE_CONFIG_DIR": other}), "claude-code-rate-limit-rejected.jsonl")
 
 		agQuotaClaimAll(t, d)
 		if got := s.claimed(); len(got) != 1 || len(got[0]) != 3 {
@@ -240,7 +247,7 @@ func TestAGPatchQuotaClearOverridesHold(t *testing.T) {
 	s := newAGQuotaClaimServer(t)
 	clock := &agQuotaClock{t: agQuotaResets.Add(-time.Hour)}
 	d := newAGQuotaDaemon(t, s.URL, filepath.Join(t.TempDir(), "ag_quota.json"), clock)
-	observer := d.agQuotaObserver(Task{ID: "t1"}, "claude", nil)
+	observer := agQuotaObs(d, Task{ID: "t1"}, "claude", nil)
 	agQuotaReplay(t, observer, "claude-code-rate-limit-rejected.jsonl")
 
 	post := func() map[string]int {
@@ -293,7 +300,7 @@ func TestAGPatchQuotaHoldSurvivesRestart(t *testing.T) {
 	clock := &agQuotaClock{t: agQuotaResets.Add(-time.Hour)}
 
 	first := newAGQuotaDaemon(t, s.URL, statePath, clock)
-	agQuotaReplay(t, first.agQuotaObserver(Task{ID: "t1"}, "claude", nil), "claude-code-rate-limit-rejected.jsonl")
+	agQuotaReplay(t, agQuotaObs(first, Task{ID: "t1"}, "claude", nil), "claude-code-rate-limit-rejected.jsonl")
 
 	t.Run("AG patch: a fresh daemon on the same state file starts held", func(t *testing.T) {
 		second := newAGQuotaDaemon(t, s.URL, statePath, clock)
@@ -353,7 +360,7 @@ func TestAGPatchQuotaFailPolicy(t *testing.T) {
 		return newAGQuotaDaemon(t, s.URL, path, clock), clock, path
 	}
 	send := func(d *Daemon, raw string) {
-		d.agQuotaObserver(Task{ID: "t"}, "claude", nil)(json.RawMessage(raw))
+		agQuotaObs(d, Task{ID: "t"}, "claude", nil)(json.RawMessage(raw))
 	}
 	held := func(d *Daemon) *agQuotaHold {
 		_, h := d.agQuotaDefaultHold()
@@ -556,7 +563,7 @@ func TestAGPatchQuotaRetryNotBefore(t *testing.T) {
 	d := newAGQuotaDaemon(t, srv.URL, filepath.Join(t.TempDir(), "ag_quota.json"), clock)
 
 	t.Run("AG patch: the fail body carries the resetsAt of the rejected event the run saw", func(t *testing.T) {
-		agQuotaReplay(t, d.agQuotaObserver(Task{ID: "quota-t1"}, "claude", nil), "claude-code-rate-limit-rejected.jsonl")
+		agQuotaReplay(t, agQuotaObs(d, Task{ID: "quota-t1"}, "claude", nil), "claude-code-rate-limit-rejected.jsonl")
 		body := fail("quota-t1")
 		if body["ag_retry_not_before"] != agQuotaResets.Format(time.RFC3339) {
 			t.Fatalf("body = %v", body)
@@ -567,7 +574,7 @@ func TestAGPatchQuotaRetryNotBefore(t *testing.T) {
 	})
 
 	t.Run("AG patch: a run that saw only allowed events, or none, sends no hint", func(t *testing.T) {
-		agQuotaReplay(t, d.agQuotaObserver(Task{ID: "quota-t2"}, "claude", nil), "claude-code-2.1.299-rate-limit-allowed.jsonl")
+		agQuotaReplay(t, agQuotaObs(d, Task{ID: "quota-t2"}, "claude", nil), "claude-code-2.1.299-rate-limit-allowed.jsonl")
 		if body := fail("quota-t2"); body["ag_retry_not_before"] != nil {
 			t.Fatalf("body = %v", body)
 		}
@@ -579,7 +586,7 @@ func TestAGPatchQuotaRetryNotBefore(t *testing.T) {
 	t.Run("AG patch: a rejection with no usable resetsAt sends no hint", func(t *testing.T) {
 		// A separate account, so no resetsAt seen earlier fills the gap.
 		env := map[string]string{"CLAUDE_CONFIG_DIR": filepath.Join(t.TempDir(), "unknown-reset")}
-		d.agQuotaObserver(Task{ID: "quota-t4"}, "claude", env)(json.RawMessage(`{"status":"rejected","rateLimitType":"five_hour"}`))
+		agQuotaObs(d, Task{ID: "quota-t4"}, "claude", env)(json.RawMessage(`{"status":"rejected","rateLimitType":"five_hour"}`))
 		if body := fail("quota-t4"); body["ag_retry_not_before"] != nil {
 			t.Fatalf("body = %v", body)
 		}
@@ -614,7 +621,7 @@ func TestAGPatchQuotaHealthAndStatus(t *testing.T) {
 	})
 
 	t.Run("AG patch: /health reports the hold, windows and last seen", func(t *testing.T) {
-		agQuotaReplay(t, d.agQuotaObserver(Task{ID: "t1"}, "claude", nil), "claude-code-rate-limit-rejected.jsonl")
+		agQuotaReplay(t, agQuotaObs(d, Task{ID: "t1"}, "claude", nil), "claude-code-rate-limit-rejected.jsonl")
 		quota, _ := agDrainHealthJSON(t, d)["claude_quota"].(map[string]any)
 		if quota == nil || quota["held"] != true {
 			t.Fatalf("claude_quota = %v", quota)
@@ -650,7 +657,7 @@ func TestAGPatchQuotaHoldInPollLoop(t *testing.T) {
 		d.agQuota.now = clock.now
 		d.agQuota.path = filepath.Join(t.TempDir(), "ag_quota.json")
 		ran := agDrainCompletingRunner(d)
-		agQuotaReplay(t, d.agQuotaObserver(Task{ID: "t0"}, "claude", nil), "claude-code-rate-limit-rejected.jsonl")
+		agQuotaReplay(t, agQuotaObs(d, Task{ID: "t0"}, "claude", nil), "claude-code-rate-limit-rejected.jsonl")
 
 		wakeups := make(chan taskWakeup, 8)
 		startAGDrainPollLoop(t, d, wakeups)
@@ -667,4 +674,12 @@ func TestAGPatchQuotaHoldInPollLoop(t *testing.T) {
 		d.agQuotaClear()
 		waitFor(t, func() bool { return ran.Load() == 1 && s.completed.Load() == 1 }, "queued task to run after quota clear")
 	})
+}
+
+// agQuotaObs returns a run's observer with its pacing count already ended, so
+// tests of the hold do not leave a Claude run counted in flight.
+func agQuotaObs(d *Daemon, task Task, provider string, env map[string]string) func(json.RawMessage) {
+	observe, done := d.agQuotaObserver(task, provider, env)
+	done()
+	return observe
 }
