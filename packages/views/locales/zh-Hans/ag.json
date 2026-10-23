@@ -49,5 +49,22 @@
       "draining_hint": "不再领取新任务，运行中的任务会执行完毕。",
       "idle_hint": "已排空且没有运行中的任务，可安全重启或升级。"
     }
+  },
+  "layout": {
+    "agent_status": {
+      "agents_other": "{{count}} 个智能体",
+      "running": "{{count}} 个运行中",
+      "queued": "{{count}} 个排队中",
+      "none": "没有运行中的智能体",
+      "none_queued": "没有运行中的智能体 · {{count}} 个排队中",
+      "unknown": "智能体状态尚未加载",
+      "draining": "排空中 · {{running}} 个运行中",
+      "draining_unknown": "排空中",
+      "drained": "已排空 · 可安全重启",
+      "hover_runtimes_header": "排空中的运行时",
+      "hover_runtime_draining": "{{name}} · {{running}} 个运行中",
+      "hover_runtime_draining_unknown": "{{name}} · 排空中",
+      "hover_runtime_drained": "{{name}} · 已排空"
+    }
   }
 }
