@@ -123,7 +123,7 @@ func TestRuntimeAccessGatesQueuedTaskClaims(t *testing.T) {
 			if err != nil {
 				t.Fatalf("list singular candidates: %v", err)
 			}
-			batchCandidates, err := q.ListQueuedClaimCandidatesByRuntimes(ctx, []pgtype.UUID{fixture.runtimeID})
+			batchCandidates, err := q.ListQueuedClaimCandidatesByRuntimes(ctx, db.ListQueuedClaimCandidatesByRuntimesParams{RuntimeIds: []pgtype.UUID{fixture.runtimeID}})
 			if err != nil {
 				t.Fatalf("list batch candidates: %v", err)
 			}
