@@ -31,7 +31,8 @@ import type { ChildProgress } from "./list-row";
 import { IssueActionsContextMenu } from "../actions";
 import { runConfirmIntent } from "../actions/run-confirm-gate";
 import { JumpToLaneChip } from "./ag-jump-to-lane-chip";
-import { LabelChip } from "../../labels/label-chip";
+import { AgLabelRow } from "../../labels/ag-label-row";
+import { normalizeLabelDisplay } from "@multica/core/issues/stores/ag-label-display";
 import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
 import { CustomStatusChip, useIsCustomStatus } from "./custom-status-chip";
 import { IssueBlockedMarker } from "./issue-blockers";
@@ -116,7 +117,8 @@ export const BoardCardContent = memo(function BoardCardContent({
   const showProject =
     storeProperties.project && cardGrouping !== "project" && project;
   const showChildProgress = storeProperties.childProgress && childProgress;
-  const showLabels = storeProperties.labels && labels.length > 0;
+  const labelDisplay = normalizeLabelDisplay(storeProperties.labels);
+  const showLabels = labelDisplay !== "off" && labels.length > 0;
   const pullRequests = useIssuePullRequestSummaries(issue.id, storeProperties.pullRequests);
   const showPullRequests = storeProperties.pullRequests && pullRequests.length > 0;
   // Keeps the chip row from rendering an empty flex container when the status
@@ -247,14 +249,7 @@ export const BoardCardContent = memo(function BoardCardContent({
               <span className="truncate">{project!.title}</span>
             </span>
           )}
-          {showLabels && labels.slice(0, 2).map((label) => (
-            <LabelChip key={label.id} label={label} />
-          ))}
-          {showLabels && labels.length > 2 && (
-            <span className="text-micro text-muted-foreground">
-              +{labels.length - 2}
-            </span>
-          )}
+          {showLabels && <AgLabelRow labels={labels} display={labelDisplay} />}
           {showPullRequests && (
             <IssuePullRequestChips pullRequests={pullRequests} max={2} insideLink />
           )}

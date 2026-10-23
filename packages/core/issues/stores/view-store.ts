@@ -32,6 +32,7 @@ export {
   type IssueRelationFilter,
   type NegatableFilterDimension,
 };
+import { DEFAULT_LABEL_DISPLAY, normalizeCardPropertiesLabels, type LabelDisplay } from "./ag-label-display";
 
 export type ViewMode = "board" | "list" | "table" | "gantt" | "swimlane" | "tree";
 export type GanttZoom = "day" | "week" | "month";
@@ -135,9 +136,12 @@ export interface CardProperties {
   dueDate: boolean;
   project: boolean;
   childProgress: boolean;
-  labels: boolean;
+  labels: LabelDisplay;
   pullRequests: boolean;
 }
+
+/** The `CardProperties` keys that are plain on/off toggles. */
+export type BooleanCardPropertyKey = Exclude<keyof CardProperties, "labels">;
 
 export interface ActorFilterValue {
   type: "member" | "agent" | "squad";
@@ -239,14 +243,13 @@ export const GROUPING_OPTIONS: { value: StaticIssueGrouping; label: string }[] =
   { value: "project", label: "Project" },
 ];
 
-export const CARD_PROPERTY_OPTIONS: { key: keyof CardProperties; label: string }[] = [
+export const CARD_PROPERTY_OPTIONS: { key: BooleanCardPropertyKey; label: string }[] = [
   { key: "priority", label: "Priority" },
   { key: "description", label: "Description" },
   { key: "assignee", label: "Assignee" },
   { key: "startDate", label: "Start date" },
   { key: "dueDate", label: "Due date" },
   { key: "project", label: "Project" },
-  { key: "labels", label: "Labels" },
   { key: "childProgress", label: "Sub-issue progress" },
   { key: "pullRequests", label: "Pull requests" },
 ];
@@ -259,7 +262,7 @@ export const DEFAULT_CARD_PROPERTIES: Readonly<CardProperties> = {
   dueDate: true,
   project: true,
   childProgress: true,
-  labels: false,
+  labels: DEFAULT_LABEL_DISPLAY,
   pullRequests: false,
 };
 
@@ -443,7 +446,8 @@ export interface IssueViewState {
   resetFiltersTo: (snapshot: FilterSnapshot) => void;
   setSortBy: (field: SortField) => void;
   setSortDirection: (dir: SortDirection) => void;
-  toggleCardProperty: (key: keyof CardProperties) => void;
+  toggleCardProperty: (key: BooleanCardPropertyKey) => void;
+  setLabelDisplay: (labels: LabelDisplay) => void;
   toggleCardPropertyId: (propertyId: string) => void;
   toggleShowSubIssues: () => void;
   toggleListCollapsed: (status: IssueStatus) => void;
@@ -736,6 +740,8 @@ export const viewStoreSlice = (set: StoreApi<IssueViewState>["setState"]): Issue
         [key]: !state.cardProperties[key],
       },
     })),
+  setLabelDisplay: (labels) =>
+    set((state) => ({ cardProperties: { ...state.cardProperties, labels } })),
   toggleCardPropertyId: (propertyId) =>
     set((state) => ({
       cardPropertyIds: state.cardPropertyIds.includes(propertyId)
@@ -926,10 +932,10 @@ export function mergeViewStatePersisted<T extends IssueViewState>(
     ...p,
     hiddenStatuses: statusesFromStorage(p.hiddenStatuses ?? legacy?.hiddenStatusCategories, current.hiddenStatuses, p.hiddenStatuses === undefined),
     listCollapsedStatuses: statusesFromStorage(p.listCollapsedStatuses, current.listCollapsedStatuses, p.hiddenStatuses === undefined),
-    cardProperties: {
-      ...current.cardProperties,
-      ...(p.cardProperties ?? {}),
-    },
+    cardProperties: normalizeCardPropertiesLabels(
+      { ...current.cardProperties, ...(p.cardProperties ?? {}) },
+      current.cardProperties.labels,
+    ),
     sortDirections: {
       ...current.sortDirections,
       ...persistedSortDirections,

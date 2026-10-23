@@ -100,6 +100,8 @@ import { PropertyIcon } from "../../common/property-icon";
 import { sortDirectionLabelKey } from "../utils/sort-direction";
 import { SORT_LABEL_KEY } from "../utils/sort-label";
 import { LabelChip } from "../../labels/label-chip";
+import { AgLabelDisplayControl } from "../../labels/ag-label-display-control";
+import { normalizeLabelDisplay } from "@multica/core/issues/stores/ag-label-display";
 import {
   GROUPING_OPTIONS,
   SWIMLANE_GROUPINGS,
@@ -2008,14 +2010,13 @@ export function IssueDisplayControls({
     project: "group_project",
     assignee: "group_assignee",
   };
-  const CARD_PROPERTY_LABEL_KEY: Record<typeof CARD_PROPERTY_OPTIONS[number]["key"], "card_priority" | "card_description" | "card_assignee" | "card_start_date" | "card_due_date" | "card_project" | "card_labels" | "card_child_progress" | "card_pull_requests"> = {
+  const CARD_PROPERTY_LABEL_KEY: Record<typeof CARD_PROPERTY_OPTIONS[number]["key"], "card_priority" | "card_description" | "card_assignee" | "card_start_date" | "card_due_date" | "card_project" | "card_child_progress" | "card_pull_requests"> = {
     priority: "card_priority",
     description: "card_description",
     assignee: "card_assignee",
     startDate: "card_start_date",
     dueDate: "card_due_date",
     project: "card_project",
-    labels: "card_labels",
     childProgress: "card_child_progress",
     pullRequests: "card_pull_requests",
   };
@@ -2454,6 +2455,9 @@ export function IssueDisplayControls({
                         <span className="truncate">{property.name}</span>
                       </DisplayChip>
                     ))}
+                  </div>
+                  <div className="mt-2">
+                    <AgLabelDisplayControl value={normalizeLabelDisplay(cardProperties.labels)} onChange={act.setLabelDisplay} />
                   </div>
                 </div>
               )}

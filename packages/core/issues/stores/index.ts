@@ -62,6 +62,7 @@ export {
   type SortField,
   type SortDirection,
   type CardProperties,
+  type BooleanCardPropertyKey,
   type ActorFilterValue,
   type IssueViewState,
   type TableSystemColumnKey,
@@ -70,6 +71,13 @@ export {
   type TableGrouping,
   type TableCalculation,
 } from "./view-store";
+export {
+  LABEL_DISPLAY_VALUES,
+  DEFAULT_LABEL_DISPLAY,
+  normalizeLabelDisplay,
+  normalizeCardPropertiesLabels,
+  type LabelDisplay,
+} from "./ag-label-display";
 export {
   ISSUE_SURFACE_VIEW_STORAGE_KEY,
   getIssueSurfaceViewStore,
