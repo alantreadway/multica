@@ -764,6 +764,9 @@ type GithubPullRequest struct {
 	ChecksRollupState   pgtype.Text        `json:"checks_rollup_state"`
 	SnapshotHeadSha     string             `json:"snapshot_head_sha"`
 	SnapshotFetchedAt   pgtype.Timestamptz `json:"snapshot_fetched_at"`
+	ReviewDecision      pgtype.Text        `json:"review_decision"`
+	LatestReviews       []byte             `json:"latest_reviews"`
+	BaseRefName         pgtype.Text        `json:"base_ref_name"`
 }
 
 type GithubPullRequestCheckRun struct {
@@ -775,6 +778,7 @@ type GithubPullRequestCheckRun struct {
 	Conclusion      pgtype.Text `json:"conclusion"`
 	DetailsUrl      pgtype.Text `json:"details_url"`
 	IsStatusContext bool        `json:"is_status_context"`
+	IsRequired      pgtype.Bool `json:"is_required"`
 }
 
 type GithubPullRequestCheckSuite struct {
