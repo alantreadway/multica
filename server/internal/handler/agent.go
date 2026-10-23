@@ -400,6 +400,7 @@ type AgentTaskResponse struct {
 	// Restricted marks a run on an issue in a private project the caller
 	// cannot see (MUL-8472): only identity, status, timing and usage remain.
 	Restricted bool `json:"restricted,omitempty"`
+	AGIssuePriority string `json:"ag_issue_priority,omitempty"` // AG patch: urgent-only claim filter
 
 	StartClaimSupported      bool                   `json:"start_claim_supported,omitempty"`
 	CancelledByCommentChange bool                   `json:"cancelled_by_comment_change,omitempty"`

@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/agclaim"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
@@ -1610,6 +1611,7 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	// in the WS path and would be redundant noise on the HTTP path where the
 	// caller already knows which runtime it asked about.
 	resp := map[string]any{"status": ack.Status}
+	agAddCapabilitiesToHeartbeatResp(resp, ack) // AG patch: urgent-only claim filter
 	if ack.PendingUpdate != nil {
 		resp["pending_update"] = ack.PendingUpdate
 	}
@@ -1803,6 +1805,7 @@ func (h *Handler) processHeartbeat(ctx context.Context, runtimeID string, suppor
 		RuntimeID:          runtimeID,
 		Status:             "ok",
 		ServerCapabilities: []string{protocol.DaemonCapabilityRPCV1},
+		AGCapabilities:     agclaim.Capabilities(), // AG patch: urgent-only claim filter
 	}
 
 	probeUpdateCtx, cancelProbeUpdate := context.WithTimeout(ctx, heartbeatHasPendingTimeout)
@@ -2147,9 +2150,15 @@ func (h *Handler) ClaimTasksByRuntime(w http.ResponseWriter, r *http.Request) {
 		// before (TTL fallback). Parsed defensively; ids not in the authorized set
 		// are dropped.
 		ForceRecheckRuntimeIDs []string `json:"force_recheck_runtime_ids"`
+
+		AGMinIssuePriority map[string]string `json:"ag_min_issue_priority"` // AG patch: urgent-only claim filter
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	claimCtx, ok := agClaimContext(w, r, req.AGMinIssuePriority) // AG patch: urgent-only claim filter
+	if !ok {
 		return
 	}
 
@@ -2291,7 +2300,7 @@ func (h *Handler) ClaimTasksByRuntime(w http.ResponseWriter, r *http.Request) {
 		forceRecheck = append(forceRecheck, ruid)
 	}
 
-	claimed, forceRechecked, err := h.TaskService.ClaimTasksForRuntimes(r.Context(), authorized, maxTasks, forceRecheck...)
+	claimed, forceRechecked, err := h.TaskService.ClaimTasksForRuntimes(claimCtx, authorized, maxTasks, forceRecheck...)
 	if err != nil {
 		slog.Warn("claim tasks failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to claim tasks")
@@ -3233,6 +3242,7 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		// also being told them, and a run that does not still needs them for
 		// workflow step 3 ("is it already in progress", "is it mine").
 		resp.IssueStatus = issue.Status
+		resp.AGIssuePriority = issue.Priority // AG patch: urgent-only claim filter
 		if issue.AssigneeType.Valid {
 			resp.IssueAssigneeType = issue.AssigneeType.String
 		}
