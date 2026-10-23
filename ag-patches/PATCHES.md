@@ -42,6 +42,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 
 | # | Patch | Status | Overlapping upstream | Fit | Likelihood | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
+| 6 | Tree-ordered parent lanes | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open, adjacent, no reviews, last touched 2026-07-07) | Medium: improves a shipped view | Medium | Feature Request, after reading #2966. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -73,6 +74,51 @@ Fork code stays out of upstream files where it can, so a rebase conflicts less:
   helpers) rather than writing its own, so an upstream change to how the
   component loads shows up in both. Export the helper from the upstream test
   file only if there is no other way; that is an upstream-file edit to list.
+
+### Tree-ordered parent lanes (landed)
+
+Swimlane view groups by parent issue and orders lanes as a tree, so sub-issue
+lanes sit under their parent lane. Status: landed in
+[#2](https://github.com/alantreadway/multica/pull/2).
+
+- Test prefix: `AG patch:`
+- Files:
+  - `packages/views/issues/components/swimlane-tree.ts` (new)
+  - `packages/views/issues/components/swimlane-tree.test.ts` (new)
+  - `packages/views/issues/components/swimlane-band.ts` (new)
+  - `packages/views/issues/components/swimlane-band.test.ts` (new)
+  - `packages/views/issues/components/ag-swimlane-lane-header.tsx` (new: the
+    header's ancestor path and hidden sub-lane count)
+  - `packages/views/issues/components/swimlane-view.tsx` (hooks)
+  - `packages/views/issues/components/swimlane-view.tree-lanes.ag.test.tsx` (new)
+  - `packages/core/issues/queries.ts` (append only),
+    `queries.tree-lanes.ag.test.ts` (new)
+  - The `ag` i18n namespace: `packages/views/locales/ag.ts`,
+    `locales/{en,fr,ja,ko,zh-Hans,zh-Hant}/ag.json`, `i18n/ag-resources-types.ts` (new);
+    one hook line in `locales/index.ts` and in `i18n/resources-types.ts`
+    (`ag:issues.swimlane`)
+
+Nesting is shown by an alternating band, not an indent: every root lane and its
+sub-lanes share one band (`data-lane-band="odd|even"`, odd tinted with
+`bg-muted/60`), consecutive roots alternate, and the pinned lanes (No parent,
+Other parents) have none and don't count. The band tints the header row and
+the gutters; each cell sits on an opaque `bg-background` underlay, so the band
+never shows through the cells. Lane headers all start at the same
+x; a nested header shows `↳ <parent identifier>` with the full path in the
+tooltip. Lanes inside one tree sit `pt-2` apart, a new root `pt-4`. Non-parent
+groupings are unchanged. `SwimlaneTreeInfo` gained `rootRawId` and
+`rootOrdinal`. Rollback: switch the web image back.
+
+- Upstream:
+  - Status: `candidate`.
+  - Overlap: the swimlane view and its parent grouping are upstream
+    ([#3149](https://github.com/multica-ai/multica/pull/3149) merged; request [#2951](https://github.com/multica-ai/multica/issues/2951) closed).
+    Upstream `main` has no tree ordering of parent lanes. Open [#2966](https://github.com/multica-ai/multica/pull/2966)
+    (hierarchy views, last touched 2026-07-07) adds a separate tree view and
+    parent context instead of ordering lanes, so it is adjacent, not a duplicate.
+  - Fit: a small improvement to a shipped view, no new surface or dependency.
+    `VISION.md` says nothing about views. It is feature work, so it goes through
+    a Feature Request first, after reading #2966 so we don't race it.
 
 ## Tooling (not a patch)
 

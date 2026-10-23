@@ -74,6 +74,10 @@ import type {
   IssueGroupBranches,
   IssueGroupPageState,
 } from "../surface/use-issue-group-branches";
+import { hiddenLaneKeys, type SwimlaneTreeInfo } from "./swimlane-tree";
+import { laneBand, laneBandClass, laneGapClass } from "./swimlane-band";
+import { AgLaneAncestorPath, AgSubLanesHidden } from "./ag-swimlane-lane-header";
+import { useSwimlaneTreeLanes } from "./use-swimlane-tree";
 
 const COLUMN_WIDTH = 280;
 const COLUMN_GAP = 16;
@@ -250,6 +254,8 @@ interface LaneGroup {
   total?: number;
   /** Opaque compound row keys by concrete status. */
   serverCellKeys?: Partial<Record<IssueStatus, string>>;
+  /** Tree position (parent grouping only) — set by `useSwimlaneTreeLanes`. */
+  tree?: SwimlaneTreeInfo;
 }
 
 const EMPTY_PROGRESS_MAP = new Map<string, ChildProgress>();
@@ -806,7 +812,7 @@ function SwimLaneViewImpl({
     return filteredExtra.length === 0 ? issues : [...issues, ...filteredExtra];
   }, [groupBranches?.enabled, swimlaneGrouping, issues, perParentChildrenLists, subscribedParentIds, batchChildrenMap, activeFilters]);
 
-  const laneGroups = useMemo<LaneGroup[]>(() => {
+  const baseLaneGroups = useMemo<LaneGroup[]>(() => {
     if (groupBranches?.enabled) {
       return buildServerLanes(
         groupBranches.descriptors,
@@ -841,6 +847,20 @@ function SwimLaneViewImpl({
     projectMap,
     sortedStatuses,
   ]);
+
+  // Parent grouping: order lanes as a tree (sub-issue lane under its parent's).
+  const treeSourceIssues = useMemo(
+    () => [...laneSourceIssues, ...mergedIssues],
+    [laneSourceIssues, mergedIssues],
+  );
+  const laneGroups: LaneGroup[] = useSwimlaneTreeLanes({
+    lanes: baseLaneGroups,
+    enabled: swimlaneGrouping === "parent",
+    serverLanes: !!groupBranches?.enabled,
+    wsId,
+    loadedIssues: treeSourceIssues,
+    storedOrder: swimlaneOrder,
+  });
 
   // For parent grouping: issues that are themselves lane headers should not
   // also appear as cards (that would be a double-render). Other groupings
@@ -978,6 +998,11 @@ function SwimLaneViewImpl({
     },
     [viewStoreApi, swimlaneGrouping],
   );
+  // Sub-lanes of a collapsed lane are hidden with it.
+  const hiddenKeys = useMemo(
+    () => hiddenLaneKeys(laneGroups, collapsedLanes),
+    [laneGroups, collapsedLanes],
+  );
 
   const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
   // The outer scroll box is the customScrollParent for the lane Virtuoso.
@@ -1039,11 +1064,13 @@ function SwimLaneViewImpl({
     peek?.publishColumns(
       sortedStatuses.map((status) =>
         laneGroups.flatMap((lane) =>
-          collapsedLanes.has(lane.key) ? [] : (localCells[lane.key]?.[status] ?? []),
+          collapsedLanes.has(lane.key) || hiddenKeys.has(lane.key)
+            ? []
+            : (localCells[lane.key]?.[status] ?? []),
         ),
       ),
     );
-  }, [peek, sortedStatuses, laneGroups, collapsedLanes, localCells]);
+  }, [peek, sortedStatuses, laneGroups, collapsedLanes, hiddenKeys, localCells]);
   useEffect(() => () => peek?.publishColumns(null), [peek]);
 
   const collisionDetection = useMemo(
@@ -1349,9 +1376,9 @@ function SwimLaneViewImpl({
   const orderedLanes = useMemo(
     () => [
       ...laneGroups.filter((g) => g.isPinned),
-      ...laneGroups.filter((g) => !g.isPinned),
+      ...laneGroups.filter((g) => !g.isPinned && !hiddenKeys.has(g.key)),
     ],
-    [laneGroups],
+    [laneGroups, hiddenKeys],
   );
   const nonPinnedLaneIds = useMemo(
     () =>
@@ -1394,7 +1421,7 @@ function SwimLaneViewImpl({
 
   const computeLaneKey = (_index: number, lane: LaneGroup) => lane.key;
   const renderLane = (index: number, lane: LaneGroup) => (
-    <div className={index === 0 ? undefined : "pt-4"}>
+    <div className={laneGapClass(index, lane.tree)}>
       <DraggableSwimLane
         lane={lane}
         grouping={swimlaneGrouping}
@@ -1639,8 +1666,21 @@ function DraggableSwimLane({
     );
   }, 0);
 
+  const depth = lane.tree?.depth ?? 0;
+  const band = laneBand(lane.tree);
+
   return (
-    <div ref={setNodeRef} style={style} className={`flex flex-col ${isDragging ? "opacity-50" : ""}`}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      data-lane-depth={depth}
+      data-lane-band={band ?? undefined}
+      className={cn(
+        "flex flex-col",
+        isDragging && "opacity-50",
+        band && laneBandClass(band),
+      )}
+    >
       {/* Non-interactive container — the inner collapse button and any
           ancillary links (e.g. open-parent) are independent controls so we
           don't nest an <a> inside a <button>. The drag listeners attach
@@ -1682,6 +1722,7 @@ function DraggableSwimLane({
               size="sm"
             />
           )}
+          <AgLaneAncestorPath tree={lane.tree} />
           <span className="truncate text-body font-semibold">{lane.title}</span>
           {lane.identifier && (
             <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-micro font-medium tabular-nums text-muted-foreground">
@@ -1691,6 +1732,7 @@ function DraggableSwimLane({
           <span className="shrink-0 text-caption tabular-nums text-muted-foreground">
             {laneTotal}
           </span>
+          <AgSubLanesHidden tree={lane.tree} isCollapsed={isCollapsed} />
         </button>
         {lane.parentIssue && (
           <DeferredTooltip
@@ -1808,7 +1850,10 @@ function SwimLaneCell({
   }, [status, lane, projectId, onCreateIssue]);
 
   return (
-    <div className={`flex min-h-[120px] flex-col rounded-xl ${cfg?.columnBg ?? "bg-muted/40"} p-2`}>
+    // Opaque underlay: the status tints are translucent, so without it an
+    // odd lane band would show through and tint the cell differently.
+    <div data-swimlane-cell="" className="flex rounded-xl bg-background">
+    <div className={`flex min-h-[120px] min-w-0 flex-1 flex-col rounded-xl ${cfg?.columnBg ?? "bg-muted/40"} p-2`}>
       <div
         ref={setNodeRef}
         className={`flex-1 space-y-2 rounded-sm p-1 transition-colors ${
@@ -1863,6 +1908,7 @@ function SwimLaneCell({
           }
         />
       )}
+    </div>
     </div>
   );
 }
