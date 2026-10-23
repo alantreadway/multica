@@ -52,5 +52,25 @@
       "draining_hint": "Не берёт новые запуски. Текущие запуски будут доведены до конца.",
       "idle_hint": "Работа завершена, запусков нет. Можно перезапустить или обновить."
     }
+  },
+  "layout": {
+    "agent_status": {
+      "agents_one": "{{count}} агент",
+      "agents_other": "{{count}} агента",
+      "agents_few": "{{count}} агента",
+      "agents_many": "{{count}} агентов",
+      "running": "Выполняется: {{count}}",
+      "queued": "В очереди: {{count}}",
+      "none": "Нет работающих агентов",
+      "none_queued": "Нет работающих агентов · в очереди: {{count}}",
+      "unknown": "Статус агентов не загружен",
+      "draining": "Завершает работу · выполняется: {{running}}",
+      "draining_unknown": "Завершает работу",
+      "drained": "Работа завершена · можно перезапустить",
+      "hover_runtimes_header": "Среды выполнения, завершающие работу",
+      "hover_runtime_draining": "{{name}} · выполняется: {{running}}",
+      "hover_runtime_draining_unknown": "{{name}} · завершает работу",
+      "hover_runtime_drained": "{{name}} · работа завершена"
+    }
   }
 }

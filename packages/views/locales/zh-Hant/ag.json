@@ -49,5 +49,22 @@
       "draining_hint": "不再領取新任務，執行中的任務會執行完畢。",
       "idle_hint": "已排空且沒有執行中的任務，可安全重啟或升級。"
     }
+  },
+  "layout": {
+    "agent_status": {
+      "agents_other": "{{count}} 個智慧體",
+      "running": "{{count}} 個執行中",
+      "queued": "{{count}} 個排隊中",
+      "none": "沒有執行中的智慧體",
+      "none_queued": "沒有執行中的智慧體 · {{count}} 個排隊中",
+      "unknown": "智慧體狀態尚未載入",
+      "draining": "排空中 · {{running}} 個執行中",
+      "draining_unknown": "排空中",
+      "drained": "已排空 · 可安全重啟",
+      "hover_runtimes_header": "排空中的執行時",
+      "hover_runtime_draining": "{{name}} · {{running}} 個執行中",
+      "hover_runtime_draining_unknown": "{{name}} · 排空中",
+      "hover_runtime_drained": "{{name}} · 已排空"
+    }
   }
 }

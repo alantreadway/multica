@@ -50,5 +50,23 @@
       "draining_hint": "No acepta tareas nuevas. Las tareas en curso terminarán.",
       "idle_hint": "Vaciado sin tareas en curso. Se puede reiniciar o actualizar."
     }
+  },
+  "layout": {
+    "agent_status": {
+      "agents_one": "{{count}} agente",
+      "agents_other": "{{count}} agentes",
+      "running": "{{count}} en curso",
+      "queued": "{{count}} en cola",
+      "none": "Ningún agente en curso",
+      "none_queued": "Ningún agente en curso · {{count}} en cola",
+      "unknown": "Estado de los agentes sin cargar",
+      "draining": "Vaciando · {{running}} en curso",
+      "draining_unknown": "Vaciando",
+      "drained": "Vaciado · se puede reiniciar",
+      "hover_runtimes_header": "Runtimes vaciándose",
+      "hover_runtime_draining": "{{name}} · {{running}} en curso",
+      "hover_runtime_draining_unknown": "{{name}} · vaciando",
+      "hover_runtime_drained": "{{name}} · vaciado"
+    }
   }
 }

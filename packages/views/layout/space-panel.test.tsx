@@ -15,6 +15,7 @@ vi.mock("./panels/work-panel", () => ({
   KeptRowsRelease: () => null,
 }));
 vi.mock("./panels/team-panel", () => ({ TeamPanel: () => <div data-testid="team-panel" /> }));
+vi.mock("./agent-status-indicator", () => ({ AgentStatusPanelFooter: () => null }));
 vi.mock("./panels/autopilots-panel", () => ({
   AutopilotsPanel: () => <div data-testid="autopilots-panel" />,
 }));
