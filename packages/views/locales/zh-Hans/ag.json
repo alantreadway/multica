@@ -64,6 +64,33 @@
       "kpi_cost_label": "费用 · {{period}}",
       "kpi_cache_label": "缓存节省 · {{period}}",
       "kpi_tokens_label": "Token · {{period}}"
+    },
+    "quota": {
+      "title": "Claude 配额",
+      "five_hour": "5 小时",
+      "seven_day": "7 天",
+      "resets": "{{time}} 重置",
+      "hold": "暂停至 {{time}}",
+      "cap": "最多同时运行 {{cap}} / {{max}}",
+      "pace": "Claude 限速",
+      "pace_off_note": "已关闭：Claude 按最大并发运行，直到触及额度上限。",
+      "on_backup": "正在使用备用账号",
+      "backup_title": "备用账号",
+      "backup_ready": "就绪",
+      "backup_not_found": "未找到",
+      "backup_invalid": "已找到但无效",
+      "reason": {
+        "not_logged_in": "未登录",
+        "same_account": "与主账号相同",
+        "check_failed": "检查失败",
+        "unknown": "原因未知"
+      },
+      "backup_enable": "使用备用账号",
+      "backup_urgent_only": "备用账号上只运行紧急任务。",
+      "backup_max": "最大并发数",
+      "backup_urgent_now": "紧急任务立即使用备用账号",
+      "backup_urgent_now_note": "至 {{time}}：不限速，最多按上方的最大并发数运行。",
+      "save_failed": "无法保存备用账号设置"
     }
   },
   "layout": {
@@ -80,7 +107,14 @@
       "hover_runtimes_header": "排空中的运行时",
       "hover_runtime_draining": "{{name}} · {{running}} 个运行中",
       "hover_runtime_draining_unknown": "{{name}} · 排空中",
-      "hover_runtime_drained": "{{name}} · 已排空"
+      "hover_runtime_drained": "{{name}} · 已排空",
+      "backup_urgent": "备用账号 · 仅限紧急",
+      "quota_hold": "Claude 暂停至 {{time}}",
+      "quota_paced_week": "Claude 限速：{{cap}}/{{max}} · 每周 {{percent}}%",
+      "quota_paced_session": "Claude 限速：{{cap}}/{{max}} · 5 小时 {{percent}}%",
+      "quota_paced_unknown": "Claude 限速：{{cap}}/{{max}}",
+      "quota_pace_off": "Claude 限速已关闭",
+      "quota_urgent_backup": "紧急任务使用备用账号至 {{time}}"
     }
   },
   "settings": {

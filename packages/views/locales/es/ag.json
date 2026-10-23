@@ -65,6 +65,33 @@
       "kpi_cost_label": "Coste · {{period}}",
       "kpi_cache_label": "Ahorro de caché · {{period}}",
       "kpi_tokens_label": "Tokens · {{period}}"
+    },
+    "quota": {
+      "title": "Cuota de Claude",
+      "five_hour": "5 horas",
+      "seven_day": "7 días",
+      "resets": "se restablece {{time}}",
+      "hold": "En espera hasta {{time}}",
+      "cap": "Ejecutando hasta {{cap}} de {{max}}",
+      "pace": "Dosificar las ejecuciones de Claude",
+      "pace_off_note": "Desactivado: Claude ejecuta hasta el máximo hasta que el límite de cuota lo detiene.",
+      "on_backup": "Ejecutando en la cuenta de respaldo",
+      "backup_title": "Cuenta de respaldo",
+      "backup_ready": "Lista",
+      "backup_not_found": "No encontrada",
+      "backup_invalid": "Encontrada pero no válida",
+      "reason": {
+        "not_logged_in": "Sin sesión iniciada",
+        "same_account": "Es la misma cuenta que la principal",
+        "check_failed": "La comprobación ha fallado",
+        "unknown": "Motivo desconocido"
+      },
+      "backup_enable": "Usar la cuenta de respaldo",
+      "backup_urgent_only": "Solo las tareas urgentes se ejecutan en la cuenta de respaldo.",
+      "backup_max": "Máximo simultáneo",
+      "backup_urgent_now": "Tareas urgentes en la cuenta de respaldo ahora",
+      "backup_urgent_now_note": "Hasta {{time}}: sin dosificar, hasta el máximo indicado arriba.",
+      "save_failed": "No se ha podido guardar la configuración de respaldo"
     }
   },
   "layout": {
@@ -82,7 +109,14 @@
       "hover_runtimes_header": "Runtimes vaciándose",
       "hover_runtime_draining": "{{name}} · {{running}} en curso",
       "hover_runtime_draining_unknown": "{{name}} · vaciando",
-      "hover_runtime_drained": "{{name}} · vaciado"
+      "hover_runtime_drained": "{{name}} · vaciado",
+      "backup_urgent": "Cuenta de respaldo · solo urgentes",
+      "quota_hold": "Claude en espera hasta {{time}}",
+      "quota_paced_week": "Claude dosificado: {{cap}} de {{max}} · semanal {{percent}} %",
+      "quota_paced_session": "Claude dosificado: {{cap}} de {{max}} · 5 horas {{percent}} %",
+      "quota_paced_unknown": "Claude dosificado: {{cap}} de {{max}}",
+      "quota_pace_off": "Dosificación de Claude desactivada",
+      "quota_urgent_backup": "Urgentes en la cuenta de respaldo hasta {{time}}"
     }
   },
   "settings": {
