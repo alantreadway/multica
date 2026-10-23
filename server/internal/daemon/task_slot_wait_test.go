@@ -128,7 +128,7 @@ func TestRunBatchPollerDirectoryWaitReleasesExecutionCapacity(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var taskWG sync.WaitGroup
-	sem := newTaskSlotSemaphore(2)
+	sem := newTestSlots(t, 2)
 	pollDone := make(chan struct{})
 	go func() {
 		defer close(pollDone)
@@ -226,8 +226,8 @@ func TestDirectoryWaitCancellationWhileReacquiringSlot(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(releaseHolder)
-			slots := newTaskSlotSemaphore(1)
-			lease := newTaskSlotLease(slots, <-slots, nil)
+			slots := newTestSlots(t, 1)
+			lease := newTaskSlotLease(slots, takeSlot(t, slots), nil)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			type result struct {
@@ -255,10 +255,10 @@ func TestDirectoryWaitCancellationWhileReacquiringSlot(t *testing.T) {
 			case <-time.After(3 * time.Second):
 				t.Fatal("task did not enter the directory wait")
 			}
-			var occupied int
-			select {
-			case occupied = <-slots:
-			case <-time.After(3 * time.Second):
+			takeCtx, takeCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			occupied, takeErr := slots.waitTake(takeCtx)
+			takeCancel()
+			if takeErr != nil {
 				t.Fatal("directory wait did not release its execution slot")
 			}
 			releaseHolder()
@@ -302,10 +302,10 @@ func TestDirectoryWaitCancellationWhileReacquiringSlot(t *testing.T) {
 				t.Errorf("resource wait count = %d after cancellation", n)
 			}
 			lease.release()
-			if len(slots) != 0 {
+			if freeSlots(slots) != 0 {
 				t.Fatal("cancelled waiter returned another task's execution slot")
 			}
-			slots <- occupied
+			slots.release(occupied)
 			if mode == "server cancellation" {
 				if len(failReasons) != 0 {
 					t.Fatal("server-cancelled task received another failure report")
@@ -345,8 +345,8 @@ func TestDirectoryFastPathsRetainExecutionSlot(t *testing.T) {
 				task.ProjectResources = nil
 			}
 			d := &Daemon{cfg: Config{DaemonID: "daemon"}, localPathLocks: NewLocalPathLocker(), logger: slog.New(slog.NewTextHandler(noopWriter{}, nil))}
-			slots := newTaskSlotSemaphore(1)
-			lease := newTaskSlotLease(slots, <-slots, nil)
+			slots := newTestSlots(t, 1)
+			lease := newTaskSlotLease(slots, takeSlot(t, slots), nil)
 			release, abort := d.acquireLocalDirectoryLockIfNeeded(context.Background(), task, d.logger, lease)
 			if release != nil {
 				defer release()
@@ -354,14 +354,14 @@ func TestDirectoryFastPathsRetainExecutionSlot(t *testing.T) {
 			if abort {
 				t.Fatal("uncontended task aborted")
 			}
-			if len(slots) != 0 || lease.index != 0 {
+			if freeSlots(slots) != 0 || lease.index != 0 {
 				t.Fatal("uncontended or exempt task returned its execution slot")
 			}
 			if (release != nil) != (mode == "direct") {
 				t.Fatalf("path lock held=%v for %s", release != nil, mode)
 			}
 			lease.release()
-			if len(slots) != 1 {
+			if freeSlots(slots) != 1 {
 				t.Fatal("task did not return its slot on completion")
 			}
 		})
@@ -397,8 +397,8 @@ func TestDirectDirectoryWaitDoesNotBlockWorktreeSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	slots := newTaskSlotSemaphore(1)
-	lease := newTaskSlotLease(slots, <-slots, nil)
+	slots := newTestSlots(t, 1)
+	lease := newTaskSlotLease(slots, takeSlot(t, slots), nil)
 	directDone := make(chan bool, 1)
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -421,17 +421,15 @@ func TestDirectDirectoryWaitDoesNotBlockWorktreeSnapshot(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("Direct task did not park behind the initial directory holder")
 	}
-	var snapshotSlot int
-	select {
-	case snapshotSlot = <-slots:
-	case <-ctx.Done():
+	snapshotSlot, takeErr := slots.waitTake(ctx)
+	if takeErr != nil {
 		t.Fatal("Direct waiter did not return its execution capacity")
 	}
 	snapshotDone := make(chan error, 1)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer func() { slots <- snapshotSlot }()
+		defer func() { slots.release(snapshotSlot) }()
 		select {
 		case <-waitingCapacity:
 		case <-ctx.Done():
@@ -453,7 +451,7 @@ func TestDirectDirectoryWaitDoesNotBlockWorktreeSnapshot(t *testing.T) {
 	if abort := <-directDone; abort || ctx.Err() != nil {
 		t.Fatal("Direct task did not reacquire its directory and capacity after the snapshot")
 	}
-	if got := len(slots); got != 1 {
+	if got := freeSlots(slots); got != 1 {
 		t.Fatalf("free slots after mixed-mode preparation = %d, want 1", got)
 	}
 }

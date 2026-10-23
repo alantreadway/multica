@@ -39,6 +39,9 @@ func newGCTestDaemon(t *testing.T, handler http.Handler) *Daemon {
 	d := New(cfg, slog.Default())
 	d.client = NewClient(srv.URL)
 	d.client.SetToken("test-token")
+	// Heavy GC probes the machine slot dir; keep it off the real config root so
+	// a live daemon's slots cannot change the result.
+	d.agSlotDir = t.TempDir()
 	return d
 }
 
