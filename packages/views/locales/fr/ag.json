@@ -65,6 +65,29 @@
       "kpi_cost_label": "Coût · {{period}}",
       "kpi_cache_label": "Économies de cache · {{period}}",
       "kpi_tokens_label": "Tokens · {{period}}"
+    },
+    "quota": {
+      "title": "Quota Claude",
+      "five_hour": "5 heures",
+      "seven_day": "7 jours",
+      "resets": "réinitialisation {{time}}",
+      "hold": "En pause jusqu'à {{time}}",
+      "cap": "Jusqu'à {{cap}} sur {{max}} en parallèle",
+      "on_backup": "Sur le compte de secours",
+      "backup_title": "Compte de secours",
+      "backup_ready": "Prêt",
+      "backup_not_found": "Introuvable",
+      "backup_invalid": "Trouvé mais invalide",
+      "reason": {
+        "not_logged_in": "Non connecté",
+        "same_account": "Même compte que le principal",
+        "check_failed": "Échec de la vérification",
+        "unknown": "Raison inconnue"
+      },
+      "backup_enable": "Utiliser le compte de secours",
+      "backup_urgent_only": "Seules les tâches urgentes s'exécutent sur le compte de secours.",
+      "backup_max": "Simultanéité max.",
+      "save_failed": "Impossible d'enregistrer le réglage du compte de secours"
     }
   },
   "layout": {
@@ -82,7 +105,9 @@
       "hover_runtimes_header": "Runtimes en drainage",
       "hover_runtime_draining": "{{name}} · {{running}} en cours",
       "hover_runtime_draining_unknown": "{{name}} · drainage",
-      "hover_runtime_drained": "{{name}} · drainé"
+      "hover_runtime_drained": "{{name}} · drainé",
+      "backup_urgent": "Compte de secours · urgent uniquement",
+      "quota_hold": "Claude en pause jusqu'à {{time}}"
     }
   },
   "settings": {

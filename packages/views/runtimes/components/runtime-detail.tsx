@@ -45,6 +45,7 @@ import { DrainBadge } from "./drain-badge";
 import { HealthBadge } from "./shared";
 import { ProviderLogo } from "./provider-logo";
 import { UsageSection } from "./usage-section";
+import { QuotaSection } from "./quota-section";
 import { DeleteRuntimeDialog } from "./delete-runtime-dialog";
 import {
   RevokeRuntimeAccessDialog,
@@ -202,6 +203,7 @@ export function RuntimeDetail({
               daemonShort={daemonShort}
             />
             {canReadRuntime && <UsageSection runtime={runtime} />}
+            {canReadRuntime && runtime.provider === "claude" && <QuotaSection runtime={runtime} canEdit={!!canEditRuntime} />}
           </div>
 
           {/* Right rail: serving agents + diagnostics */}

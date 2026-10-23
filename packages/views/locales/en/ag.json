@@ -65,6 +65,29 @@
       "kpi_cost_label": "Cost · {{period}}",
       "kpi_cache_label": "Cache savings · {{period}}",
       "kpi_tokens_label": "Tokens · {{period}}"
+    },
+    "quota": {
+      "title": "Claude quota",
+      "five_hour": "5-hour",
+      "seven_day": "7-day",
+      "resets": "resets {{time}}",
+      "hold": "On hold until {{time}}",
+      "cap": "Running up to {{cap}} of {{max}}",
+      "on_backup": "Running on backup",
+      "backup_title": "Backup account",
+      "backup_ready": "Ready",
+      "backup_not_found": "Not found",
+      "backup_invalid": "Found but invalid",
+      "reason": {
+        "not_logged_in": "Not logged in",
+        "same_account": "Same account as the primary",
+        "check_failed": "Check failed",
+        "unknown": "Unknown reason"
+      },
+      "backup_enable": "Use backup account",
+      "backup_urgent_only": "Only urgent issues run on the backup.",
+      "backup_max": "Max concurrent",
+      "save_failed": "Couldn't save the backup setting"
     }
   },
   "layout": {
@@ -82,7 +105,9 @@
       "hover_runtimes_header": "Draining runtimes",
       "hover_runtime_draining": "{{name}} · {{running}} running",
       "hover_runtime_draining_unknown": "{{name}} · draining",
-      "hover_runtime_drained": "{{name}} · drained"
+      "hover_runtime_drained": "{{name}} · drained",
+      "backup_urgent": "Backup account · urgent only",
+      "quota_hold": "Claude on hold until {{time}}"
     }
   },
   "settings": {
