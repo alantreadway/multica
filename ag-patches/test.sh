@@ -74,11 +74,11 @@ pnpm --filter @multica/views typecheck
 
 # --- Go: daemon, CLI, drain-badge and GitHub polling patch guard ------------
 
-AG_GO_MIN_TESTS=1
+AG_GO_MIN_TESTS=60
 
 go_out="$(mktemp)"
 trap 'rm -f "$go_out"' EXIT
-if ! ag_go test ./internal/daemon ./cmd/multica ./internal/daemonws ./internal/agdrain ./pkg/protocol -run '^TestAGPatch' -count=1 -v >"$go_out" 2>&1; then
+if ! ag_go test ./internal/daemon ./internal/daemon/repocache ./cmd/multica ./internal/daemonws ./internal/agdrain ./pkg/protocol -run '^TestAGPatch' -count=1 -v >"$go_out" 2>&1; then
   cat "$go_out"
   echo "ag-patches/test.sh: Go patch tests failed" >&2
   exit 1

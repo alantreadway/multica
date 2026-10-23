@@ -88,6 +88,7 @@ type HealthResponse struct {
 	ReloadPendingReason string            `json:"reload_pending_reason,omitempty"`
 	Workspaces          []healthWorkspace `json:"workspaces"`
 	agDrainHealth                         // AG patch: draining, drain_started_at, idle
+	agHandoffHealth                       // AG patch: handoff, max_concurrent_tasks, active_task_ids
 }
 
 type healthWorkspace struct {
@@ -366,6 +367,7 @@ func (d *Daemon) healthHandler(startedAt time.Time) http.HandlerFunc {
 			ReloadPendingReason: d.reloadPending(),
 			Workspaces:          wsList,
 			agDrainHealth:       d.agDrainHealth(),
+			agHandoffHealth:     d.agHandoffHealth(),
 		}
 		if reporter, ok := d.repoCache.(interface{ Activity() repocache.Activity }); ok {
 			activity := reporter.Activity()
@@ -416,6 +418,7 @@ func (d *Daemon) serveHealth(ctx context.Context, ln net.Listener, startedAt tim
 	mux.HandleFunc("/shutdown", d.shutdownHandler())
 	mux.HandleFunc("/drain", d.agDrainHandler(true))   // AG patch: drain
 	mux.HandleFunc("/resume", d.agDrainHandler(false)) // AG patch: drain
+	mux.HandleFunc("/handoff", d.agHandoffHandler())   // AG patch: handoff
 	mux.HandleFunc("/repo/checkout", d.repoCheckoutHandler())
 
 	srv := &http.Server{Handler: mux}
