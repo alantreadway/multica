@@ -111,13 +111,15 @@ func agQuotaAccountKey(env map[string]string) string {
 }
 
 // agQuotaObserver returns the callback for ExecOptions.AGOnRateLimit, or nil
-// for a provider that is not Claude. It closes over the config dir the run
-// actually uses.
-func (d *Daemon) agQuotaObserver(task Task, provider string, agentEnv map[string]string) func(json.RawMessage) {
+// for a provider that is not Claude, and done, which ends the run's count for
+// pacing (a no-op for a non-Claude run; safe to call twice). It closes over the
+// config dir the run actually uses.
+func (d *Daemon) agQuotaObserver(task Task, provider string, agentEnv map[string]string) (observe func(json.RawMessage), done func()) {
 	if !agQuotaIsClaudeProvider(provider) {
-		return nil
+		return nil, func() {}
 	}
 	account := agQuotaAccountKey(agentEnv)
+	done = d.agPaceRunStart(task.ID, account, d.agQuotaNow())
 	return func(raw json.RawMessage) {
 		ev, err := agent.AGParseRateLimitEvent(raw)
 		if err != nil {
@@ -127,7 +129,15 @@ func (d *Daemon) agQuotaObserver(task Task, provider string, agentEnv map[string
 		if resetsAt, rejected := d.agQuotaObserve(account, ev); rejected && task.ID != "" && !resetsAt.IsZero() {
 			agRecordRetryNotBefore(task.ID, resetsAt, d.agQuotaNow())
 		}
-	}
+	}, done
+}
+
+// agQuotaWire sets the run's rate-limit observer on opts and returns the
+// function that ends its pacing count; runTask defers it.
+func (d *Daemon) agQuotaWire(opts *agent.ExecOptions, task Task, provider string, agentEnv map[string]string) func() {
+	observe, done := d.agQuotaObserver(task, provider, agentEnv)
+	opts.AGOnRateLimit = observe
+	return done
 }
 
 func agQuotaIsClaudeProvider(provider string) bool {
@@ -223,6 +233,7 @@ func (d *Daemon) agQuotaObserve(account string, ev agent.AGRateLimitEvent) (reje
 			d.agQuotaLogger().Info("quota: claude account allowed again; hold with unknown reset released", "account", account)
 		}
 	}
+	d.agPaceObserve(account, acct.Windows, now) // AG patch: pacing
 	d.agQuotaFlushLocked(force)
 	return rejectedResetsAt, rejected
 }
@@ -250,23 +261,97 @@ func (d *Daemon) agQuotaDefaultHold() (account string, hold *agQuotaHold) {
 	return account, hold
 }
 
-// agQuotaClaim is the pollLoop's batch claim. While Claude is held it leaves
-// Claude runtimes out; with none left it returns an empty result without
-// calling the server.
-func (d *Daemon) agQuotaClaim(ctx context.Context, daemonID string, runtimeIDs []string, maxTasks int) (claimTasksResult, error) {
-	if _, hold := d.agQuotaDefaultHold(); hold != nil {
-		kept := make([]string, 0, len(runtimeIDs))
-		for _, id := range runtimeIDs {
-			if !d.agQuotaIsClaudeRuntime(id) {
-				kept = append(kept, id)
-			}
-		}
-		runtimeIDs = kept
-		if len(runtimeIDs) == 0 {
-			return claimTasksResult{}, nil
+// agQuotaDefaultWindows copies the windows of the daemon's own account.
+func (d *Daemon) agQuotaDefaultWindows() map[string]agQuotaWindow {
+	s := &d.agQuota
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d.agQuotaRefreshLocked()
+	out := map[string]agQuotaWindow{}
+	if acct := s.accounts[agQuotaAccountKey(nil)]; acct != nil {
+		for name, w := range acct.Windows {
+			out[name] = w
 		}
 	}
-	return d.claimTasksWSFirst(ctx, daemonID, runtimeIDs, maxTasks)
+	return out
+}
+
+// agQuotaClaim is the pollLoop's batch claim. While Claude is held it leaves
+// Claude runtimes out; with none left it returns an empty result without
+// calling the server. Otherwise Claude runtimes may claim at most cap - active
+// tasks (see ag_quota_pace.go); the rest of the slots go to the other runtimes.
+func (d *Daemon) agQuotaClaim(ctx context.Context, daemonID string, runtimeIDs []string, maxTasks int) (claimTasksResult, error) {
+	account, hold := d.agQuotaDefaultHold()
+	capNow, active := d.agPaceEvaluate(account, d.agQuotaDefaultWindows(), hold != nil, d.cfg.MaxConcurrentTasks, d.agQuotaNow())
+
+	var claude, other []string
+	for _, id := range runtimeIDs {
+		if d.agQuotaIsClaudeRuntime(id) {
+			claude = append(claude, id)
+		} else {
+			other = append(other, id)
+		}
+	}
+	room := capNow - active
+	switch {
+	case len(claude) == 0:
+		// nothing to pace
+	case hold != nil:
+		if len(other) == 0 {
+			return claimTasksResult{}, nil
+		}
+		runtimeIDs = other
+	case room >= maxTasks:
+		// the cap does not bind this claim
+	case room <= 0:
+		if len(other) == 0 {
+			return claimTasksResult{}, nil
+		}
+		runtimeIDs = other
+	default:
+		return d.agQuotaSplitClaim(ctx, daemonID, claude, other, room, maxTasks)
+	}
+	res, err := d.claimTasksWSFirst(ctx, daemonID, runtimeIDs, maxTasks)
+	if err == nil {
+		d.agPaceNoteClaimed(res.Tasks)
+	}
+	return res, err
+}
+
+// agQuotaSplitClaim claims up to room tasks from the Claude runtimes, then fills
+// the remaining slots from the others, and merges the two results.
+func (d *Daemon) agQuotaSplitClaim(ctx context.Context, daemonID string, claude, other []string, room, maxTasks int) (claimTasksResult, error) {
+	res, err := d.claimTasksWSFirst(ctx, daemonID, claude, room)
+	if err != nil {
+		return res, err
+	}
+	d.agPaceNoteClaimed(res.Tasks)
+	rest := maxTasks - len(res.Tasks)
+	if len(other) == 0 || rest <= 0 {
+		return res, nil
+	}
+	more, err := d.claimTasksWSFirst(ctx, daemonID, other, rest)
+	if err != nil {
+		if len(res.Tasks) == 0 {
+			return more, err
+		}
+		// The Claude tasks are already claimed server-side; dispatch them.
+		d.agQuotaLogger().Warn("quota: claim for non-Claude runtimes failed after a Claude claim", "error", err)
+		return res, nil
+	}
+	return agQuotaMergeClaims(res, more), nil
+}
+
+// agQuotaMergeClaims joins two claim results: tasks concatenated, the transport
+// flags ANDed and the earliest deferred-task hint kept.
+func agQuotaMergeClaims(a, b claimTasksResult) claimTasksResult {
+	a.Tasks = append(a.Tasks, b.Tasks...)
+	a.ClaimedOverWS = a.ClaimedOverWS && b.ClaimedOverWS
+	a.ClaimPollHintSupported = a.ClaimPollHintSupported && b.ClaimPollHintSupported
+	if m := b.NextDeferredTaskAfterMillis; m > 0 && (a.NextDeferredTaskAfterMillis <= 0 || m < a.NextDeferredTaskAfterMillis) {
+		a.NextDeferredTaskAfterMillis = m
+	}
+	return a
 }
 
 func (d *Daemon) agQuotaIsClaudeRuntime(id string) bool {
@@ -307,6 +392,9 @@ func (d *Daemon) agQuotaClear() int {
 // agQuotaHealth is embedded in HealthResponse.
 type agQuotaHealth struct {
 	ClaudeQuota *agQuotaHealthInfo `json:"claude_quota,omitempty"`
+	// AGQuota is the pacing block (ag_quota_pace.go); a successor reads
+	// active_claude from the predecessor's.
+	AGQuota *agQuotaPaceInfo `json:"ag_quota,omitempty"`
 }
 
 type agQuotaHealthInfo struct {
@@ -344,6 +432,12 @@ type agQuotaWindowInfo struct {
 }
 
 func (d *Daemon) agQuotaHealth() agQuotaHealth {
+	h := d.agQuotaTrackerHealth()
+	h.AGQuota = d.agPaceHealth()
+	return h
+}
+
+func (d *Daemon) agQuotaTrackerHealth() agQuotaHealth {
 	s := &d.agQuota
 	s.mu.Lock()
 	defer s.mu.Unlock()
