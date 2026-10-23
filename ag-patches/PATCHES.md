@@ -64,6 +64,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 14 | Claude quota tracker and auto-hold (daemon) | `fork-only` (the `rate_limit_event` parsing alone is a `candidate`) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255) (open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC, active 2026-10-19, 6 👍); #8965 closed, #8969 withdrawn | Medium | Low | Add our use case to RFC #6650. |
 | 15 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631) (changes requested, last touched 2026-07-28), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High: upstream's reviewer agreed on #5631 | Low for ours | Help #5631 land, then drop ours. |
 | 16 | Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679) (changes requested), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High | Low for ours | Drop once upstream shows the drain state. |
+| 17 | PR snapshot fields and `pull-requests link` | `fork-only` | [#8145](https://github.com/multica-ai/multica/pull/8145) (open, same CLI commands, different design); [#9279](https://github.com/multica-ai/multica/issues/9279) (closed, fixed by [#9332](https://github.com/multica-ai/multica/pull/9332)) | Low | Low | Upstream dropped GraphQL to avoid the Contents permission, so an offer needs the extras over REST. |
 | 19 | Daemon handoff (overlap mode, machine-wide slot cap) | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, drain-then-stop, not overlap) | Low | Low | None. |
 | 20 | Tree mode org-chart layout | `fork-only` | none beyond the tree view | Low | Low | Only after the outline lands, and only if asked. |
 | 22 | Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (changes requested, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) | None: serves our quota-failover setup | Very low | None. |
@@ -842,6 +843,104 @@ captured yet; that fixture is synthetic.
   - Fit: quota-aware dispatch is operator tooling for self-hosters on a
     subscription plan; the obstacle is the open overlapping work and the missing
     dispatch-gate design, not the vision.
+
+### PR snapshot fields and `pull-requests link` (backend + CLI)
+
+`GET /api/issues/{id}/pull-requests`, and so `multica issue pull-requests <id>
+--output json`, gains what a merge gate needs beyond the existing CI rollup. Per
+PR: `review_decision` (`approved` | `changes_requested` | `review_required` |
+null), `latest_reviews` (`[{author, state, submitted_at}]`, one per reviewer),
+`base_ref_name`, and `checks` (`[{name, status, conclusion, details_url,
+required}]`) with a derived `required_checks_state`: `success` when every
+required check passed (also when no check is required), `failure` when any
+failed, `pending` otherwise, and null when the snapshot has no checks or any
+check lacks required-ness, so missing data never reads as success. All of them
+are null for a PR without a current-head snapshot, which is the existing
+`snapshot_available` rule. Existing fields are unchanged and enums are
+lowercased like the others.
+
+Since `v0.6.4` upstream's snapshot is REST only (#9332: PR, check runs and
+commit statuses, so an App needs no Contents permission), and REST has no
+`reviewDecision` or per-check `isRequired`. The extras come from one GraphQL
+query of their own, run after the REST reads and before upstream's final
+head re-read: `headRefOid`, `baseRefName`, `reviewDecision`,
+`latestReviews(first:20)` and, paginated 100 at a time over the head's
+`statusCheckRollup` contexts, `isRequired(pullRequestNumber:)` on `CheckRun`
+and `StatusContext`. Each REST check takes the `isRequired` of the GraphQL
+context of the same kind and name (duplicates merge to required, then unknown);
+a REST check with no GraphQL counterpart stays unknown, so the rollup is null.
+A rate limit, a cancelled request or a head other than the REST head fails the
+snapshot, as upstream's own fetch does. Any other failure of the extras query
+(a GraphQL error, an HTTP 403 from an App without the permission, a malformed
+or non-advancing page) stores the extras as null and keeps the REST snapshot.
+The extras query still needs the Contents read permission that #9332 removed
+from upstream's fetch; on an App without it, the extras are always null. Migration `573`
+adds nullable `review_decision`, `latest_reviews` (JSONB) and `base_ref_name`
+to `github_pull_request` and `is_required` to `github_pull_request_check_run`:
+additive, no index, no foreign key. The stock backend never reads or writes
+them, so switching the backend image back works against the migrated database.
+`latest_reviews` is capped at 20 entries.
+
+`multica issue pull-requests link <issue> <pr-url>` POSTs to the existing
+`/api/issues/{id}/pull-requests` and prints the issue's PRs;
+`unlink <issue> <pr-url|pr-id>` resolves a URL through the listing, then
+DELETEs. The server only links PRs the workspace already mirrors, so an
+unmirrored PR gets a "has not been mirrored yet" error carrying the server's
+message; other 4xx responses print the server's message. `pull-requests <id>`
+without a subcommand lists as before. No new environment variable: the extras
+ride on whichever GitHub credentials the snapshot pipeline already uses. Needs
+a backend image from `ag-patches/build-backend.sh` and a CLI from
+`ag-patches/build-cli.sh`; see README "GitHub PR snapshot fields and
+`pull-requests link`".
+
+- Test prefix: `TestAGPatch` / `AG patch:`. The hermetic ones (query shape,
+  fixtures for required true/false/null, each `reviewDecision`, pagination with
+  required checks across pages, extras failures that keep or fail the
+  snapshot, the poll token on the REST calls, the rollup, the CLI commands) run
+  in `ag-patches/test.sh`; the DB-backed ones (snapshot write in
+  `server/internal/integrations/ghsnapshot`, list response in
+  `server/internal/handler`) need Postgres (see test.sh header)
+- Files:
+  - `server/migrations/9001_ag_github_pr_snapshot_extras.up.sql`, `.down.sql` (new)
+  - `server/pkg/db/queries/ag_github_snapshot.sql` (new) and
+    `server/pkg/db/generated/ag_github_snapshot.sql.go` (new); `models.go`,
+    `github.sql.go`, `github_snapshot.sql.go` regenerated with sqlc for the new
+    columns
+  - `server/internal/integrations/ghsnapshot/ag_extras.go` (new: the extras
+    query over the token-mode patch's GraphQL client (`ag_graphql.go`),
+    `agFetchSnapshotExtras`, `agApplySnapshotExtras`, `AGRequiredChecksState`),
+    `ag_extras_test.go`, `ag_extras_pagination_test.go`, `ag_extras_db_test.go` (new)
+  - `server/internal/integrations/ghsnapshot/snapshot.go` (`Required` and `AG`
+    fields, one call to `agFetchSnapshotExtras` in `FetchPRSnapshot`),
+    `refresh.go` (one call in `applySnapshot`), `rest_snapshot_test.go` (upstream's
+    test server answers the extras query with a permission error)
+  - `server/internal/handler/ag_pr_snapshot.go` (new: response fields,
+    `agEnrichPullRequests`), `ag_pr_snapshot_test.go` (new)
+  - `server/internal/handler/github.go` (embedded `AGPRSnapshotFields`, one call
+    in `ListPullRequestsForIssue`)
+  - `server/cmd/multica/ag_issue_pull_requests.go` (new: `link`, `unlink`),
+    `ag_issue_pull_requests_test.go` (new)
+  - `ag-patches/test.sh` (adds the ghsnapshot package, `AG_GO_MIN_TESTS=29`)
+
+- Upstream:
+  - Status: `fork-only`. The CLI half is already proposed upstream in a
+    different shape, and the snapshot half is a self-host merge-gate need.
+  - Overlap: [#8145](https://github.com/multica-ai/multica/pull/8145) (open since
+    2026-09-08, last touched 2026-09-09) adds `pull-requests link|unlink` too, but
+    fetches the PR from GitHub and mirrors it on demand (and has `--close-on-merge`);
+    ours only links an already-mirrored PR through the endpoint that exists.
+    Drop our CLI half if #8145 merges and re-check the rest. No upstream issue
+    or PR was found for required-check, review-decision or base-ref fields on
+    the snapshot (searched 2026-10-16). [#9279](https://github.com/multica-ai/multica/issues/9279)
+    (the Cloud GitHub App has no Contents permission, so the GraphQL snapshot
+    never landed) closed on 2026-10-19, fixed by
+    [#9332](https://github.com/multica-ai/multica/pull/9332), the REST rewrite this patch was ported onto.
+  - Fit: the extra fields are small and additive, but upstream's snapshot
+    is a card feature, not an API for gates, and an unmotivated migration is
+    hard to land. Our extras query reads `statusCheckRollup` over GraphQL, the
+    read #9332 removed so that an App needs no Contents permission, so upstream
+    would not take it in this shape: an offer needs the extras over REST.
+    Offer nothing; watch #8145.
 
 ## Tooling (not a patch)
 

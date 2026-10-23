@@ -25,6 +25,9 @@ func snapshotServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 			})
 			return
 		}
+		if agServeExtrasForbidden(w, r) {
+			return
+		}
 		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer ghs_secret" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusUnauthorized)

@@ -122,3 +122,41 @@ func TestAGPatchStaticTokenAuthenticatesGraphQL(t *testing.T) {
 		}
 	})
 }
+
+func TestAGPatchStaticTokenAuthenticatesTheRESTSnapshot(t *testing.T) {
+	t.Run("AG patch: a token client sends its token on every REST snapshot call and the extras query", func(t *testing.T) {
+		log := &authLog{}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			log.add(r)
+			switch r.URL.Path {
+			case "/repos/o/r/pulls/5":
+				writeTestPR(w, "sha1", true, "clean")
+			case "/repos/o/r/commits/sha1/check-runs":
+				_, _ = w.Write([]byte(`{"total_count":0,"check_runs":[]}`))
+			case "/repos/o/r/commits/sha1/status":
+				_, _ = w.Write([]byte(`{"total_count":0,"statuses":[]}`))
+			case "/graphql":
+				_, _ = w.Write([]byte(agExtrasPage(`"baseRefName":"main","reviewDecision":null,"latestReviews":{"nodes":[]},`, false, "", "")))
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		}))
+		defer srv.Close()
+		t.Setenv("GITHUB_APP_ID", "")
+		t.Setenv("GITHUB_POLL_TOKEN", "ghp_secret")
+		c := agStaticTokenClient()
+		c.apiBase = srv.URL
+		snap, err := FetchPRSnapshot(context.Background(), c, 0, "o", "r", 5)
+		if err != nil || !snap.AG.Available || snap.AG.BaseRefName != "main" {
+			t.Fatalf("snapshot = %+v, err = %v", snap, err)
+		}
+		for _, line := range strings.Split(log.joined(), "\n") {
+			if !strings.HasSuffix(line, " Bearer ghp_secret") || strings.Contains(line, "/app/") {
+				t.Fatalf("request without the poll token, or to an App endpoint: %q\nall:\n%s", line, log.joined())
+			}
+		}
+		if n := strings.Count(log.joined(), "\n") + 1; n != 5 {
+			t.Fatalf("requests = %d, want 5 (PR, checks, statuses, extras, PR):\n%s", n, log.joined())
+		}
+	})
+}
