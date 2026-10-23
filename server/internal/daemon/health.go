@@ -87,6 +87,7 @@ type HealthResponse struct {
 	// older consumers see no change. Diagnostic only: nothing keys off it.
 	ReloadPendingReason string            `json:"reload_pending_reason,omitempty"`
 	Workspaces          []healthWorkspace `json:"workspaces"`
+	agDrainHealth                         // AG patch: draining, drain_started_at, idle
 }
 
 type healthWorkspace struct {
@@ -402,6 +403,7 @@ func (d *Daemon) healthHandler(startedAt time.Time) http.HandlerFunc {
 
 			ReloadPendingReason: d.reloadPending(),
 			Workspaces:          wsList,
+			agDrainHealth:       d.agDrainHealth(),
 		}
 		if reporter, ok := d.repoCache.(interface{ Activity() repocache.Activity }); ok {
 			activity := reporter.Activity()
@@ -450,6 +452,8 @@ func (d *Daemon) serveHealth(ctx context.Context, ln net.Listener, startedAt tim
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", d.healthHandler(startedAt))
 	mux.HandleFunc("/shutdown", d.shutdownHandler())
+	mux.HandleFunc("/drain", d.agDrainHandler(true))   // AG patch: drain
+	mux.HandleFunc("/resume", d.agDrainHandler(false)) // AG patch: drain
 	mux.HandleFunc("/repo/checkout", d.repoCheckoutHandler())
 	mux.HandleFunc("/environments/start", d.environmentStartHandler())
 	mux.HandleFunc("/environments/stop", d.environmentStopHandler())
