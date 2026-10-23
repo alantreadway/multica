@@ -26,7 +26,20 @@
       "hidden_ancestors": "Tareas principales ocultas por los filtros actuales",
       "filters_paused": "Los filtros están en pausa mientras hay un enfoque",
       "clear_focus": "Quitar enfoque",
-      "sub_issue_progress": "{{done}} de {{total}} subtareas hechas"
+      "sub_issue_progress": "{{done}} de {{total}} subtareas hechas",
+      "layout_section": "Diseño",
+      "layout_outline": "Esquema",
+      "layout_chart": "Organigrama",
+      "chart_hint": "Céntrate en una tarea para verla como organigrama.",
+      "chart_aria_label": "Organigrama de tareas",
+      "chart_zoom_in": "Acercar",
+      "chart_zoom_out": "Alejar",
+      "chart_fit": "Ajustar a la vista",
+      "chart_reset": "Restablecer",
+      "chart_expand_level": "Mostrar el siguiente nivel",
+      "chart_use_outline": "Cambiar a esquema",
+      "chart_too_many_title": "Demasiadas tareas para dibujar",
+      "chart_too_many_body": "Hay {{count}} tareas abiertas, más de las {{max}} que dibuja el organigrama. Contrae ramas o céntrate en un subárbol más pequeño."
     }
   }
 }
