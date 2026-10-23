@@ -39,6 +39,11 @@
       "chart_use_outline": "切換到大綱",
       "chart_too_many_title": "問題過多，無法繪製",
       "chart_too_many_body": "已展開 {{count}} 個問題，超過組織圖可繪製的 {{max}} 個。請摺疊分支或聚焦到更小的子樹。"
+    },
+    "display": {
+      "labels_off": "關閉",
+      "labels_compact": "緊湊",
+      "labels_full": "完整"
     }
   },
   "runtimes": {
