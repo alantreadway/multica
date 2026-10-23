@@ -543,7 +543,9 @@ func (d *Daemon) applyManagedArtifactFallback(taskDir string, meta *execenv.GCMe
 }
 
 func (d *Daemon) applyLocalDirectoryGCOverride(taskDir string, meta *execenv.GCMeta, action gcAction) gcAction {
-	if !meta.LocalDirectory {
+	// PreservedWorktree gets the same exemption: its worktree/ is the only copy
+	// of the agent's work, and the env root is the only pointer to it.
+	if !meta.LocalDirectory && !meta.PreservedWorktree {
 		return action
 	}
 	if d.localCodexHomeEligible(taskDir, meta) {
