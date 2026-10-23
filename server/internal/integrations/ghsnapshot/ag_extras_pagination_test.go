@@ -1,15 +1,23 @@
 package ghsnapshot
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
 )
 
-// agCheckRunJSON is a CheckRun node whose isRequired is "true", "false" or "null".
+// agCheckRunJSON is an extras-query CheckRun node whose isRequired is "true",
+// "false" or "null".
 func agCheckRunJSON(name, required string) string {
-	return fmt.Sprintf(`{"__typename":"CheckRun","name":%q,"status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"u","isRequired":%s}`, name, required)
+	return fmt.Sprintf(`{"__typename":"CheckRun","name":%q,"isRequired":%s}`, name, required)
+}
+
+func agStatesOf(snap *PRSnapshot) []AGCheckState {
+	states := make([]AGCheckState, 0, len(snap.Contexts))
+	for _, c := range snap.Contexts {
+		states = append(states, AGCheckState{Status: c.Status, Conclusion: c.Conclusion, Required: c.Required})
+	}
+	return states
 }
 
 func TestAGPatchFetchSnapshotPaginatesRequiredChecks(t *testing.T) {
@@ -25,10 +33,12 @@ func TestAGPatchFetchSnapshotPaginatesRequiredChecks(t *testing.T) {
 			}
 			return "false"
 		}
-		var cursors []string
-		srv, queries := agQueryServer(t, func(_ string, vars map[string]any) string {
+		f := &agFakeGitHub{}
+		for i := 0; i < total; i++ {
+			f.runs = append(f.runs, agRun(i+1, fmt.Sprintf("check-%03d", i), "completed", "success"))
+		}
+		f.gql = func(vars map[string]any) string {
 			cursor, _ := vars["cursor"].(string)
-			cursors = append(cursors, cursor)
 			start, end, next := 0, 100, "P2"
 			switch cursor {
 			case "P2":
@@ -37,20 +47,22 @@ func TestAGPatchFetchSnapshotPaginatesRequiredChecks(t *testing.T) {
 				start, end, next = 200, total, ""
 			}
 			var nodes []string
-			for i := start; i < end; i++ {
+			// GraphQL lists the contexts in another order than REST; matching is by name.
+			for i := end - 1; i >= start; i-- {
 				nodes = append(nodes, agCheckRunJSON(fmt.Sprintf("check-%03d", i), requiredFor(i)))
 			}
 			// Later pages repeat the PR fields; only the first page's are used.
-			return agSnapshotPage(agReviewExtras, next != "", next, strings.Join(nodes, ","))
-		})
-		snap, err := FetchPRSnapshot(context.Background(), newTestClient(t, srv.URL), 1, "o", "r", 5)
+			return agExtrasPage(agReviewExtras, next != "", next, strings.Join(nodes, ","))
+		}
+		snap, err := f.fetch(t)
 		if err != nil {
 			t.Fatalf("FetchPRSnapshot: %v", err)
 		}
+		queries, cursors := f.recorded()
 		if got := fmt.Sprint(cursors); got != "[ P2 P3]" {
 			t.Fatalf("cursors = %v, want first page, P2, P3", got)
 		}
-		for i, q := range queries() {
+		for i, q := range queries {
 			if !strings.Contains(q, "isRequired(pullRequestNumber:$number)") {
 				t.Errorf("page %d query lacks isRequired", i)
 			}
@@ -83,41 +95,38 @@ func TestAGPatchFetchSnapshotPaginatesRequiredChecks(t *testing.T) {
 	})
 
 	t.Run("AG patch: a required check on the last page decides the rollup", func(t *testing.T) {
-		srv, _ := agQueryServer(t, func(_ string, vars map[string]any) string {
-			if cursor, _ := vars["cursor"].(string); cursor == "" {
-				return agSnapshotPage("", true, "P2", agCheckRunJSON("first", "false"))
-			}
-			return agSnapshotPage("", false, "",
-				`{"__typename":"CheckRun","name":"gate","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"u","isRequired":true}`)
-		})
-		snap, err := FetchPRSnapshot(context.Background(), newTestClient(t, srv.URL), 1, "o", "r", 5)
+		f := &agFakeGitHub{
+			runs: []map[string]any{agRun(1, "first", "completed", "success"), agRun(2, "gate", "completed", "failure")},
+			gql: func(vars map[string]any) string {
+				if cursor, _ := vars["cursor"].(string); cursor == "" {
+					return agExtrasPage("", true, "P2", agCheckRunJSON("first", "false"))
+				}
+				return agExtrasPage("", false, "", agCheckRunJSON("gate", "true"))
+			},
+		}
+		snap, err := f.fetch(t)
 		if err != nil {
 			t.Fatal(err)
 		}
-		states := make([]AGCheckState, 0, len(snap.Contexts))
-		for _, c := range snap.Contexts {
-			states = append(states, AGCheckState{Status: c.Status, Conclusion: c.Conclusion, Required: c.Required})
-		}
-		if got := AGRequiredChecksState(states); got == nil || *got != "failure" {
+		if got := AGRequiredChecksState(agStatesOf(snap)); got == nil || *got != "failure" {
 			t.Fatalf("rollup = %v, want failure from the page-2 required check", got)
 		}
 	})
 
 	t.Run("AG patch: a response with no isRequired anywhere rolls up to null, not success", func(t *testing.T) {
-		srv, _ := agQueryServer(t, func(string, map[string]any) string {
-			return agSnapshotPage("", false, "",
-				`{"__typename":"CheckRun","name":"a","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"u"},
-				 {"__typename":"StatusContext","context":"b","state":"SUCCESS","targetUrl":"u"}`)
-		})
-		snap, err := FetchPRSnapshot(context.Background(), newTestClient(t, srv.URL), 1, "o", "r", 5)
+		f := &agFakeGitHub{
+			runs:     []map[string]any{agRun(1, "a", "completed", "success")},
+			statuses: []map[string]any{agStatus("b", "success")},
+			gql: func(map[string]any) string {
+				return agExtrasPage("", false, "",
+					`{"__typename":"CheckRun","name":"a"},{"__typename":"StatusContext","context":"b"}`)
+			},
+		}
+		snap, err := f.fetch(t)
 		if err != nil {
 			t.Fatal(err)
 		}
-		states := make([]AGCheckState, 0, len(snap.Contexts))
-		for _, c := range snap.Contexts {
-			states = append(states, AGCheckState{Status: c.Status, Conclusion: c.Conclusion, Required: c.Required})
-		}
-		if got := AGRequiredChecksState(states); got != nil {
+		if got := AGRequiredChecksState(agStatesOf(snap)); got != nil {
 			t.Fatalf("rollup = %q, want null", *got)
 		}
 	})

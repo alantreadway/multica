@@ -149,6 +149,9 @@ func FetchPRSnapshot(ctx context.Context, c *Client, installationID int64, owner
 		snap.Contexts = append(snap.Contexts, CheckContext{Name: entry.Context, Status: status, Conclusion: conclusion, DetailsURL: entry.TargetURL, IsStatusContext: true})
 	}
 
+	if err := c.agFetchSnapshotExtras(ctx, installationID, owner, repo, number, snap); err != nil {
+		return nil, err
+	}
 	latest, err := fetchSnapshotPR(ctx, c, installationID, prPath)
 	if err != nil {
 		return nil, err

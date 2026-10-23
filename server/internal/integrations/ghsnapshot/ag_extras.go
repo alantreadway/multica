@@ -2,14 +2,19 @@ package ghsnapshot
 
 // AG patch: extra PR snapshot fields — per-check required-ness (isRequired),
 // reviewDecision, latestReviews and baseRefName. Kept in this file behind small
-// hooks in snapshot.go, refresh.go and client.go so the patch rebases cleanly.
+// hooks in snapshot.go and refresh.go so the patch rebases cleanly.
 // See ag-patches/PATCHES.md.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -19,22 +24,32 @@ import (
 // so 20 covers any realistic PR.
 const maxAGLatestReviews = 20
 
-// GraphQL fragments spliced into prSnapshotQueryTemplate. The base query (no
-// fragments) is the fallback when GitHub rejects the extended one.
-const (
-	agPRFields            = ` baseRefName reviewDecision latestReviews(first:20){nodes{author{login} state submittedAt}}`
-	agCheckRunFields      = ` isRequired(pullRequestNumber:$number)`
-	agStatusContextFields = ` isRequired(pullRequestNumber:$number)`
-)
-
-// prSnapshotQuery returns the snapshot query, with the AG fields when extras is
-// true.
-func prSnapshotQuery(extras bool) string {
-	if !extras {
-		return fmt.Sprintf(prSnapshotQueryTemplate, "", "", "")
-	}
-	return fmt.Sprintf(prSnapshotQueryTemplate, agPRFields, agCheckRunFields, agStatusContextFields)
-}
+// agExtrasQuery reads the AG fields for the PR head. Upstream's snapshot is
+// REST-only since v0.6.4, and REST has no reviewDecision or per-check
+// isRequired, so the extras come from this one GraphQL query, paginated over the
+// head's check contexts like the pre-v0.6.4 snapshot query was.
+const agExtrasQuery = `query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
+  repository(owner:$owner,name:$repo){
+    pullRequest(number:$number){
+      headRefOid
+      baseRefName
+      reviewDecision
+      latestReviews(first:20){nodes{author{login} state submittedAt}}
+      commits(last:1){nodes{commit{
+        statusCheckRollup{
+          contexts(first:100,after:$cursor){
+            pageInfo{hasNextPage endCursor}
+            nodes{
+              __typename
+              ... on CheckRun{name isRequired(pullRequestNumber:$number)}
+              ... on StatusContext{context isRequired(pullRequestNumber:$number)}
+            }
+          }
+        }
+      }}}
+    }
+  }
+}`
 
 // GraphQLError is a query-level error in a GitHub GraphQL response (HTTP 200
 // with an `errors` array), as opposed to a transport, status or rate-limit
@@ -51,9 +66,9 @@ type AGReview struct {
 }
 
 // AGSnapshotExtras carries the AG fields of a PRSnapshot. Available is false
-// when the extended query was not answered (GitHub or the token rejected it, so
-// the base query ran instead): everything below is then unknown, which is not
-// the same as "no reviews".
+// when the extras query was not answered (GitHub or the credentials rejected
+// it): everything below is then unknown, which is not the same as "no
+// reviews".
 type AGSnapshotExtras struct {
 	Available bool
 	// ReviewDecision is GitHub's raw enum (APPROVED / CHANGES_REQUESTED /
@@ -63,8 +78,8 @@ type AGSnapshotExtras struct {
 	LatestReviews  []AGReview
 }
 
-// agPRExtras is embedded in graphqlPullRequest.
-type agPRExtras struct {
+type agExtrasPullRequest struct {
+	HeadRefOid     string  `json:"headRefOid"`
 	BaseRefName    *string `json:"baseRefName"`
 	ReviewDecision *string `json:"reviewDecision"`
 	LatestReviews  *struct {
@@ -76,12 +91,29 @@ type agPRExtras struct {
 			SubmittedAt string `json:"submittedAt"`
 		} `json:"nodes"`
 	} `json:"latestReviews"`
+	Commits struct {
+		Nodes []struct {
+			Commit struct {
+				StatusCheckRollup *struct {
+					Contexts struct {
+						PageInfo struct {
+							HasNextPage bool   `json:"hasNextPage"`
+							EndCursor   string `json:"endCursor"`
+						} `json:"pageInfo"`
+						Nodes []struct {
+							Typename   string `json:"__typename"`
+							Name       string `json:"name"`
+							Context    string `json:"context"`
+							IsRequired *bool  `json:"isRequired"`
+						} `json:"nodes"`
+					} `json:"contexts"`
+				} `json:"statusCheckRollup"`
+			} `json:"commit"`
+		} `json:"nodes"`
+	} `json:"commits"`
 }
 
-func (x agPRExtras) snapshotExtras(extras bool) AGSnapshotExtras {
-	if !extras {
-		return AGSnapshotExtras{}
-	}
+func (x *agExtrasPullRequest) snapshotExtras() AGSnapshotExtras {
 	out := AGSnapshotExtras{Available: true}
 	if x.BaseRefName != nil {
 		out.BaseRefName = *x.BaseRefName
@@ -101,19 +133,172 @@ func (x agPRExtras) snapshotExtras(extras bool) AGSnapshotExtras {
 	return out
 }
 
-// agGraphQL runs one page of the snapshot query. On the first page, a
-// query-level GraphQL error from the extended query (a token that cannot see
-// isRequired, a field GitHub does not serve) drops *extras and retries with
-// the base query, so the new fields can never fail the snapshot. Rate limits,
-// transport errors and later-page errors are returned as they are.
-func (c *Client) agGraphQL(ctx context.Context, installationID int64, extras *bool, page int, vars map[string]any) (json.RawMessage, error) {
-	data, err := c.graphQL(ctx, installationID, prSnapshotQuery(*extras), vars)
-	var gqlErr *GraphQLError
-	if err != nil && *extras && page == 0 && errors.As(err, &gqlErr) {
-		*extras = false
-		return c.graphQL(ctx, installationID, prSnapshotQuery(false), vars)
+// agCheckKey matches a REST check to its GraphQL context: check runs by name,
+// commit statuses by context.
+func agCheckKey(isStatusContext bool, name string) string {
+	if isStatusContext {
+		return "status\x00" + name
 	}
-	return data, err
+	return "run\x00" + name
+}
+
+// agMergeRequired combines two answers for checks sharing a key: required wins,
+// then unknown, so a duplicate name can only make the rollup stricter.
+func agMergeRequired(a, b *bool) *bool {
+	switch {
+	case a != nil && *a:
+		return a
+	case b != nil && *b:
+		return b
+	case a == nil || b == nil:
+		return nil
+	}
+	return a
+}
+
+// agFetchSnapshotExtras fills snap.AG and each context's Required from the
+// extras query, for the head the REST snapshot read. The new fields never fail
+// a snapshot: any GitHub answer other than a rate limit (a GraphQL error, a
+// permission or status failure, a malformed page) leaves the extras unavailable
+// and every Required nil. A rate limit, a cancelled context and a head that moved
+// fail the snapshot as upstream's own fetch does, so the refresh queue retries.
+// A REST check with no GraphQL counterpart keeps Required nil.
+func (c *Client) agFetchSnapshotExtras(ctx context.Context, installationID int64, owner, repo string, number int32, snap *PRSnapshot) error {
+	vars := map[string]any{"owner": owner, "repo": repo, "number": number}
+	required := map[string]*bool{}
+	var extras AGSnapshotExtras
+	unavailable := func(err error) error {
+		var rl *RateLimitError
+		if errors.As(err, &rl) || ctx.Err() != nil {
+			return err
+		}
+		snap.AG = AGSnapshotExtras{}
+		for i := range snap.Contexts {
+			snap.Contexts[i].Required = nil
+		}
+		return nil
+	}
+	cursor := ""
+	for page := 0; ; page++ {
+		if page == maxSnapshotContextPages {
+			return unavailable(errors.New("ghsnapshot: extras pagination exceeds page limit"))
+		}
+		vars["cursor"] = nil
+		if cursor != "" {
+			vars["cursor"] = cursor
+		}
+		data, err := c.graphQL(ctx, installationID, agExtrasQuery, vars)
+		if err != nil {
+			return unavailable(err)
+		}
+		var resp struct {
+			Repository *struct {
+				PullRequest *agExtrasPullRequest `json:"pullRequest"`
+			} `json:"repository"`
+		}
+		if json.Unmarshal(data, &resp) != nil || resp.Repository == nil || resp.Repository.PullRequest == nil {
+			return unavailable(errors.New("ghsnapshot: malformed extras data"))
+		}
+		pr := resp.Repository.PullRequest
+		if pr.HeadRefOid != snap.HeadSHA {
+			return errors.New("ghsnapshot: pull request head changed during fetch")
+		}
+		if page == 0 {
+			extras = pr.snapshotExtras()
+		}
+		if len(pr.Commits.Nodes) == 0 || pr.Commits.Nodes[0].Commit.StatusCheckRollup == nil {
+			break
+		}
+		contexts := pr.Commits.Nodes[0].Commit.StatusCheckRollup.Contexts
+		for _, n := range contexts.Nodes {
+			var key string
+			switch n.Typename {
+			case "CheckRun":
+				key = agCheckKey(false, n.Name)
+			case "StatusContext":
+				key = agCheckKey(true, n.Context)
+			default:
+				continue
+			}
+			if prev, seen := required[key]; seen {
+				required[key] = agMergeRequired(prev, n.IsRequired)
+			} else {
+				required[key] = n.IsRequired
+			}
+		}
+		if !contexts.PageInfo.HasNextPage {
+			break
+		}
+		if contexts.PageInfo.EndCursor == "" || contexts.PageInfo.EndCursor == cursor {
+			return unavailable(errors.New("ghsnapshot: extras pagination cursor did not advance"))
+		}
+		cursor = contexts.PageInfo.EndCursor
+	}
+	snap.AG = extras
+	for i := range snap.Contexts {
+		snap.Contexts[i].Required = required[agCheckKey(snap.Contexts[i].IsStatusContext, snap.Contexts[i].Name)]
+	}
+	return nil
+}
+
+// graphQL runs one GraphQL query as the given installation and returns the raw
+// `data` object. Upstream dropped its GraphQL client in v0.6.4 (REST only); this
+// is that client, kept for the extras query. GitHub answers HTTP 200 for
+// query-level errors, so the `errors` array is checked too: RATE_LIMITED maps
+// to a RateLimitError, anything else to a GraphQLError.
+func (c *Client) graphQL(ctx context.Context, installationID int64, query string, variables map[string]any) (json.RawMessage, error) {
+	token, err := c.installationToken(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(map[string]any{"query": query, "variables": variables})
+	if err != nil {
+		return nil, err
+	}
+	endpoint := strings.TrimRight(c.apiBase, "/") + "/graphql"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if isRateLimited(resp, body) {
+		return nil, rateLimitFromResponse(resp, c.now())
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("github graphql: unexpected status %d", resp.StatusCode)
+	}
+	var envelope struct {
+		Data   json.RawMessage `json:"data"`
+		Errors []struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, errors.New("github graphql: malformed response")
+	}
+	if len(envelope.Errors) > 0 {
+		for _, e := range envelope.Errors {
+			if e.Type == "RATE_LIMITED" {
+				return nil, &RateLimitError{RetryAfter: time.Minute}
+			}
+		}
+		// GraphQL error messages do not contain credentials.
+		return nil, &GraphQLError{Message: envelope.Errors[0].Message}
+	}
+	if len(envelope.Data) == 0 {
+		return nil, errors.New("github graphql: empty data")
+	}
+	return envelope.Data, nil
 }
 
 // agApplySnapshotExtras writes the AG fields of snap for prID, inside the
