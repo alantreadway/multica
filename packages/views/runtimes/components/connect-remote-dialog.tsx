@@ -13,6 +13,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { runtimeKeys } from "@multica/core/runtimes/queries";
 import { useDaemonSetupCommands } from "@multica/core/runtimes";
+import { isAGDaemonRefresh } from "@multica/core/runtimes/ag-quota";
 import { useWSEvent } from "@multica/core/realtime";
 import { paths, useWorkspaceSlug } from "@multica/core/paths";
 import {
@@ -53,6 +54,7 @@ export function ConnectRemoteDialog({ onClose }: { onClose: () => void }) {
   // `daemon:register` WS event and auto-advances to success.
   const handleDaemonRegister = useCallback(
     (payload: unknown) => {
+      if (isAGDaemonRefresh(payload)) return;
       if (step !== "instructions") return;
       qc.invalidateQueries({ queryKey: runtimeKeys.all(wsId) });
       const p = payload as Record<string, unknown> | null;
