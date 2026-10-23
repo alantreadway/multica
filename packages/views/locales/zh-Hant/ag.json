@@ -40,5 +40,14 @@
       "chart_too_many_title": "問題過多，無法繪製",
       "chart_too_many_body": "已展開 {{count}} 個問題，超過組織圖可繪製的 {{max}} 個。請摺疊分支或聚焦到更小的子樹。"
     }
+  },
+  "runtimes": {
+    "drain": {
+      "draining": "排空中 · {{running}} 個執行中",
+      "draining_unknown": "排空中",
+      "idle": "空閒",
+      "draining_hint": "不再領取新任務，執行中的任務會執行完畢。",
+      "idle_hint": "已排空且沒有執行中的任務，可安全重啟或升級。"
+    }
   }
 }
