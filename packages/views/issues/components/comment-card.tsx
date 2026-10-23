@@ -37,6 +37,7 @@ import { FileUploadButton } from "@multica/ui/components/common/file-upload-butt
 import { api, dispatchReasonCode, errorCode } from "@multica/core/api";
 import { ReplyInput } from "./reply-input";
 import { CommentTriggerChips } from "./comment-trigger-chips";
+import { CopySlackMenuItem } from "./ag_comment-share-items";
 import { useCommentTriggerPreview } from "../hooks/use-comment-trigger-preview";
 import { useRecipientActions } from "../hooks/use-recipient-actions";
 import { SteerBadge, SteerReceipts } from "./steer-receipts";
@@ -790,6 +791,7 @@ function CommentRow({
                 <Copy className="h-3.5 w-3.5" />
                 {t(($) => $.comment.copy_action)}
               </DropdownMenuItem>
+              <CopySlackMenuItem content={entry.content ?? ""} />
               {onCopyLink && (
                 <DropdownMenuItem onClick={() => onCopyLink(entry.id)}>
                   <Link2 className="h-3.5 w-3.5" />
@@ -1334,6 +1336,7 @@ function CommentCardImpl({
                         <Copy className="h-3.5 w-3.5" />
                         {t(($) => $.comment.copy_action)}
                       </DropdownMenuItem>
+                      <CopySlackMenuItem content={entry.content ?? ""} />
                       {onCopyLink && (
                         <DropdownMenuItem onClick={() => onCopyLink(entry.id)}>
                           <Link2 className="h-3.5 w-3.5" />
