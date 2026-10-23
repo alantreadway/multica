@@ -71,7 +71,12 @@ pnpm --filter @multica/views exec vitest run \
   runtimes/components/runtime-detail-drain.test.tsx \
   locales/ag-drain.test.ts \
   locales/ag-tree.test.ts \
-  layout/agent-status-indicator.test.tsx
+  layout/agent-status-indicator.test.tsx \
+  issues/components/comment-card-actions-menu.test.tsx \
+  issues/components/ag_slack-copy.test.tsx \
+  issues/components/ag_comment-share-items.test.tsx \
+  issues/components/ag_comment-card-slack-copy.test.tsx \
+  issues/components/ag_clipboard-rich.test.ts
 
 pnpm --filter @multica/core exec vitest run \
   runtimes/ag-drain.test.ts \
