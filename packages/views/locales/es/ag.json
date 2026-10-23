@@ -4,6 +4,29 @@
       "sub_lanes_hidden_one": "+{{count}} subcarril",
       "sub_lanes_hidden_other": "+{{count}} subcarriles",
       "jump_to_lane": "Ir al carril"
+    },
+    "view": {
+      "tooltip_tree": "Vista de árbol",
+      "tree": "Árbol"
+    },
+    "tree": {
+      "aria_label": "Árbol de tareas",
+      "expand": "Expandir",
+      "collapse": "Contraer",
+      "expand_all": "Expandir todo",
+      "collapse_all": "Contraer todo",
+      "focus": "Centrarse en esta tarea",
+      "focus_root": "Todas las tareas",
+      "breadcrumb_label": "Ruta de enfoque",
+      "load_more": "Cargar más",
+      "loading_children": "Cargando subtareas…",
+      "load_error": "No se han podido cargar las subtareas",
+      "retry": "Reintentar",
+      "empty": "No hay tareas que mostrar",
+      "hidden_ancestors": "Tareas principales ocultas por los filtros actuales",
+      "filters_paused": "Los filtros están en pausa mientras hay un enfoque",
+      "clear_focus": "Quitar enfoque",
+      "sub_issue_progress": "{{done}} de {{total}} subtareas hechas"
     }
   }
 }

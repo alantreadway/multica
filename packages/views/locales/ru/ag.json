@@ -6,6 +6,29 @@
       "sub_lanes_hidden_few": "+{{count}} вложенные дорожки",
       "sub_lanes_hidden_many": "+{{count}} вложенных дорожек",
       "jump_to_lane": "Перейти к дорожке"
+    },
+    "view": {
+      "tooltip_tree": "Вид «Дерево»",
+      "tree": "Дерево"
+    },
+    "tree": {
+      "aria_label": "Дерево задач",
+      "expand": "Развернуть",
+      "collapse": "Свернуть",
+      "expand_all": "Развернуть все",
+      "collapse_all": "Свернуть все",
+      "focus": "Сфокусироваться на этой задаче",
+      "focus_root": "Все задачи",
+      "breadcrumb_label": "Путь фокуса",
+      "load_more": "Загрузить ещё",
+      "loading_children": "Загрузка подзадач…",
+      "load_error": "Не удалось загрузить подзадачи",
+      "retry": "Повторить",
+      "empty": "Нет задач для отображения",
+      "hidden_ancestors": "Родительские задачи скрыты текущими фильтрами",
+      "filters_paused": "В режиме фокуса фильтры приостановлены",
+      "clear_focus": "Сбросить фокус",
+      "sub_issue_progress": "Готово подзадач: {{done}} из {{total}}"
     }
   }
 }

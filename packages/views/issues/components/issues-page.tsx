@@ -33,7 +33,7 @@ function IssuesSurfacePage() {
     <div className="flex flex-1 min-h-0 flex-col">
       <IssueSurface
         scope={{ type: "workspace", actorKind: scope }}
-        modes={["board", "list", "table", "swimlane"]}
+        modes={["board", "list", "table", "swimlane", "tree"]}
         batchToolbar="list"
         renderHeader={({ controller }) => <IssueViewHeader controller={controller} base={WORKSPACE_BASE} />}
         renderEmpty={({ controller }) => (

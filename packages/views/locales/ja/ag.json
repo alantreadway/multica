@@ -3,6 +3,29 @@
     "swimlane": {
       "sub_lanes_hidden_other": "+{{count}} サブレーン",
       "jump_to_lane": "レーンへ移動"
+    },
+    "view": {
+      "tooltip_tree": "ツリー表示",
+      "tree": "ツリー"
+    },
+    "tree": {
+      "aria_label": "課題ツリー",
+      "expand": "展開",
+      "collapse": "折りたたむ",
+      "expand_all": "すべて展開",
+      "collapse_all": "すべて折りたたむ",
+      "focus": "この課題にフォーカス",
+      "focus_root": "すべての課題",
+      "breadcrumb_label": "フォーカスのパス",
+      "load_more": "さらに読み込む",
+      "loading_children": "サブ課題を読み込み中…",
+      "load_error": "サブ課題を読み込めませんでした",
+      "retry": "再試行",
+      "empty": "表示する課題がありません",
+      "hidden_ancestors": "現在のフィルターで非表示の親課題",
+      "filters_paused": "フォーカス中はフィルターが一時停止されます",
+      "clear_focus": "フォーカスを解除",
+      "sub_issue_progress": "サブ課題 {{total}} 件中 {{done}} 件完了"
     }
   }
 }
