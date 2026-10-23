@@ -43,6 +43,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | # | Patch | Status | Overlapping upstream | Fit | Likelihood | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
 | 3 | Daemon handoff: single-instance fixes (PID file owner check, repo cache flock) | `candidate` once split out | none found | High: bug fixes | Medium-high | Split out of the handoff patch and show a repro first. |
+| 5 | Label ordering (backend + web) | `candidate` | none (searched 2026-10-19); the status reorder endpoint is the precedent | Medium | Medium | Feature Request first; the migration raises the bar. |
 | 6 | Tree-ordered parent lanes | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open, adjacent, no reviews, last touched 2026-07-07) | Medium: improves a shipped view | Medium | Feature Request, after reading #2966. |
 | 7 | Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) | Medium | Medium (drag rules), low (jump chip) | Ride along with the tree lanes; offer the drag rules first. |
 | 8 | GitHub PR polling (token mode) | `candidate` | [#8111](https://github.com/multica-ai/multica/issues/8111) (open request; our +1 only, no maintainer reply) | High: a stated blocker for self-hosters without an App | Medium-low | Rework as a GitHub token provider in `vcs_connection` (the #5006 shape) before offering. |
@@ -928,6 +929,99 @@ a backend image from `ag-patches/build-backend.sh` and a CLI from
     read #9332 removed so that an App needs no Contents permission, so upstream
     would not take it in this shape: an offer needs the extras over REST.
     Offer nothing; watch #8145.
+
+### Label ordering (backend + web)
+
+A workspace sets the order its labels appear in, by dragging rows in Manage
+labels. Until now labels were sorted by `LOWER(name)` with no order field.
+Status: landed in [#27](https://github.com/alantreadway/multica/pull/27).
+
+`issue_label` gains `position INTEGER NOT NULL DEFAULT 0` (migration `9002`).
+Position is per `(workspace_id, resource_type)`, so reordering issue labels
+never touches agent or skill labels. The migration backfills each namespace in
+its current alphabetical order (`ROW_NUMBER() OVER (PARTITION BY workspace_id,
+resource_type ORDER BY LOWER(name), id) - 1`), so nothing moves until someone
+reorders. There is no index and no foreign key. `CreateLabel` appends: its
+position is the namespace's `MAX(position) + 1` (0 for the first). Two
+concurrent creates can share a position; the name tie-break keeps their order
+stable, and nothing locks for it.
+
+Every query that returns a workspace's labels or an object's labels orders by
+`position`, then `LOWER(name)`: `ListLabels`, `ListLabelsByIssue`,
+`ListLabelsForIssues`, `ListLabelsByAgent`, `ListLabelsForAgents`,
+`ListLabelsBySkill` and `ListLabelsForSkills` (the batched ones keep their
+leading `issue_id` / `agent_id` / `skill_id` key). Label responses carry
+`position`.
+
+`PUT /api/labels/order` takes `{ "resource_type": "...", "label_ids": [...] }`,
+the full ordered list for one namespace, and returns `{ "labels": [...],
+"total": n }`. It has the same access as `UpdateLabel` (workspace membership).
+One transaction row-locks the namespace, checks the list, rewrites `position` to
+`0..n-1` and commits; it then publishes one `label:updated` carrying the
+`resource_type` and the new order, which the existing realtime handler already
+turns into a refetch. It fails closed with nothing written: 400 for a malformed
+body, an unknown `resource_type`, a bad UUID or a duplicate id; 409 when the
+list isn't exactly the namespace's current labels (an unknown or foreign id, or
+a label created or deleted since the client fetched). It is its own endpoint,
+not a field on `UpdateLabel`, because the order changes many rows at once and
+must be atomic.
+
+Web: `LabelSchema.position` is `z.number().optional().default(0)` and
+`EMPTY_LABEL.position` is 0, so a server without the field parses and everything
+sits at 0, which keeps the server's name order. `useReorderLabels` patches the
+labels cache optimistically (renumbering `0..n-1`), rolls back and shows a toast
+on error (the server's message, else "Couldn't save the new order"), and
+invalidates the label, issue and skill label queries on settle.
+Manage labels gets a drag handle per row (`@dnd-kit/sortable`, pointer and
+keyboard sensors), offered only on the unfiltered list and only within the
+catalog being managed. Strings are in the five locales.
+
+Needs a backend image: the web image alone has nothing to talk to. A patched web
+image on a stock backend shows the handles, but a drop fails (the stock server
+reads `PUT /api/labels/order` as an update of label `order` and answers 400), so
+the rows roll back and the server's error shows as a toast. See README
+"Label ordering" for deploy and rollback.
+
+- Test prefix: none. The tests use ordinary names so the change reads as a
+  normal upstream feature (`label_order*_test.go` in the handler and router packages,
+  `label-manager.reorder.test.tsx`).
+  The Go tests are DB-backed: they skip without Postgres, including in
+  `ag-patches/test.sh`. Run them with a migrated
+  test database:
+  `cd server && DATABASE_URL=postgres://... go test ./internal/handler ./cmd/server -run 'Label' -count=1`.
+  The web tests (`label-manager.reorder.test.tsx`, `labels-tab.ag.test.tsx`,
+  `labels/mutations.ag.test.tsx`, `api/ag-client.test.ts`) run in `ag-patches/test.sh`
+  and under `pnpm test`
+- Files:
+  - `server/migrations/9002_ag_label_position.up.sql`, `.down.sql` (new)
+  - `server/pkg/db/queries/issue_label.sql` (`ORDER BY position` and the
+    `CreateLabel` position); `ag_label_order.sql` (new: `LockLabelIDsForReorder`,
+    `SetLabelPositions`); `server/pkg/db/generated/issue_label.sql.go`,
+    `ag_label_order.sql.go` (new) and `models.go` regenerated with sqlc
+  - `server/internal/handler/label.go` (`Position` on `LabelResponse`),
+    `ag_label_order.go` (new: `ReorderLabels`), `server/cmd/server/router.go` (one route)
+  - `server/internal/handler/label_order_test.go`, `label_order_api_test.go`,
+    `server/cmd/server/label_order_router_test.go` (new)
+  - `packages/core/types/label.ts`, `packages/core/types/index.ts`,
+    `packages/core/api/schemas.ts`, `packages/core/api/ag-client.ts` (new:
+    `reorderLabels`, and the one-line `installAgApiMethods` hook in `client.ts`),
+    `packages/core/labels/mutations.ts` (`useReorderLabels`), `index.ts`,
+    with `ag-client.test.ts` and `mutations.ag.test.tsx` (new)
+  - `packages/views/labels/ag-label-reorder.tsx` (new: sensors, sortable rows,
+    drop handler), `label-manager.tsx` (hooks), `label-manager.reorder.test.tsx`
+    (new), `packages/views/settings/components/labels-tab.ag.test.tsx` (new;
+    `labels-tab.test.tsx` keeps one mock line for the reorder hook)
+  - `packages/views/locales/*/ag.json` (`settings.labels`)
+
+- Upstream:
+  - Status: `candidate`. Migration, queries, handler and UI only; no fork glue.
+  - Overlap: none. Searched upstream issues and PRs, open and closed, for label
+    reorder, order, position and sort on 2026-10-19 and found nothing about
+    ordering labels. The issue-status catalog has a reorder endpoint
+    (`PATCH /api/issue-statuses/reorder`), which is the nearest precedent; ours
+    is `PUT` and takes a namespace, because labels have three of them.
+  - Fit: a small additive feature with a migration, so it goes through a Feature
+    Request first. `VISION.md` says nothing about labels.
 
 ## Tooling (not a patch)
 
