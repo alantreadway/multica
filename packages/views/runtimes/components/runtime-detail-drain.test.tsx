@@ -70,6 +70,10 @@ vi.mock("@multica/core/runtimes/mutations", () => ({
 
 vi.mock("./provider-logo", () => ({ ProviderLogo: () => null }));
 vi.mock("./usage-section", () => ({ UsageSection: () => null }));
+vi.mock("./revoke-runtime-access-dialog", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./revoke-runtime-access-dialog")>()),
+  RevokeRuntimeAccessDialog: () => null,
+}));
 vi.mock("./shared", () => ({ HealthBadge: () => null }));
 vi.mock("../../agents/presence", () => ({
   availabilityConfig: { offline: { dotClass: "", textClass: "" } },
