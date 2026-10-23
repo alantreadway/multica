@@ -43,6 +43,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | # | Patch | Status | Overlapping upstream | Fit | Likelihood | Next step |
 | --- | --- | --- | --- | --- | --- | --- |
 | 3 | Daemon handoff: single-instance fixes (PID file owner check, repo cache flock) | `candidate` once split out | none found | High: bug fixes | Medium-high | Split out of the handoff patch and show a repro first. |
+| 4 | Copy (Slack) comment menu item (web) | `candidate` | none; builds on upstream's server-side Slack mrkdwn formatter | Medium | Medium | Feature Request first. |
 | 5 | Label ordering (backend + web) | `candidate` | none (searched 2026-10-19); the status reorder endpoint is the precedent | Medium | Medium | Feature Request first; the migration raises the bar. |
 | 6 | Tree-ordered parent lanes | `candidate` | [#2966](https://github.com/multica-ai/multica/pull/2966) (open, adjacent, no reviews, last touched 2026-07-07) | Medium: improves a shipped view | Medium | Feature Request, after reading #2966. |
 | 7 | Lane drag rules and jump-to-lane chip | `candidate` (with tree lanes) | [#6704](https://github.com/multica-ai/multica/pull/6704), [#7904](https://github.com/multica-ai/multica/pull/7904) (open, edit the same file) | Medium | Medium (drag rules), low (jump chip) | Ride along with the tree lanes; offer the drag rules first. |
@@ -1168,6 +1169,59 @@ card property is `Off / Compact / Full` instead of on/off.
   - Fit: small and additive, frontend only, no schema change; the persisted
     boolean migrates client-side. The Off/Compact/Full enum is the part
     upstream may want shaped differently.
+
+### Copy (Slack) comment menu item (web)
+
+A **Copy (Slack)** item in the comment `…` menu, right after **Copy**, at both
+sites in `comment-card.tsx` (reply row and collapsed thread root). Slack's
+composer does not parse pasted Markdown or `<url|label>` links, but it turns
+pasted `text/html` into rich text, so the item writes one `ClipboardItem` with
+`text/html` and a `text/plain` mrkdwn fallback.
+
+- HTML: the comment's Markdown rendered with `react-markdown` + `remark-gfm` +
+  `remark-breaks` through `renderToStaticMarkup` (loaded lazily, and preloaded
+  when the menu opens so the write stays inside the click's user-gesture
+  window). Member and agent mentions become `@Name` text; issue mentions an
+  absolute link labelled with the identifier; relative and attachment URLs are
+  absolutised against the app origin (`useAppOrigin`); editor attachments
+  (`!file[name](url)`) become plain links; images become links;
+  headings become bold paragraphs; tables become a pipe-table code block;
+  `mermaid` and `html` fences stay code blocks; task-list boxes become ☑/☐.
+- Plain text: a TS port of `formatMrkdwn` (Hermes Agent, MIT; attribution kept in
+  the file header), run after mentions and relative links are flattened.
+- `copyRich({ html, text })` in `packages/ui/lib/ag_clipboard-rich.ts`: the
+  `ClipboardItem` path (written synchronously in the click, with the HTML as a
+  pending value, since Safari rejects a write after an await), else a hidden `contenteditable` selected and copied with
+  `execCommand('copy')` (plain `http://`). `clipboard.ts` is untouched.
+- Fails soft: if rendering throws it copies the mrkdwn text with `copyText`; if
+  every clipboard path fails there is no toast. **Copy** is unchanged.
+- Frontend only: rollback is switching the web image back. The issue
+  description has no Copy item and gets no Copy (Slack).
+- **Unverified:** pasting into Slack (web and desktop) was not checked when this
+  landed, since no agent could drive a signed-in Slack. Check bold, italic,
+  strike, links, nested lists, inline code, code blocks and quotes by hand.
+- Test prefix: `AG patch:` (renderer, mrkdwn port, menu item, `copyRich`), run in
+  `ag-patches/test.sh`. `comment-card-actions-menu.test.tsx` lists the extra item.
+- Files:
+  - `packages/views/issues/components/ag_slack-copy.tsx` (new: HTML renderer,
+    mrkdwn port)
+  - `packages/views/issues/components/ag_comment-share-items.tsx` (new: menu item)
+  - `packages/ui/lib/ag_clipboard-rich.ts` (new: `copyRich`)
+  - `packages/ui/package.json` (hook: `./lib/ag_clipboard-rich` export)
+  - `packages/views/issues/components/comment-card.tsx` (hooks: the import and one
+    line after **Copy** at each of the two sites)
+  - `packages/views/locales/*/ag.json` (`issues.comment.copy_slack_action`)
+  - `packages/views/issues/components/comment-card-actions-menu.test.tsx`
+    (expects the new item)
+
+- Upstream:
+  - Status: `candidate`.
+  - Overlap: none open for a Slack-formatted copy. Upstream already ships the
+    Slack mrkdwn formatter server-side for its Slack integration, which this
+    patch ports. A search of upstream PRs and issues for copy-slack,
+    copy-comment and clipboard-html found no overlap.
+  - Fit: small, frontend-only, and builds on upstream's Slack work. It touches
+    upstream files only at the two menu sites, one import and five locale files.
 
 ## Tooling (not a patch)
 
