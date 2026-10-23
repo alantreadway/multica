@@ -45,6 +45,7 @@ import { GanttView } from "../components/gantt-view";
 import { ListView } from "../components/list-view";
 import { SwimLaneView } from "../components/swimlane-view";
 import { TableView } from "../components/table-view";
+import { TreeView } from "../components/tree-view";
 import { useT } from "../../i18n";
 import { CollectionPageState } from "../../layout/collection-page";
 import { useWarmRoute } from "../../navigation";
@@ -416,6 +417,12 @@ function IssueSurfaceContent({
                 resolveExportLookups={controller.resolveTableExportLookups}
               />
             )}
+            {controller.viewMode === "tree" && (
+              <TreeView
+                tree={controller.tree}
+                childProgressMap={controller.childProgressMap}
+              />
+            )}
             {controller.viewMode === "gantt" && (
               <GanttView issues={controller.filteredGanttIssues} />
             )}
@@ -545,7 +552,7 @@ function FilteredEmptyState() {
 // header, issue-row-height rows) and `BoardView` (fixed-width columns, plain
 // one-line cards).
 function IssueSurfaceSkeleton({ mode }: { mode: string }) {
-  if (mode === "list") {
+  if (mode === "list" || mode === "tree") {
     return (
       <div className="flex-1 min-h-0 overflow-hidden p-2 pt-0">
         <div className="space-y-1">

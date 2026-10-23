@@ -1845,12 +1845,14 @@ const LAYOUTS: { mode: ViewMode; Icon: typeof List }[] = [
   { mode: "table", Icon: Table2 },
   { mode: "swimlane", Icon: Waves },
   { mode: "gantt", Icon: ChartGantt },
+  { mode: "tree", Icon: ListTree },
 ];
 
 export function IssueDisplayControls({
   scopedIssues,
   hideViewToggle = false,
   allowGantt = false,
+  allowTree = false,
   dateFilter = null,
   onDateFilterChange,
   facetCountsExact = true,
@@ -1875,6 +1877,8 @@ export function IssueDisplayControls({
   // /my-issues, actor panel) ignore viewMode === "gantt" and would silently
   // fall back to List if the option were exposed there. Keep Gantt opt-in.
   allowGantt?: boolean;
+  // Tree is opt-in for the same reason: only surfaces that render <TreeView>.
+  allowTree?: boolean;
   /**
    * Whether `scopedIssues` covers the surface's full window. Table does not
    * use loaded rows for counts; server-paged List, Board, and Swimlane follow
@@ -1886,6 +1890,7 @@ export function IssueDisplayControls({
   onTableFacetChange?: (facet: IssueTableFacetSpec | null) => void;
 }) {
   const { t } = useT("issues");
+  const { t: tAg } = useT("ag");
   const viewMode = useViewStore((s) => s.viewMode);
   const statusFilters = useViewStore((s) => s.statusFilters);
   const priorityFilters = useViewStore((s) => s.priorityFilters);
@@ -2048,9 +2053,14 @@ export function IssueDisplayControls({
   const viewToggleIndicatorId = useId();
   const prefersReducedMotion = useReducedMotion();
   const viewToggleTransition = prefersReducedMotion ? { duration: 0 } : UI_INDICATOR_SPRING;
-  // A Gantt layout persisted on a surface without Gantt renders as List.
-  const layout: ViewMode = viewMode === "gantt" && !allowGantt ? "list" : viewMode;
-  const layouts = LAYOUTS.filter(({ mode }) => mode !== "gantt" || allowGantt);
+  // A Gantt or Tree layout persisted on a surface without it renders as List.
+  const layout: ViewMode =
+    (viewMode === "gantt" && !allowGantt) || (viewMode === "tree" && !allowTree) ? "list" : viewMode;
+  const layouts = LAYOUTS.filter(
+    ({ mode }) => (mode !== "gantt" || allowGantt) && (mode !== "tree" || allowTree),
+  );
+  const layoutName = (mode: ViewMode) =>
+    mode === "tree" ? tAg(($) => $.issues.view.tree) : t(($) => $.view[mode]);
   const LayoutIcon = hideViewToggle
     ? SlidersHorizontal
     : LAYOUTS.find(({ mode }) => mode === layout)!.Icon;
@@ -2134,7 +2144,11 @@ export function IssueDisplayControls({
                 aria-label={t(($) => $.view.section)}
                 className={cn(
                   "mb-3 grid gap-0.5 rounded-lg bg-muted p-0.5",
-                  layouts.length === 5 ? "grid-cols-5" : "grid-cols-4",
+                  layouts.length === 6
+                    ? "grid-cols-6"
+                    : layouts.length === 5
+                      ? "grid-cols-5"
+                      : "grid-cols-4",
                 )}
               >
                 {layouts.map(({ mode, Icon }) => {
@@ -2144,7 +2158,7 @@ export function IssueDisplayControls({
                       key={mode}
                       pressed={active}
                       onPressedChange={() => act.setViewMode(mode)}
-                      title={t(($) => $.view[mode])}
+                      title={layoutName(mode)}
                       className="relative h-auto min-w-0 flex-col gap-1 rounded-md px-0.5 py-1.5 text-caption font-normal text-muted-foreground hover:bg-transparent hover:text-foreground aria-pressed:bg-transparent aria-pressed:text-foreground aria-pressed:hover:bg-transparent"
                     >
                       {active && (
@@ -2157,7 +2171,7 @@ export function IssueDisplayControls({
                         />
                       )}
                       <Icon className="relative z-10 size-4" />
-                      <span className="relative z-10 max-w-full truncate">{t(($) => $.view[mode])}</span>
+                      <span className="relative z-10 max-w-full truncate">{layoutName(mode)}</span>
                     </Toggle>
                   );
                 })}
@@ -2337,7 +2351,7 @@ export function IssueDisplayControls({
             {hasLayoutOptions && (
               <div className="mt-5 space-y-3">
                 <p className="text-label font-medium text-foreground">
-                  {t(($) => $.display.layout_options, { layout: t(($) => $.view[layout]) })}
+                  {t(($) => $.display.layout_options, { layout: layoutName(layout) })}
                 </p>
               {showColumnToggles && (
                 <div>
