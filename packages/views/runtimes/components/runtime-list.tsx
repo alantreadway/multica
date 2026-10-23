@@ -46,6 +46,7 @@ import {
 } from "../../layout/collection-list";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { useViewingTimezone } from "../../common/use-viewing-timezone";
+import { DrainBadge } from "./drain-badge";
 import { ProviderLogo } from "./provider-logo";
 import { RateLimitCell } from "./rate-limit-section";
 import { HealthIcon, useHealthLabel } from "./shared";
@@ -154,6 +155,7 @@ function RuntimeNameCell({
         <>
           <RuntimeKindBadge runtime={runtime} />
           <PendingRuntimeBadge runtime={runtime} />
+          <DrainBadge runtime={runtime} />
         </>
       }
       trailing={<RuntimeListVisibility runtime={runtime} canEdit={canEditVisibility} />}

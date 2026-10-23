@@ -1614,6 +1614,8 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	updateMs = time.Since(updateStart).Milliseconds()
 
+	h.agApplyHTTPDrainReport(r.Context(), rt, req.AGDrain) // AG patch: drain badge
+
 	ack, m, err := h.processHeartbeat(r.Context(), runtimeID, req)
 	probeModelMs = m.ProbeModelMs
 	popModelMs = m.PopModelMs
@@ -1678,6 +1680,7 @@ func (h *Handler) HandleDaemonWSHeartbeat(ctx context.Context, identity daemonws
 		}
 		return nil, err
 	}
+	h.agApplyWSDrainReport(ctx, runtimeID, lease) // AG patch: drain badge
 	ack, _, err := h.processHeartbeat(ctx, runtimeID, req)
 	return ack, err
 }

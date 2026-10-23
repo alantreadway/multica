@@ -40,5 +40,14 @@
       "chart_too_many_title": "그리기에는 이슈가 너무 많습니다",
       "chart_too_many_body": "열려 있는 이슈 {{count}}개가 조직도가 그릴 수 있는 {{max}}개를 넘습니다. 브랜치를 접거나 더 작은 하위 트리에 포커스하세요."
     }
+  },
+  "runtimes": {
+    "drain": {
+      "draining": "드레인 중 · {{running}}개 실행 중",
+      "draining_unknown": "드레인 중",
+      "idle": "유휴",
+      "draining_hint": "새 작업을 받지 않습니다. 실행 중인 작업은 끝까지 진행됩니다.",
+      "idle_hint": "드레인되어 실행 중인 작업이 없습니다. 재시작하거나 업그레이드해도 안전합니다."
+    }
   }
 }

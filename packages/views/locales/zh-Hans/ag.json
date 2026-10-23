@@ -40,5 +40,14 @@
       "chart_too_many_title": "问题过多，无法绘制",
       "chart_too_many_body": "已展开 {{count}} 个问题，超过组织图可绘制的 {{max}} 个。请折叠分支或聚焦到更小的子树。"
     }
+  },
+  "runtimes": {
+    "drain": {
+      "draining": "排空中 · {{running}} 个运行中",
+      "draining_unknown": "排空中",
+      "idle": "空闲",
+      "draining_hint": "不再领取新任务，运行中的任务会执行完毕。",
+      "idle_hint": "已排空且没有运行中的任务，可安全重启或升级。"
+    }
   }
 }
