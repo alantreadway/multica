@@ -1,0 +1,15 @@
+# Go tests that fail on stock upstream, per upstream tag. test-go-full.sh reads
+# this file and reports these as known failures rather than real ones.
+#
+# One test per line: <upstream-tag> <TopLevelTestName>  # reason
+# Names are top-level tests as in `--- FAIL: TestName`, without subtests. Blank
+# lines and lines starting with # are ignored. Add the new tag's entries at each
+# rebase, after checking them on the stock tag (not on the patch branch).
+#
+#   grep '^v0.6.5 ' ag-patches/known-upstream-failures.txt
+
+v0.6.5 TestClaimTasksForRuntimes_EmptyReclaimDefersHintForRetry  # timing flake: failed 12 of 40 runs on stock v0.6.5
+v0.6.5 TestCaptureCursorBackgroundLateDescendant  # fails on stock v0.6.5 in the Linux test container
+v0.6.5 TestCaptureCursorBackgroundProcessReapsLeaderExitedGroup  # fails on stock v0.6.5 in the Linux test container
+v0.6.5 TestCaptureCursorBackgroundSurvivesRootExitDuringCapture  # fails on stock v0.6.5 in the Linux test container
+v0.6.5 TestCursorBackgroundLifecycle  # fails on stock v0.6.5 in the Linux test container
