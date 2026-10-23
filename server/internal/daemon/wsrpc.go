@@ -343,11 +343,11 @@ func (d *Daemon) claimTasksWSFirst(ctx context.Context, daemonID string, runtime
 		var resp claimTasksResult
 		// batchClaimRequestTimeout is the server-side execution budget; the
 		// daemon waits that plus the client's grace margin for the response.
-		_, err := d.wsRPC.CallIfRPCV1Supported(ctx, "tasks.claim", batchClaimRequestTimeout, map[string]any{
+		_, err := d.wsRPC.CallIfRPCV1Supported(ctx, "tasks.claim", batchClaimRequestTimeout, agClaimBody(ctx, map[string]any{ // AG patch: backup account
 			"daemon_id":   daemonID,
 			"runtime_ids": runtimeIDs,
 			"max_tasks":   maxTasks,
-		}, &resp)
+		}), &resp)
 		if err == nil {
 			resp.ClaimedOverWS = true
 			return resp, nil

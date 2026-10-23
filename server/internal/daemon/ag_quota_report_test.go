@@ -245,7 +245,8 @@ func TestAGPatchBackupSettingFromAck(t *testing.T) {
 		f := newAGPaceFixtureAt(t, 5, srv.URL)
 		f.d.runHeartbeatTick(context.Background(), "rt-claude")
 
-		srv.setAck(`{"status":"ok"}`) // an ack without the setting
+		// No ack arrives (a missed or failed heartbeat): the setting rides out the TTL.
+		srv.Close()
 		start := f.clock.now()
 		f.clock.set(start.Add(agSettingsTTL - time.Second))
 		f.d.runHeartbeatTick(context.Background(), "rt-claude")
@@ -255,6 +256,23 @@ func TestAGPatchBackupSettingFromAck(t *testing.T) {
 		f.clock.set(start.Add(agSettingsTTL))
 		if s := f.d.agBackupSetting("rt-claude"); s.BackupEnabled || s.BackupMaxConcurrent != 2 {
 			t.Fatalf("setting after the TTL = %+v, want disabled", s)
+		}
+	})
+
+	t.Run("AG patch: a received ack without ag_settings disables backup at once", func(t *testing.T) {
+		srv := newAGReportServer(t, ackOn)
+		f := newAGPaceFixtureAt(t, 5, srv.URL)
+		f.d.runHeartbeatTick(context.Background(), "rt-claude")
+		if s := f.d.agBackupSetting("rt-claude"); !s.BackupEnabled {
+			t.Fatalf("setting = %+v, want enabled", s)
+		}
+		srv.setAck(`{"status":"ok"}`) // a stock server: no ag_settings
+		f.d.runHeartbeatTick(context.Background(), "rt-claude")
+		if s := f.d.agBackupSetting("rt-claude"); s.BackupEnabled {
+			t.Fatalf("setting after an ack without ag_settings = %+v, want disabled at once", s)
+		}
+		if b := f.d.agQuotaReport("rt-claude").Backup; b.Enabled {
+			t.Fatalf("report = %+v, want backup disabled", b)
 		}
 	})
 

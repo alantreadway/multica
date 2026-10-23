@@ -4,13 +4,15 @@ package protocol
 
 // DaemonQuotaReport is the Claude quota state a patched daemon attaches to each
 // Claude runtime's heartbeat (HTTP and WebSocket). The server merges it into
-// agent_runtime.metadata under "ag_quota". It describes the daemon's own account
-// ("primary") unless a failover to the backup account is in effect.
+// agent_runtime.metadata under "ag_quota". Windows and Hold describe the daemon's
+// own account.
 //
 // Utilisation is rounded to 0.01 and ObservedAt to the minute so the server's
 // write-on-change guard fires only on a real change.
 type DaemonQuotaReport struct {
-	// Account is "primary" or "backup": whose windows are in Windows.
+	// Account is "primary" or "backup": the account new Claude runs use. While it
+	// is "backup", Max and EffectiveCap are the backup's; Windows and Hold stay the
+	// primary's (the reason for the failover) and BackupWindows are the backup's.
 	Account string `json:"account"`
 	// Hold is set while a quota rejection gates Claude claims.
 	Hold *DaemonQuotaHold `json:"hold,omitempty"`
