@@ -1648,7 +1648,8 @@ branches. They do not touch product code. Landed in
 | `ag/v0.6.2-ag.1` | `c59bdb71d0713897e19371e4d11d4c316c56c71b` | `multica-web-ag:v0.6.2-ag.1` | none (stock backend) | none (stock) | 2026-10-14 |
 | `ag/v0.6.2-ag.2` | `0ae4d6edc3c9651e1cfb5d2c711d062469828ab7` | `multica-web-ag:v0.6.2-ag.2` | `multica-backend-ag:v0.6.2-ag.2` | `dist/multica-v0.6.2-ag.2-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-16 |
 | `ag/v0.6.3-ag.1` | `d19013ab84e81751d031bb894f374ccae6afbffe` | `multica-web-ag:v0.6.3-ag.1` | `multica-backend-ag:v0.6.3-ag.1` | `dist/multica-v0.6.3-ag.1-darwin-arm64` | 2026-10-19 |
-| `ag/v0.6.3-ag.2` | `9b15ccc316ded86a419f0eb7f532227ff0ae3f22` | `multica-web-ag:v0.6.3-ag.2` | `multica-backend-ag:v0.6.3-ag.2` | `dist/multica-v0.6.3-ag.2-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-20 |
+| `ag/v0.6.3-ag.2` | `9b15ccc316ded86a419f0eb7f532227ff0ae3f22` | `multica-web-ag:v0.6.3-ag.2` | `multica-backend-ag:v0.6.3-ag.2` | `dist/multica-v0.6.3-ag.2-darwin-arm64` | 2026-10-20 |
+| `ag/v0.6.5-ag.1` | `bc4a44822385e3e04407e38cf19a9c8c10d0ba6b` | `multica-web-ag:v0.6.5-ag.1` | `multica-backend-ag:v0.6.5-ag.1` | `dist/multica-v0.6.5-ag.1-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-23 |
 
 The CLI column is the `dist/multica-<tag>-ag.<n>-darwin-arm64` binary from
 `ag-patches/build-cli.sh`; `none (stock)` means the daemon runs the upstream
@@ -1674,3 +1675,19 @@ backend, then frontend, both recreated from the `ag.2` images. The previous CLI 
 `multica-ag` at its next idle auto-reload (or `~/bin/multica-daemon-reload`); the
 Runtimes page has no quota report or backup status until it does. The backup
 toggle is off until switched on from the runtime page.
+
+`v0.6.5-ag.1` is the first build on `v0.6.5`: every patch on `ag/v0.6.3` up to
+PR #34 (task GC meta), rebased, with the PR snapshot extras ported onto
+upstream's REST snapshot. Built in the `agbuild` Colima profile (the self-host
+VM does not mount the repo) and loaded into the self-host VM. Deployed
+2026-10-23 after a `pg_dump` backup
+(`~/multica-selfhost/backups/multica-pre-v0.6.5-ag.1-20261023-090833.sql.gz`;
+`.env` saved as `.env.pre-v0.6.5-ag.1`): `MULTICA_IMAGE_TAG` to `v0.6.5`, backend
+(applied upstream's `583` and `584`), then frontend. The previous CLI stays
+beside the new one as `~/.local/bin/multica-ag.v0.6.3-ag.2`.
+
+Full Go suite against a scratch Postgres and Redis (as a non-root user) passed
+except two upstream failures that stock `v0.6.5` shows in the same container:
+`TestClaimTasksForRuntimes_EmptyReclaimDefersHintForRetry` (timing flake, 12
+of 40 runs failed on stock) and four Cursor background-process tests in
+`pkg/agent` (`TestCaptureCursorBackground*`, `TestCursorBackgroundLifecycle`).
