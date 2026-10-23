@@ -410,6 +410,21 @@ type ChatSessionUpdatedPayload struct {
 type DaemonHeartbeatRequestPayload struct {
 	RuntimeID           string `json:"runtime_id"`
 	SupportsBatchImport bool   `json:"supports_batch_import,omitempty"`
+	// AGDrain is the AG patch drain report. Nil when the daemon has no drain
+	// mode (stock daemons), which tells the server to leave runtime metadata
+	// alone; see DaemonDrainReport.
+	AGDrain *DaemonDrainReport `json:"ag_drain,omitempty"`
+}
+
+// DaemonDrainReport is the drain state a patched daemon attaches to every
+// heartbeat (HTTP and WebSocket). The server merges it into
+// agent_runtime.metadata under "ag_drain" for the runtimes page badge.
+type DaemonDrainReport struct {
+	Draining bool `json:"draining"`
+	// Idle: draining with no active tasks, claims in flight or update installing.
+	Idle bool `json:"idle"`
+	// ActiveTasks is the daemon-wide running task count, for "N running".
+	ActiveTasks int64 `json:"active_tasks"`
 }
 
 // DaemonHeartbeatAckPayload is the server's reply to DaemonHeartbeatRequestPayload.

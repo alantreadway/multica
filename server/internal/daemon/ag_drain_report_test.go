@@ -1,0 +1,138 @@
+package daemon
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/multica-ai/multica/server/pkg/protocol"
+)
+
+// captureHeartbeatBody answers a heartbeat with ok and stores its decoded JSON
+// body in *body.
+func captureHeartbeatBody(body *map[string]any) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		*body = nil
+		_ = json.NewDecoder(r.Body).Decode(body)
+		w.Write([]byte(`{"status":"ok"}`))
+	}
+}
+
+func TestAGPatchDrainHeartbeatReport(t *testing.T) {
+	t.Run("AG patch: a daemon that is not draining reports draining=false so a stored report clears", func(t *testing.T) {
+		var body map[string]any
+		d, _ := pendingWorkHintDaemon(t, captureHeartbeatBody(&body))
+
+		if _, err := d.client.SendHeartbeatWithDrain(context.Background(), "rt-1", d.agDrainReport()); err != nil {
+			t.Fatalf("heartbeat: %v", err)
+		}
+		got, ok := body["ag_drain"].(map[string]any)
+		if !ok {
+			t.Fatalf("ag_drain missing from heartbeat body: %v", body)
+		}
+		if got["draining"] != false || got["idle"] != false || got["active_tasks"] != float64(0) {
+			t.Fatalf("ag_drain = %v, want draining=false idle=false active_tasks=0", got)
+		}
+	})
+
+	t.Run("AG patch: a draining daemon reports the running task count, then idle at zero", func(t *testing.T) {
+		var body map[string]any
+		d, _ := pendingWorkHintDaemon(t, captureHeartbeatBody(&body))
+		d.agStartDrain()
+		d.activeTasks.Store(2)
+
+		if _, err := d.client.SendHeartbeatWithDrain(context.Background(), "rt-1", d.agDrainReport()); err != nil {
+			t.Fatalf("heartbeat: %v", err)
+		}
+		got, _ := body["ag_drain"].(map[string]any)
+		if got["draining"] != true || got["idle"] != false || got["active_tasks"] != float64(2) {
+			t.Fatalf("ag_drain = %v, want draining=true idle=false active_tasks=2", got)
+		}
+
+		d.activeTasks.Store(0)
+		if _, err := d.client.SendHeartbeatWithDrain(context.Background(), "rt-1", d.agDrainReport()); err != nil {
+			t.Fatalf("heartbeat: %v", err)
+		}
+		got, _ = body["ag_drain"].(map[string]any)
+		if got["draining"] != true || got["idle"] != true || got["active_tasks"] != float64(0) {
+			t.Fatalf("ag_drain = %v, want draining=true idle=true active_tasks=0", got)
+		}
+	})
+
+	t.Run("AG patch: the plain heartbeat call omits ag_drain", func(t *testing.T) {
+		var body map[string]any
+		d, _ := pendingWorkHintDaemon(t, captureHeartbeatBody(&body))
+
+		if _, err := d.client.SendHeartbeat(context.Background(), "rt-1"); err != nil {
+			t.Fatalf("heartbeat: %v", err)
+		}
+		if body == nil {
+			t.Fatal("no heartbeat reached the server")
+		}
+		if _, present := body["ag_drain"]; present {
+			t.Fatalf("ag_drain present on a plain heartbeat: %v", body)
+		}
+	})
+
+	t.Run("AG patch: the WebSocket heartbeat frame carries the report", func(t *testing.T) {
+		d := New(Config{HeartbeatInterval: time.Hour}, discardLogger())
+		d.agStartDrain()
+		d.activeTasks.Store(3)
+		writes := make(chan *wsOutbound, 2)
+
+		d.sendWSHeartbeats(context.Background(), []string{"rt-1", "rt-2"}, writes)
+
+		for _, want := range []string{"rt-1", "rt-2"} {
+			var out *wsOutbound
+			select {
+			case out = <-writes:
+			default:
+				t.Fatalf("no frame for %s", want)
+			}
+			var msg protocol.Message
+			if err := json.Unmarshal(out.data, &msg); err != nil {
+				t.Fatalf("decode frame: %v", err)
+			}
+			var payload protocol.DaemonHeartbeatRequestPayload
+			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+				t.Fatalf("decode payload: %v", err)
+			}
+			if payload.RuntimeID != want {
+				t.Fatalf("runtime_id = %q, want %q", payload.RuntimeID, want)
+			}
+			if payload.AGDrain == nil || !payload.AGDrain.Draining || payload.AGDrain.ActiveTasks != 3 {
+				t.Fatalf("ag_drain = %+v, want draining with 3 active", payload.AGDrain)
+			}
+		}
+	})
+
+	t.Run("AG patch: the HTTP heartbeat tick sends the report", func(t *testing.T) {
+		var body map[string]any
+		d, _ := pendingWorkHintDaemon(t, captureHeartbeatBody(&body))
+		d.agStartDrain()
+		d.activeTasks.Store(2)
+
+		d.runHeartbeatTick(context.Background(), "rt-1")
+
+		got, ok := body["ag_drain"].(map[string]any)
+		if !ok || got["draining"] != true || got["active_tasks"] != float64(2) {
+			t.Fatalf("heartbeat body = %v, want ag_drain draining with 2 active", body)
+		}
+	})
+
+	t.Run("AG patch: the pending-work hint heartbeat sends the report", func(t *testing.T) {
+		var body map[string]any
+		d, _ := pendingWorkHintDaemon(t, captureHeartbeatBody(&body))
+		d.agStartDrain()
+		d.activeTasks.Store(1)
+
+		d.handlePendingWorkHint("rt-1", protocol.PendingWorkKindModelList)
+
+		got, ok := body["ag_drain"].(map[string]any)
+		if !ok || got["draining"] != true || got["active_tasks"] != float64(1) {
+			t.Fatalf("heartbeat body = %v, want ag_drain draining with 1 active", body)
+		}
+	})
+}
