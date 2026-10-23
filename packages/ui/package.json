@@ -27,6 +27,7 @@
     "./lib/code-style": "./lib/code-style.ts",
     "./lib/clipboard": "./lib/clipboard.ts",
     "./lib/context-menu-origin": "./lib/context-menu-origin.ts",
+    "./lib/ag_clipboard-rich": "./lib/ag_clipboard-rich.ts",
     "./lib/motion": "./lib/motion.ts",
     "./lib/multica-brand": "./lib/multica-brand.ts",
     "./icons": "./icons/index.ts",
