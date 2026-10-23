@@ -1,0 +1,8 @@
+{
+  "issues": {
+    "swimlane": {
+      "sub_lanes_hidden_one": "+{{count}} subcarril",
+      "sub_lanes_hidden_other": "+{{count}} subcarriles"
+    }
+  }
+}

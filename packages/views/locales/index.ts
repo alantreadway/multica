@@ -1,4 +1,5 @@
 import type { LocaleResources, SupportedLocale } from "@multica/core/i18n";
+import { addAgNamespace } from "./ag";
 import enCommon from "./en/common.json";
 import enAuth from "./en/auth.json";
 import enSettings from "./en/settings.json";
@@ -369,3 +370,4 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     billing: esBilling,
   },
 };
+addAgNamespace(RESOURCES); // AG patch: fork strings (ag.ts)
