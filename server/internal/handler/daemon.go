@@ -1397,6 +1397,8 @@ type DaemonHeartbeatRequest struct {
 	SupportsBatchImport bool   `json:"supports_batch_import,omitempty"`
 	// AGDrain: AG patch drain report; nil from a stock daemon.
 	AGDrain *protocol.DaemonDrainReport `json:"ag_drain,omitempty"`
+	// AGQuota: AG patch Claude quota report; nil from a stock daemon.
+	AGQuota *protocol.DaemonQuotaReport `json:"ag_quota,omitempty"`
 }
 
 // heartbeatHasPendingTimeout bounds the cheap HasPending probe on the
@@ -1539,6 +1541,7 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	updateMs = time.Since(updateStart).Milliseconds()
 
 	h.agApplyHTTPDrainReport(r.Context(), rt, req.AGDrain) // AG patch: drain badge
+	h.agApplyHTTPQuotaReport(r.Context(), rt, req.AGQuota) // AG patch: quota report
 
 	ack, m, err := h.processHeartbeat(r.Context(), runtimeID, req.SupportsBatchImport)
 	probeModelMs = m.ProbeModelMs
@@ -1577,6 +1580,7 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if len(ack.PendingLocalSkillImports) > 0 {
 		resp["pending_local_skill_imports"] = ack.PendingLocalSkillImports
 	}
+	agAddSettingsToHeartbeatResp(resp, rt) // AG patch: runtime setting
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -1606,7 +1610,9 @@ func (h *Handler) HandleDaemonWSHeartbeat(ctx context.Context, identity daemonws
 		return nil, err
 	}
 	h.agApplyWSDrainReport(ctx, runtimeID, lease) // AG patch: drain badge
+	h.agApplyWSQuotaReport(ctx, runtimeID, lease) // AG patch: quota report
 	ack, _, err := h.processHeartbeat(ctx, runtimeID, supportsBatchImport)
+	agAckSettingsFromLease(ack, lease) // AG patch: runtime setting
 	return ack, err
 }
 
