@@ -40,6 +40,11 @@
       "chart_use_outline": "Cambiar a esquema",
       "chart_too_many_title": "Demasiadas tareas para dibujar",
       "chart_too_many_body": "Hay {{count}} tareas abiertas, más de las {{max}} que dibuja el organigrama. Contrae ramas o céntrate en un subárbol más pequeño."
+    },
+    "display": {
+      "labels_off": "No",
+      "labels_compact": "Compactas",
+      "labels_full": "Completas"
     }
   },
   "runtimes": {

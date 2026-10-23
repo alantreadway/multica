@@ -40,6 +40,11 @@
       "chart_use_outline": "Passer au plan",
       "chart_too_many_title": "Trop de tickets à afficher",
       "chart_too_many_body": "{{count}} tickets sont ouverts, soit plus que les {{max}} que l'organigramme peut afficher. Réduisez des branches ou ciblez un sous-arbre plus petit."
+    },
+    "display": {
+      "labels_off": "Masqué",
+      "labels_compact": "Compact",
+      "labels_full": "Complet"
     }
   },
   "runtimes": {

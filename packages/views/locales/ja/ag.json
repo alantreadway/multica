@@ -39,6 +39,11 @@
       "chart_use_outline": "アウトラインに切り替え",
       "chart_too_many_title": "課題が多すぎて描画できません",
       "chart_too_many_body": "開いている課題が {{count}} 件あり、組織図で描画できる {{max}} 件を超えています。ブランチを折りたたむか、より小さなサブツリーにフォーカスしてください。"
+    },
+    "display": {
+      "labels_off": "オフ",
+      "labels_compact": "コンパクト",
+      "labels_full": "フル"
     }
   },
   "runtimes": {

@@ -114,7 +114,7 @@ describe("issue view defaults", () => {
       dueDate: true,
       project: true,
       childProgress: true,
-      labels: false,
+      labels: "off",
     });
   });
 

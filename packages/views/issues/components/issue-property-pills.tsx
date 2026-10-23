@@ -76,7 +76,9 @@ export function IssuePropertyPills({
         triggerRender={<PillButton />}
         align="start"
       />
-      <LabelPicker issueId={issue.id} triggerRender={<PillButton />} align="start" />
+      {/* AG patch: let every label chip wrap at the row's full width instead of
+          clipping inside PillButton's 14rem cap. */}
+      <LabelPicker issueId={issue.id} triggerRender={<PillButton className="max-w-full flex-wrap overflow-visible rounded-xl" />} align="start" />
     </div>
   );
 }

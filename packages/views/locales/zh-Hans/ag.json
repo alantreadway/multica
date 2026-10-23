@@ -39,6 +39,11 @@
       "chart_use_outline": "切换到大纲",
       "chart_too_many_title": "问题过多，无法绘制",
       "chart_too_many_body": "已展开 {{count}} 个问题，超过组织图可绘制的 {{max}} 个。请折叠分支或聚焦到更小的子树。"
+    },
+    "display": {
+      "labels_off": "关闭",
+      "labels_compact": "紧凑",
+      "labels_full": "完整"
     }
   },
   "runtimes": {
