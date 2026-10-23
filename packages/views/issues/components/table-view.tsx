@@ -125,7 +125,7 @@ import {
 import { runConfirmIntent } from "../actions/run-confirm-gate";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { DeferredTooltip } from "../../common/deferred-tooltip";
-import { LabelChip } from "../../labels/label-chip";
+import { AgLabelRow } from "../../labels/ag-label-row";
 import { resolveClickIntent, useIntentNavigate } from "../../navigation";
 import { ProjectPicker } from "../../projects/components/project-picker";
 import { useT } from "../../i18n";
@@ -863,7 +863,7 @@ function LazyLabelCell({
   return (
     <button
       type="button"
-      className="flex max-w-full items-center gap-1 overflow-hidden rounded-xs px-1 py-0.5 hover:bg-accent"
+      className="flex max-w-full items-center gap-1 rounded-xs px-1 py-0.5 text-left hover:bg-accent"
       onClick={(event) => {
         event.stopPropagation();
         onOpenChange(true);
@@ -872,12 +872,7 @@ function LazyLabelCell({
     >
       {labels.length > 0 ? (
         <>
-          {labels.slice(0, 2).map((label) => (
-            <LabelChip key={label.id} label={label} />
-          ))}
-          {labels.length > 2 && (
-            <span className="text-caption text-muted-foreground">+{labels.length - 2}</span>
-          )}
+          <AgLabelRow labels={labels} display="full" />
         </>
       ) : (
         <span className="text-muted-foreground">{t(($) => $.table.empty_value)}</span>

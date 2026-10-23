@@ -40,6 +40,11 @@
       "chart_use_outline": "Switch to outline",
       "chart_too_many_title": "Too many issues to draw",
       "chart_too_many_body": "{{count}} issues are open, more than the {{max}} the chart draws. Collapse branches or focus on a smaller subtree."
+    },
+    "display": {
+      "labels_off": "Off",
+      "labels_compact": "Compact",
+      "labels_full": "Full"
     }
   },
   "runtimes": {

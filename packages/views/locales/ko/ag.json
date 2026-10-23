@@ -39,6 +39,11 @@
       "chart_use_outline": "개요로 전환",
       "chart_too_many_title": "그리기에는 이슈가 너무 많습니다",
       "chart_too_many_body": "열려 있는 이슈 {{count}}개가 조직도가 그릴 수 있는 {{max}}개를 넘습니다. 브랜치를 접거나 더 작은 하위 트리에 포커스하세요."
+    },
+    "display": {
+      "labels_off": "끔",
+      "labels_compact": "간단히",
+      "labels_full": "전체"
     }
   },
   "runtimes": {

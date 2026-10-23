@@ -49,13 +49,20 @@ function defaultsForSurface(
   };
 }
 
+// AG patch: `labels` is "off" | "compact" | "full" now, so "off" counts as off.
+function isCardPropertyOn(value: unknown): boolean {
+  return value !== false && value !== "off";
+}
+
 function isLegacyCardDefault(cardProperties: unknown): boolean {
   if (!cardProperties || typeof cardProperties !== "object") return true;
   return Object.keys(DEFAULT_CARD_PROPERTIES).every(
     (key) =>
-      (cardProperties as Partial<Record<keyof typeof DEFAULT_CARD_PROPERTIES, boolean>>)[
-        key as keyof typeof DEFAULT_CARD_PROPERTIES
-      ] !== false,
+      isCardPropertyOn(
+        (cardProperties as Partial<Record<keyof typeof DEFAULT_CARD_PROPERTIES, unknown>>)[
+          key as keyof typeof DEFAULT_CARD_PROPERTIES
+        ],
+      ),
   );
 }
 
