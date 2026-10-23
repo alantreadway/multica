@@ -794,6 +794,7 @@ export function useIssueSurfaceController({
     surfaceKey: scopeKey,
     query: tableQuerySpec,
     enabled: usesTree && !workingFilterUnresolved,
+    projectRoot: !!projectId,
   });
 
   // Gantt draws a client-materialized canvas, so its chip counts the agents

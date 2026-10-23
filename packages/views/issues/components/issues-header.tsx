@@ -128,6 +128,7 @@ import { matchesPinyin } from "../../editor/extensions/pinyin-match";
 import { FILTER_ITEM_CLASS, HoverCheck } from "../../common/hover-check";
 import { WorkspaceAgentWorkingChip } from "./workspace-agent-working-chip";
 import { TableColumnPicker } from "./table-view";
+import { TreeLayoutMenuSection } from "./tree-layout-menu";
 
 type LocalDateRange = {
   from: Date | undefined;
@@ -2482,6 +2483,9 @@ export function IssueDisplayControls({
                   </DropdownMenuRadioItem>
                 )}
               </DropdownMenuRadioGroup>
+              {allowTree && viewMode === "tree" && (
+                <TreeLayoutMenuSection onChosen={() => setViewMenuOpen(false)} />
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
