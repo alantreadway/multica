@@ -44,6 +44,9 @@
       "labels_off": "끔",
       "labels_compact": "간단히",
       "labels_full": "전체"
+    },
+    "comment": {
+      "copy_slack_action": "복사 (Slack)"
     }
   },
   "runtimes": {

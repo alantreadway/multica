@@ -45,6 +45,9 @@
       "labels_off": "Masqué",
       "labels_compact": "Compact",
       "labels_full": "Complet"
+    },
+    "comment": {
+      "copy_slack_action": "Copier (Slack)"
     }
   },
   "runtimes": {

@@ -121,6 +121,7 @@ describe("CommentCard — actions menu layout", () => {
       "Resolve thread",
       SEPARATOR,
       "Copy",
+      "Copy (Slack)",
       "Copy link",
       "Create sub-issue from here",
       SEPARATOR,
@@ -137,6 +138,7 @@ describe("CommentCard — actions menu layout", () => {
       "Resolve thread with comment",
       SEPARATOR,
       "Copy",
+      "Copy (Slack)",
       "Copy link",
       "Create sub-issue from here",
       SEPARATOR,
@@ -151,6 +153,7 @@ describe("CommentCard — actions menu layout", () => {
       "Resolve thread",
       SEPARATOR,
       "Copy",
+      "Copy (Slack)",
       "Copy link",
       "Create sub-issue from here",
     ]);
@@ -159,6 +162,6 @@ describe("CommentCard — actions menu layout", () => {
   it("drops the leading separator when there is nothing to edit or resolve", async () => {
     renderThread(comment("root", null, agentAuthor), [], { resolvable: false });
 
-    expect(await openMenuLayout(0)).toEqual(["Copy", "Copy link", "Create sub-issue from here"]);
+    expect(await openMenuLayout(0)).toEqual(["Copy", "Copy (Slack)", "Copy link", "Create sub-issue from here"]);
   });
 });

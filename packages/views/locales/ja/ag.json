@@ -44,6 +44,9 @@
       "labels_off": "オフ",
       "labels_compact": "コンパクト",
       "labels_full": "フル"
+    },
+    "comment": {
+      "copy_slack_action": "コピー（Slack）"
     }
   },
   "runtimes": {

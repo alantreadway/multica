@@ -44,6 +44,9 @@
       "labels_off": "關閉",
       "labels_compact": "緊湊",
       "labels_full": "完整"
+    },
+    "comment": {
+      "copy_slack_action": "複製（Slack）"
     }
   },
   "runtimes": {
