@@ -1,4 +1,5 @@
 import type { LocaleResources } from "@multica/core/i18n";
+import { withAg } from "./ag";
 import ruDocs from "./ru/docs.json";
 import ruCommon from "./ru/common.json";
 import ruAuth from "./ru/auth.json";
@@ -55,4 +56,4 @@ const resources: LocaleResources = {
   billing: ruBilling,
 };
 
-export default resources;
+export default withAg("ru", resources); // AG patch: fork strings (ag.ts)

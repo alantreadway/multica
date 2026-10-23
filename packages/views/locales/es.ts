@@ -1,4 +1,5 @@
 import type { LocaleResources } from "@multica/core/i18n";
+import { withAg } from "./ag";
 import esDocs from "./es/docs.json";
 import esCommon from "./es/common.json";
 import esAuth from "./es/auth.json";
@@ -55,4 +56,4 @@ const resources: LocaleResources = {
   billing: esBilling,
 };
 
-export default resources;
+export default withAg("es", resources); // AG patch: fork strings (ag.ts)

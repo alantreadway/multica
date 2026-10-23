@@ -1,0 +1,10 @@
+{
+  "issues": {
+    "swimlane": {
+      "sub_lanes_hidden_one": "+{{count}} подгруппа",
+      "sub_lanes_hidden_few": "+{{count}} подгруппы",
+      "sub_lanes_hidden_many": "+{{count}} подгрупп",
+      "sub_lanes_hidden_other": "+{{count}} подгруппы"
+    }
+  }
+}

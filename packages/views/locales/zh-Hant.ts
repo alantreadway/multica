@@ -1,4 +1,5 @@
 import type { LocaleResources } from "@multica/core/i18n";
+import { withAg } from "./ag";
 import zhHantDocs from "./zh-Hant/docs.json";
 import zhHantCommon from "./zh-Hant/common.json";
 import zhHantAuth from "./zh-Hant/auth.json";
@@ -55,4 +56,4 @@ const resources: LocaleResources = {
   billing: zhHantBilling,
 };
 
-export default resources;
+export default withAg("zh-Hant", resources); // AG patch: fork strings (ag.ts)

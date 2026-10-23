@@ -1,4 +1,5 @@
 import type { LocaleResources } from "@multica/core/i18n";
+import { withAg } from "./ag";
 import jaDocs from "./ja/docs.json";
 import jaCommon from "./ja/common.json";
 import jaAuth from "./ja/auth.json";
@@ -55,4 +56,4 @@ const resources: LocaleResources = {
   billing: jaBilling,
 };
 
-export default resources;
+export default withAg("ja", resources); // AG patch: fork strings (ag.ts)
