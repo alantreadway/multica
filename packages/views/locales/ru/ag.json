@@ -1,10 +1,11 @@
 {
   "issues": {
     "swimlane": {
-      "sub_lanes_hidden_one": "+{{count}} подгруппа",
-      "sub_lanes_hidden_few": "+{{count}} подгруппы",
-      "sub_lanes_hidden_many": "+{{count}} подгрупп",
-      "sub_lanes_hidden_other": "+{{count}} подгруппы"
+      "sub_lanes_hidden_one": "+{{count}} вложенная дорожка",
+      "sub_lanes_hidden_few": "+{{count}} вложенные дорожки",
+      "sub_lanes_hidden_many": "+{{count}} вложенных дорожек",
+      "sub_lanes_hidden_other": "+{{count}} вложенной дорожки",
+      "jump_to_lane": "Перейти к дорожке"
     }
   }
 }

@@ -1,7 +1,8 @@
 {
   "issues": {
     "swimlane": {
-      "sub_lanes_hidden_other": "+{{count}} 个子泳道"
+      "sub_lanes_hidden_other": "+{{count}} 个子泳道",
+      "jump_to_lane": "跳转到泳道"
     }
   }
 }
