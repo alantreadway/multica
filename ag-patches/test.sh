@@ -54,6 +54,9 @@ pnpm --filter @multica/views exec vitest run \
   projects/components/project-detail.ag.test.tsx \
   settings/components/issue-statuses-tab.test.tsx \
   settings/components/issue-statuses-tab.ag.test.tsx \
+  settings/components/labels-tab.test.tsx \
+  settings/components/labels-tab.ag.test.tsx \
+  labels/label-manager.reorder.test.tsx \
   runtimes/components/drain-badge.test.tsx \
   runtimes/components/runtime-list-drain.test.tsx \
   runtimes/components/runtime-detail-drain.test.tsx \
@@ -69,6 +72,10 @@ pnpm --filter @multica/core exec vitest run \
   issues/queries.test.ts \
   issues/queries.tree-lanes.ag.test.ts \
   issues/queries.tree-view.ag.test.ts \
+  labels/mutations.test.tsx \
+  labels/mutations.ag.test.tsx \
+  api/client.test.ts \
+  api/ag-client.test.ts \
   issues/queries.test.ts
 
 pnpm --filter @multica/views typecheck

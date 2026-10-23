@@ -254,6 +254,7 @@ import { type Logger, noopLogger } from "../logger";
 import { createRequestId, createSafeId } from "../utils";
 import { getCurrentSlug } from "../platform/workspace-storage";
 import { parseWithFallback } from "./schema";
+import { installAgApiMethods } from "./ag-client";
 import {
   RuntimeProfileSchema,
   RuntimeProfileListSchema,
@@ -5396,3 +5397,5 @@ export class ApiClient {
     );
   }
 }
+
+installAgApiMethods(ApiClient); // AG patch: fork-only methods (ag-client.ts)
