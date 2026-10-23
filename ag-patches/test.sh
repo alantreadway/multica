@@ -28,6 +28,7 @@ pnpm install --frozen-lockfile
 
 pnpm --filter @multica/views exec vitest run \
   issues/components/swimlane-view.test.tsx \
+  issues/components/swimlane-view.lane-drag.ag.test.tsx \
   issues/components/swimlane-view.tree-lanes.ag.test.tsx \
   issues/components/swimlane-tree.test.ts \
   issues/components/swimlane-band.test.ts
