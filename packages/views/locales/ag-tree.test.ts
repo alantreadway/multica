@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { RESOURCES } from "./index";
 
-// The Tree layout's menu, tooltip and row strings must exist in every shipped
+// The Tree layout's menu, tooltip, row and chart strings must exist in every shipped
 // locale; a missing key silently renders English. The generic parity test
 // guards key sets, this one guards the Tree strings' content.
 const TREE_KEYS = [
@@ -23,6 +23,19 @@ const TREE_KEYS = [
   "filters_paused",
   "clear_focus",
   "sub_issue_progress",
+  "layout_section",
+  "layout_outline",
+  "layout_chart",
+  "chart_hint",
+  "chart_aria_label",
+  "chart_zoom_in",
+  "chart_zoom_out",
+  "chart_fit",
+  "chart_reset",
+  "chart_expand_level",
+  "chart_use_outline",
+  "chart_too_many_title",
+  "chart_too_many_body",
 ] as const;
 
 type IssuesBundle = {
@@ -64,8 +77,21 @@ describe("AG patch: tree view translations", () => {
     });
   }
 
+  it("keeps the node-cap placeholders in the chart's warning", () => {
+    for (const locale of locales) {
+      const { tree } = (RESOURCES as unknown as Record<string, { ag: { issues: IssuesBundle } }>)[
+        locale
+      ]!.ag.issues;
+      expect(tree.chart_too_many_body, locale).toContain("{{count}}");
+      expect(tree.chart_too_many_body, locale).toContain("{{max}}");
+    }
+  });
+
   it("uses the spec's English wording for the layout", () => {
     const { view } = (RESOURCES.en as unknown as { ag: { issues: IssuesBundle } }).ag.issues;
     expect(view.tree).toBe("Tree");
+    const { tree } = (RESOURCES.en as unknown as { ag: { issues: IssuesBundle } }).ag.issues;
+    expect(tree.layout_outline).toBe("Outline");
+    expect(tree.layout_chart).toBe("Chart");
   });
 });

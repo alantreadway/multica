@@ -84,9 +84,17 @@ export interface FlattenTreeInput {
   /** `null` for the whole tree, or the focused issue. */
   focusIssue: Issue | null;
   branches: Readonly<Record<string, TreeBranch | undefined>>;
-  expanded: ReadonlySet<string>;
+  /** Open nodes: a set, or a rule `(id, depth, siblingIndex)` for layouts that
+   *  open by depth (the org chart). */
+  expanded: ReadonlySet<string> | TreeExpandRule;
   ancestry?: TreeAncestry;
 }
+
+export type TreeExpandRule = (
+  issueId: string,
+  depth: number,
+  siblingIndex: number,
+) => boolean;
 
 /**
  * Hidden ancestors of `parentId`, topmost first. Stops at a missing node or a
@@ -121,6 +129,8 @@ export function flattenTree({
   expanded,
   ancestry,
 }: FlattenTreeInput): TreeRow[] {
+  const isExpanded: TreeExpandRule =
+    typeof expanded === "function" ? expanded : (id) => expanded.has(id);
   const out: TreeRow[] = [];
   const onPath = new Set<string>();
 
@@ -160,7 +170,8 @@ export function flattenTree({
       const { issue } = row;
       if (onPath.has(issue.id)) return;
       const isLast = index === branch.rows.length - 1 && !hasMoreRow;
-      const isOpen = expanded.has(issue.id) && row.direct_child_count > 0;
+      const isOpen =
+        isExpanded(issue.id, depth, index) && row.direct_child_count > 0;
       out.push({
         kind: "issue",
         key: issue.id,

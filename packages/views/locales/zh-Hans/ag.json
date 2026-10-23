@@ -25,7 +25,20 @@
       "hidden_ancestors": "被当前筛选隐藏的父问题",
       "filters_paused": "聚焦时筛选已暂停",
       "clear_focus": "取消聚焦",
-      "sub_issue_progress": "{{total}} 个子问题中已完成 {{done}} 个"
+      "sub_issue_progress": "{{total}} 个子问题中已完成 {{done}} 个",
+      "layout_section": "布局",
+      "layout_outline": "大纲",
+      "layout_chart": "组织图",
+      "chart_hint": "聚焦某个问题后可以用组织图查看。",
+      "chart_aria_label": "问题组织图",
+      "chart_zoom_in": "放大",
+      "chart_zoom_out": "缩小",
+      "chart_fit": "适应视图",
+      "chart_reset": "重置",
+      "chart_expand_level": "显示下一层",
+      "chart_use_outline": "切换到大纲",
+      "chart_too_many_title": "问题过多，无法绘制",
+      "chart_too_many_body": "已展开 {{count}} 个问题，超过组织图可绘制的 {{max}} 个。请折叠分支或聚焦到更小的子树。"
     }
   }
 }

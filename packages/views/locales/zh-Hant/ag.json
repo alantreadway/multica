@@ -25,7 +25,20 @@
       "hidden_ancestors": "被當前篩選隱藏的父問題",
       "filters_paused": "聚焦時篩選已暫停",
       "clear_focus": "取消聚焦",
-      "sub_issue_progress": "{{total}} 個子問題中已完成 {{done}} 個"
+      "sub_issue_progress": "{{total}} 個子問題中已完成 {{done}} 個",
+      "layout_section": "佈局",
+      "layout_outline": "大綱",
+      "layout_chart": "組織圖",
+      "chart_hint": "聚焦某個問題後可以用組織圖檢視。",
+      "chart_aria_label": "問題組織圖",
+      "chart_zoom_in": "放大",
+      "chart_zoom_out": "縮小",
+      "chart_fit": "適應檢視",
+      "chart_reset": "重置",
+      "chart_expand_level": "顯示下一層",
+      "chart_use_outline": "切換到大綱",
+      "chart_too_many_title": "問題過多，無法繪製",
+      "chart_too_many_body": "已展開 {{count}} 個問題，超過組織圖可繪製的 {{max}} 個。請摺疊分支或聚焦到更小的子樹。"
     }
   }
 }
