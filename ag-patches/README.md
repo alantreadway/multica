@@ -546,23 +546,23 @@ The web tests run with `pnpm test`.
 
 ## Rebase onto a new upstream tag
 
-For a new upstream tag `vX`, from the current patch branch `ag/v0.6.3`:
+For a new upstream tag `vX`, from the current patch branch `ag/v0.6.5`:
 
 1. Fetch upstream tags: `git fetch upstream --tags`.
-2. Create the new branch: `git switch -c ag/vX ag/v0.6.3`.
+2. Create the new branch: `git switch -c ag/vX ag/v0.6.5`.
 3. Re-check upstream before replaying anything. For each patch in
    [`PATCHES.md`](./PATCHES.md) (see "Upstream status" there), look at its
    overlapping PRs and issues on `multica-ai/multica` (read-only; open nothing
    there) and search for newer duplicates. If upstream merged it in `vX` or
    earlier, or replaced it, drop the patch from the replay (`git rebase
-   --onto vX v0.6.3` with the patch's commits excluded, or `git rebase -i`) and
+   --onto vX v0.6.5` with the patch's commits excluded, or `git rebase -i`) and
    delete its entry. Otherwise refresh its **Upstream** line and the
    "Last checked" date.
-4. Replay the patches: `git rebase --onto vX v0.6.3`. This flattens the PR
+4. Replay the patches: `git rebase --onto vX v0.6.5`. This flattens the PR
    merge commits, so a conflict a merge commit resolved comes back on the
    commit that caused it (usually `PATCHES.md` and the test lists in
    `test.sh`). Afterwards the tree must equal
-   `git merge-tree --write-tree ag/v0.6.3 vX` plus your conflict fixes; diff the
+   `git merge-tree --write-tree ag/v0.6.5 vX` plus your conflict fixes; diff the
    two to check.
 5. Resolve conflicts. The web patches concentrate in `swimlane-view.tsx`, and the
    daemon patch hooks into `daemon.go`, `health.go`, `auto_update.go` and

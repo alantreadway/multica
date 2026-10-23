@@ -5,8 +5,8 @@ lands, is dropped or is reworked during a rebase.
 
 ## Upstream base
 
-- Tag: `v0.6.3`
-- Commit: `18fa9f728a9e25f2465df2789631edb2a75442ad`
+- Tag: `v0.6.5`
+- Commit: `654b8ca954034f8181eb6bbb4fc298dede760156`
 
 ## Upstream status
 
@@ -26,9 +26,11 @@ offer upstream. Every patch entry below ends with an **Upstream** line:
 - **Overlap:** related upstream PRs and issues, with their state when last checked.
 - **Fit:** how it sits with upstream's `VISION.md` and roadmap, or why it doesn't.
 
-Last checked 2026-10-19 at the rebase onto `v0.6.3`: every overlapping PR and
-issue below re-read (none merged or superseded) and upstream searched for new
-ones opened since 2026-10-16. The full preflight from the
+Last checked 2026-10-23 at the rebase onto `v0.6.5`: every overlapping PR and
+issue below re-read (all still open or closed as listed; none merged or
+superseded), and the `v0.6.3..v0.6.5` commits read for anything that replaces a
+patch (none). Upstream's REST snapshot rewrite (#9332) forced a port of the PR
+snapshot extras, not a drop. The full preflight from the
 `multica-upstream-contribution` skill last ran 2026-10-16: live
 `VISION.md` and `CONTRIBUTING.md`, plus issue and PR searches, open and closed.
 Read-only: nothing has been opened, filed or commented on upstream. Re-check on
@@ -812,12 +814,20 @@ are null for a PR without a current-head snapshot, which is the existing
 `snapshot_available` rule. Existing fields are unchanged and enums are
 lowercased like the others.
 
-The snapshot GraphQL query asks for `isRequired(pullRequestNumber:)` on both
-`CheckRun` and `StatusContext`, plus `reviewDecision`, `latestReviews(first:20)`
-and `baseRefName`. If GitHub rejects the extended query with a GraphQL error
-(for example a token that cannot see `isRequired`), the fetch retries the
-original query for that PR, stores the extras as null and keeps the snapshot;
-rate limits and transport errors are not retried that way. Migration `573`
+Since `v0.6.4` upstream's snapshot is REST only (#9332: PR, check runs and
+commit statuses, so an App needs no Contents permission), and REST has no
+`reviewDecision` or per-check `isRequired`. The extras come from one GraphQL
+query of their own, run after the REST reads and before upstream's final
+head re-read: `headRefOid`, `baseRefName`, `reviewDecision`,
+`latestReviews(first:20)` and, paginated 100 at a time over the head's
+`statusCheckRollup` contexts, `isRequired(pullRequestNumber:)` on `CheckRun`
+and `StatusContext`. Each REST check takes the `isRequired` of the GraphQL
+context of the same kind and name (duplicates merge to required, then unknown);
+a REST check with no GraphQL counterpart stays unknown, so the rollup is null.
+A rate limit, a cancelled request or a head other than the REST head fails the
+snapshot, as upstream's own fetch does. Any other failure of the extras query
+(a GraphQL error, an HTTP 403 from an App without the permission, a malformed
+or non-advancing page) stores the extras as null and keeps the REST snapshot. Migration `573`
 adds nullable `review_decision`, `latest_reviews` (JSONB) and `base_ref_name`
 to `github_pull_request` and `is_required` to `github_pull_request_check_run`:
 additive, no index, no foreign key. The stock backend never reads or writes
@@ -838,8 +848,9 @@ a backend image from `ag-patches/build-backend.sh` and a CLI from
 
 - Test prefix: `TestAGPatch` / `AG patch:`. The hermetic ones (query shape,
   fixtures for required true/false/null, each `reviewDecision`, pagination with
-  required checks across pages, the GraphQL-error fallback, the rollup, the CLI
-  commands) run in `ag-patches/test.sh`; the DB-backed ones (snapshot write in
+  required checks across pages, extras failures that keep or fail the
+  snapshot, the poll token on the REST calls, the rollup, the CLI commands) run
+  in `ag-patches/test.sh`; the DB-backed ones (snapshot write in
   `server/internal/integrations/ghsnapshot`, list response in
   `server/internal/handler`) need Postgres (see test.sh header)
 - Files:
@@ -848,13 +859,14 @@ a backend image from `ag-patches/build-backend.sh` and a CLI from
     `server/pkg/db/generated/ag_github_snapshot.sql.go` (new); `models.go`,
     `github.sql.go`, `github_snapshot.sql.go` regenerated with sqlc for the new
     columns
-  - `server/internal/integrations/ghsnapshot/ag_extras.go` (new: query
-    fragments, `agGraphQL` fallback, `agApplySnapshotExtras`,
-    `AGRequiredChecksState`), `ag_extras_test.go`, `ag_extras_db_test.go` (new)
-  - `server/internal/integrations/ghsnapshot/snapshot.go` (query is now a
-    template, `Required`, `AG` field, embedded `agPRExtras`, `isRequired` in
-    `normalizeNode`), `refresh.go` (one call in `applySnapshot`), `client.go`
-    (query-level errors are a `*GraphQLError`, same message)
+  - `server/internal/integrations/ghsnapshot/ag_extras.go` (new: the extras
+    query, `agFetchSnapshotExtras`, the GraphQL client upstream dropped in
+    `v0.6.4`, `agApplySnapshotExtras`, `AGRequiredChecksState`),
+    `ag_extras_test.go`, `ag_extras_pagination_test.go`, `ag_extras_db_test.go` (new)
+  - `server/internal/integrations/ghsnapshot/snapshot.go` (`Required` and `AG`
+    fields, one call to `agFetchSnapshotExtras` in `FetchPRSnapshot`),
+    `refresh.go` (one call in `applySnapshot`), `rest_snapshot_test.go` (upstream's
+    test server answers the extras query with a permission error)
   - `server/internal/handler/ag_pr_snapshot.go` (new: response fields,
     `agEnrichPullRequests`), `ag_pr_snapshot_test.go` (new)
   - `server/internal/handler/github.go` (embedded `AGPRSnapshotFields`, one call
