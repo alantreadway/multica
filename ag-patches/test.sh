@@ -47,7 +47,16 @@ pnpm --filter @multica/views exec vitest run \
   issues/surface/issue-surface.test.tsx \
   issues/surface/issue-surface.ag.test.tsx \
   issues/components/save-view-dialog.test.tsx \
+  issues/components/save-view-dialog.label-display.ag.test.tsx \
   issues/components/save-view-dialog.tree-mode.ag.test.tsx \
+  issues/components/ag-label-surfaces.test.tsx \
+  issues/components/issue-property-pills.test.tsx \
+  issues/components/issues-header.label-display.test.tsx \
+  issues/components/table-view-editing.test.tsx \
+  issues/components/table-view-editing.ag.test.tsx \
+  issues/components/issue-detail.test.tsx \
+  issues/components/issue-detail.ag.test.tsx \
+  labels/ag-label-row.test.tsx \
   common/actor-issues-panel.test.tsx \
   common/actor-issues-panel.ag.test.tsx \
   projects/components/project-detail.test.tsx \
@@ -76,6 +85,7 @@ pnpm --filter @multica/core exec vitest run \
   labels/mutations.ag.test.tsx \
   api/client.test.ts \
   api/ag-client.test.ts \
+  issues/stores/ag-label-display.test.ts \
   issues/queries.test.ts
 
 pnpm --filter @multica/views typecheck
