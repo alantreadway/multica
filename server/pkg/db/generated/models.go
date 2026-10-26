@@ -787,15 +787,20 @@ type GithubPullRequest struct {
 }
 
 type GithubPullRequestCheckRun struct {
-	PrID            pgtype.UUID `json:"pr_id"`
-	HeadSha         string      `json:"head_sha"`
-	Ordinal         int32       `json:"ordinal"`
-	Name            string      `json:"name"`
-	Status          string      `json:"status"`
-	Conclusion      pgtype.Text `json:"conclusion"`
-	DetailsUrl      pgtype.Text `json:"details_url"`
-	IsStatusContext bool        `json:"is_status_context"`
-	IsRequired      pgtype.Bool `json:"is_required"`
+	PrID            pgtype.UUID        `json:"pr_id"`
+	HeadSha         string             `json:"head_sha"`
+	Ordinal         int32              `json:"ordinal"`
+	Name            string             `json:"name"`
+	Status          string             `json:"status"`
+	Conclusion      pgtype.Text        `json:"conclusion"`
+	DetailsUrl      pgtype.Text        `json:"details_url"`
+	IsStatusContext bool               `json:"is_status_context"`
+	IsRequired      pgtype.Bool        `json:"is_required"`
+	WorkflowName    pgtype.Text        `json:"workflow_name"`
+	RunID           pgtype.Int8        `json:"run_id"`
+	StartedAt       pgtype.Timestamptz `json:"started_at"`
+	SuiteStatus     pgtype.Text        `json:"suite_status"`
+	SuiteConclusion pgtype.Text        `json:"suite_conclusion"`
 }
 
 type GithubPullRequestCheckSuite struct {

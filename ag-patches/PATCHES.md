@@ -872,6 +872,27 @@ are null for a PR without a current-head snapshot, which is the existing
 `snapshot_available` rule. Existing fields are unchanged and enums are
 lowercased like the others.
 
+Two additions let a gate rebuild its required-check verdict from the snapshot
+alone. Each PR has a top-level `head_sha`: the head the mirrored row holds, the
+value the `snapshot_available` rule compares the snapshot's head with (null when
+the row has none; unlike the fields above it is set with or without a current
+snapshot). Each entry of `checks` also carries the facts of its own check run:
+`workflow_name`, `run_id` (the Actions run id, a number), `started_at` (RFC3339
+UTC), `suite_status` and `suite_conclusion` (the check suite's, lowercased).
+The snapshot keeps superseded runs, so names repeat; these fields are matched
+per row on the check run's own id (the REST `id` against GraphQL `databaseId`,
+and the name must agree too), never by name. `required` keeps its by-name
+matching. A status context has no suite or run, so its run fields are null, and
+so are those of a check run GitHub did not return, returned twice, or returned
+under another name, of a check run outside Actions (`workflow_name` and `run_id`
+only; the suite fields stay), and of every row when the extras query did not
+answer, or when the snapshot was written before migration `9003`. Nothing is
+guessed or carried over from another row, so a gate can treat any null as
+unreadable. A merged or closed PR that already has a current-head snapshot is
+no longer re-fetched when its card is read (upstream refreshes any snapshot
+older than 60s on every read); open and draft PRs, and finished PRs with no
+snapshot, refresh as before.
+
 Since `v0.6.4` upstream's snapshot is REST only (#9332: PR, check runs and
 commit statuses, so an App needs no Contents permission), and REST has no
 `reviewDecision` or per-check `isRequired`. The extras come from one GraphQL
@@ -892,7 +913,12 @@ adds nullable `review_decision`, `latest_reviews` (JSONB) and `base_ref_name`
 to `github_pull_request` and `is_required` to `github_pull_request_check_run`:
 additive, no index, no foreign key. The stock backend never reads or writes
 them, so switching the backend image back works against the migrated database.
-`latest_reviews` is capped at 20 entries.
+`latest_reviews` is capped at 20 entries. Migration `9003` adds nullable
+`workflow_name`, `run_id`, `started_at`, `suite_status` and `suite_conclusion`
+to `github_pull_request_check_run`, with the same guarantees (additive, no index,
+no foreign key, ignored by the stock backend). The extras query reads, per
+`CheckRun`, `databaseId`, `startedAt` and `checkSuite { status conclusion
+workflowRun { databaseId workflow { name } } }`.
 
 `multica issue pull-requests link <issue> <pr-url>` POSTs to the existing
 `/api/issues/{id}/pull-requests` and prints the issue's PRs;
@@ -914,7 +940,8 @@ a backend image from `ag-patches/build-backend.sh` and a CLI from
   `server/internal/integrations/ghsnapshot`, list response in
   `server/internal/handler`) need Postgres (see test.sh header)
 - Files:
-  - `server/migrations/9001_ag_github_pr_snapshot_extras.up.sql`, `.down.sql` (new)
+  - `server/migrations/9001_ag_github_pr_snapshot_extras.up.sql`, `.down.sql` (new),
+    `9003_ag_github_pr_check_run_fields.up.sql`, `.down.sql` (new)
   - `server/pkg/db/queries/ag_github_snapshot.sql` (new) and
     `server/pkg/db/generated/ag_github_snapshot.sql.go` (new); `models.go`,
     `github.sql.go`, `github_snapshot.sql.go` regenerated with sqlc for the new
@@ -922,18 +949,21 @@ a backend image from `ag-patches/build-backend.sh` and a CLI from
   - `server/internal/integrations/ghsnapshot/ag_extras.go` (new: the extras
     query over the token-mode patch's GraphQL client (`ag_graphql.go`),
     `agFetchSnapshotExtras`, `agApplySnapshotExtras`, `AGRequiredChecksState`),
-    `ag_extras_test.go`, `ag_extras_pagination_test.go`, `ag_extras_db_test.go` (new)
-  - `server/internal/integrations/ghsnapshot/snapshot.go` (`Required` and `AG`
-    fields, one call to `agFetchSnapshotExtras` in `FetchPRSnapshot`),
+    `ag_extras_test.go`, `ag_extras_pagination_test.go`, `ag_extras_db_test.go`,
+    `ag_extras_run_fields_test.go` (new)
+  - `server/internal/integrations/ghsnapshot/snapshot.go` (`Required`, `AG`,
+    `AGCheckRunID` and `AGRun` fields, `AGCheckRunID` set on each REST check run, one call to `agFetchSnapshotExtras` in `FetchPRSnapshot`),
     `refresh.go` (one call in `applySnapshot`), `rest_snapshot_test.go` (upstream's
     test server answers the extras query with a permission error)
   - `server/internal/handler/ag_pr_snapshot.go` (new: response fields,
-    `agEnrichPullRequests`), `ag_pr_snapshot_test.go` (new)
+    `agEnrichPullRequests`, `agSetPRHeadSHA`, `agSkipViewRefresh`),
+    `ag_pr_snapshot_test.go`, `ag_pr_snapshot_view_test.go` (new)
   - `server/internal/handler/github.go` (embedded `AGPRSnapshotFields`, one call
-    in `ListPullRequestsForIssue`)
+    in `ListPullRequestsForIssue`, plus `agSetPRHeadSHA` and an `if` around
+    `MaybeEnqueueOnView` calling `agSkipViewRefresh`)
   - `server/cmd/multica/ag_issue_pull_requests.go` (new: `link`, `unlink`),
     `ag_issue_pull_requests_test.go` (new)
-  - `ag-patches/test.sh` (adds the ghsnapshot package, `AG_GO_MIN_TESTS=29`)
+  - `ag-patches/test.sh` (adds the ghsnapshot package, `AG_GO_MIN_TESTS` raised with the tests)
 
 - Upstream:
   - Status: `fork-only`. The CLI half is already proposed upstream in a
@@ -953,7 +983,11 @@ a backend image from `ag-patches/build-backend.sh` and a CLI from
     hard to land. Our extras query reads `statusCheckRollup` over GraphQL, the
     read #9332 removed so that an App needs no Contents permission, so upstream
     would not take it in this shape: an offer needs the extras over REST.
-    Offer nothing; watch #8145.
+    Offer nothing; watch #8145. The per-run fields and `head_sha` are the same
+    kind of self-host gate need, so nothing about them is offerable either; the
+    skipped on-view refresh for finished PRs is the one part that is a plain
+    quota fix, but it would need its own issue and a test against upstream's
+    refresh rules. No upstream issue or PR for either was searched for.
 
 ### Label ordering (backend + web)
 

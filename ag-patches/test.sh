@@ -111,7 +111,7 @@ pnpm --filter @multica/views typecheck
 
 # --- Go: daemon, CLI, drain-badge and GitHub polling patch guard ------------
 
-AG_GO_MIN_TESTS=205
+AG_GO_MIN_TESTS=208
 
 go_out="$(mktemp)"
 trap 'rm -f "$go_out"' EXIT

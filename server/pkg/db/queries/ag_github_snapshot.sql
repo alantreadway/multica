@@ -23,6 +23,17 @@ UPDATE github_pull_request_check_run
 SET is_required = sqlc.arg('required')::boolean
 WHERE pr_id = sqlc.arg('pr_id') AND ordinal = ANY(sqlc.arg('ordinals')::int[]);
 
+-- name: AGSetGitHubPRCheckRunRunFields :exec
+-- Sets the per-run fields of one check row (by ordinal). Rows the extras query
+-- said nothing about are never written, so they keep their inserted NULLs.
+UPDATE github_pull_request_check_run
+SET workflow_name    = sqlc.narg('workflow_name'),
+    run_id           = sqlc.narg('run_id'),
+    started_at       = sqlc.narg('started_at'),
+    suite_status     = sqlc.narg('suite_status'),
+    suite_conclusion = sqlc.narg('suite_conclusion')
+WHERE pr_id = sqlc.arg('pr_id') AND ordinal = sqlc.arg('ordinal');
+
 -- name: AGListPullRequestSnapshotExtras :many
 SELECT pr.id, pr.review_decision, pr.latest_reviews, pr.base_ref_name
 FROM github_pull_request pr
@@ -31,7 +42,8 @@ WHERE ipr.issue_id = sqlc.arg('issue_id');
 
 -- name: AGListPullRequestChecksForIssue :many
 -- Per-check rows for the CURRENT snapshot head of each of the issue's PRs.
-SELECT cr.pr_id, cr.name, cr.status, cr.conclusion, cr.details_url, cr.is_required
+SELECT cr.pr_id, cr.name, cr.status, cr.conclusion, cr.details_url, cr.is_required,
+       cr.workflow_name, cr.run_id, cr.started_at, cr.suite_status, cr.suite_conclusion
 FROM github_pull_request_check_run cr
 JOIN github_pull_request pr ON pr.id = cr.pr_id
 JOIN issue_pull_request ipr ON ipr.pull_request_id = pr.id
