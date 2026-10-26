@@ -437,3 +437,157 @@ func TestAGPatchRequiredChecksState(t *testing.T) {
 		})
 	}
 }
+
+// agRunOf renders a check run's AGRun for comparison: "workflow#run@start
+// suite/conclusion", or "null" when the extras said nothing about it.
+func agRunOf(c CheckContext) string {
+	if c.AGRun == nil {
+		return "null"
+	}
+	r := c.AGRun
+	started := ""
+	if !r.StartedAt.IsZero() {
+		started = r.StartedAt.Format(time.RFC3339)
+	}
+	return fmt.Sprintf("%s#%d@%s %s/%s", r.WorkflowName, r.RunID, started, r.SuiteStatus, r.SuiteConclusion)
+}
+
+func agRunNode(databaseID int, name, startedAt, suite string) string {
+	return fmt.Sprintf(`{"__typename":"CheckRun","databaseId":%d,"name":%q,"startedAt":%q,"isRequired":true,"checkSuite":%s}`,
+		databaseID, name, startedAt, suite)
+}
+
+func TestAGPatchSnapshotQueryAsksForTheRunFields(t *testing.T) {
+	t.Run("AG patch: the extras query asks for the check run's own id, start and suite", func(t *testing.T) {
+		for _, want := range []string{"databaseId name startedAt", "checkSuite{status conclusion workflowRun{databaseId workflow{name}}}"} {
+			if !strings.Contains(agExtrasQuery, want) {
+				t.Errorf("query lacks %s", want)
+			}
+		}
+	})
+}
+
+func TestAGPatchFetchSnapshotRunFieldsPerRow(t *testing.T) {
+	suiteA := `{"status":"COMPLETED","conclusion":"CANCELLED","workflowRun":{"databaseId":40309530097,"workflow":{"name":"CI"}}}`
+	suiteB := `{"status":"IN_PROGRESS","conclusion":null,"workflowRun":{"databaseId":40313137478,"workflow":{"name":"CI"}}}`
+
+	t.Run("AG patch: two same-named checks from different runs each get their own run fields", func(t *testing.T) {
+		f := &agFakeGitHub{
+			runs: []map[string]any{
+				agRun(101, "report", "completed", "cancelled"),
+				agRun(102, "report", "in_progress", ""),
+			},
+			gql: func(map[string]any) string {
+				// GraphQL lists them in the opposite order to REST.
+				return agExtrasPage("", false, "", agRunNode(102, "report", "2026-10-26T11:00:00Z", suiteB)+","+
+					agRunNode(101, "report", "2026-10-26T10:00:00+01:00", suiteA))
+			},
+		}
+		snap, err := f.fetch(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := agRunOf(snap.Contexts[0]); got != "CI#40309530097@2026-10-26T09:00:00Z completed/cancelled" {
+			t.Errorf("first report = %s", got)
+		}
+		if got := agRunOf(snap.Contexts[1]); got != "CI#40313137478@2026-10-26T11:00:00Z in_progress/" {
+			t.Errorf("second report = %s", got)
+		}
+		// Required still merges by name, as before.
+		if got := agRequiredOf(snap); got != "report=true report=true" {
+			t.Errorf("required = %s", got)
+		}
+	})
+
+	t.Run("AG patch: status contexts, rows GitHub did not return and mismatched names get null", func(t *testing.T) {
+		f := &agFakeGitHub{
+			runs: []map[string]any{
+				agRun(1, "build", "completed", "success"),
+				agRun(2, "missing", "completed", "success"),
+				agRun(3, "renamed", "completed", "success"),
+				agRun(4, "dup", "completed", "success"),
+			},
+			statuses: []map[string]any{agStatus("vercel", "success")},
+			gql: func(map[string]any) string {
+				return agExtrasPage("", false, "", strings.Join([]string{
+					agRunNode(1, "build", "2026-10-26T10:00:00Z", suiteA),
+					agRunNode(3, "other-name", "2026-10-26T10:00:00Z", suiteA),
+					agRunNode(4, "dup", "2026-10-26T10:00:00Z", suiteA),
+					agRunNode(4, "dup", "2026-10-26T10:00:00Z", suiteB),
+					`{"__typename":"StatusContext","context":"vercel","isRequired":true}`,
+				}, ","))
+			},
+		}
+		snap, err := f.fetch(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, c := range snap.Contexts {
+			got = append(got, c.Name+"="+agRunOf(c))
+		}
+		want := "build=CI#40309530097@2026-10-26T10:00:00Z completed/cancelled missing=null renamed=null dup=null vercel=null"
+		if strings.Join(got, " ") != want {
+			t.Fatalf("run fields =\n%s\nwant\n%s", strings.Join(got, " "), want)
+		}
+	})
+
+	t.Run("AG patch: a check run outside Actions keeps the suite and leaves the workflow null", func(t *testing.T) {
+		f := &agFakeGitHub{
+			runs: []map[string]any{agRun(1, "external", "completed", "success")},
+			gql: func(map[string]any) string {
+				return agExtrasPage("", false, "", agRunNode(1, "external", "not a time",
+					`{"status":"COMPLETED","conclusion":"SUCCESS","workflowRun":null}`))
+			},
+		}
+		snap, err := f.fetch(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := agRunOf(snap.Contexts[0]); got != "#0@ completed/success" {
+			t.Fatalf("run fields = %s", got)
+		}
+	})
+
+	t.Run("AG patch: run fields are matched across GraphQL pages", func(t *testing.T) {
+		f := &agFakeGitHub{
+			runs: []map[string]any{agRun(1, "a", "completed", "success"), agRun(2, "b", "completed", "success")},
+			gql: func(vars map[string]any) string {
+				if cursor, _ := vars["cursor"].(string); cursor == "" {
+					return agExtrasPage("", true, "P2", agRunNode(1, "a", "2026-10-26T10:00:00Z", suiteA))
+				}
+				return agExtrasPage("", false, "", agRunNode(2, "b", "2026-10-26T10:05:00Z", suiteB))
+			},
+		}
+		snap, err := f.fetch(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if agRunOf(snap.Contexts[0]) == "null" || agRunOf(snap.Contexts[1]) == "null" {
+			t.Fatalf("run fields = %s / %s", agRunOf(snap.Contexts[0]), agRunOf(snap.Contexts[1]))
+		}
+	})
+
+	t.Run("AG patch: when the extras fail every row's run fields are null", func(t *testing.T) {
+		for name, gql := range map[string]func(map[string]any) string{
+			"a GraphQL error": func(map[string]any) string {
+				return `{"data":null,"errors":[{"type":"FORBIDDEN","message":"nope"}]}`
+			},
+			"a later page failing": func(vars map[string]any) string {
+				if cursor, _ := vars["cursor"].(string); cursor == "" {
+					return agExtrasPage("", true, "P2", agRunNode(1, "a", "2026-10-26T10:00:00Z", suiteA))
+				}
+				return `{"data":null,"errors":[{"type":"INTERNAL","message":"boom"}]}`
+			},
+		} {
+			f := &agFakeGitHub{runs: []map[string]any{agRun(1, "a", "completed", "success")}, gql: gql}
+			snap, err := f.fetch(t)
+			if err != nil {
+				t.Fatalf("%s failed the snapshot: %v", name, err)
+			}
+			if got := agRunOf(snap.Contexts[0]); got != "null" {
+				t.Errorf("%s: run fields = %s, want null", name, got)
+			}
+		}
+	})
+}
