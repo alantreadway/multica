@@ -25,6 +25,11 @@ type CheckContext struct {
 	IsStatusContext bool
 	// Required is isRequired(pullRequestNumber:), nil when GitHub did not say.
 	Required *bool
+	// AGCheckRunID is the Checks API id of a check run (0 for a status context),
+	// the key AGRun is matched on; AGRun is set when the extras query answered
+	// for that run. See ag_extras.go.
+	AGCheckRunID int64
+	AGRun        *AGCheckRun
 }
 
 // PRSnapshot is the atomic unit written per fetch. It mirrors exactly what the
@@ -134,7 +139,7 @@ func FetchPRSnapshot(ctx context.Context, c *Client, installationID int64, owner
 			// refresh queue and the persisted running-check counts.
 			status, conclusion = "queued", ""
 		}
-		snap.Contexts = append(snap.Contexts, CheckContext{Name: run.Name, Status: status, Conclusion: conclusion, DetailsURL: run.DetailsURL})
+		snap.Contexts = append(snap.Contexts, CheckContext{Name: run.Name, Status: status, Conclusion: conclusion, DetailsURL: run.DetailsURL, AGCheckRunID: run.ID})
 	}
 	seenStatuses := make(map[string]struct{}, len(statuses))
 	for _, entry := range statuses {

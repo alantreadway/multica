@@ -11,9 +11,12 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/integrations/ghsnapshot"
 	"github.com/multica-ai/multica/server/internal/testutil"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // agEnableSnapshotsForTest gives testHandler a configured (but never started)
@@ -94,7 +97,7 @@ func TestAGPatchListPullRequestsSnapshotFields(t *testing.T) {
 	firePRWebhook(t, secret, installationID, 72, created.Identifier+": no data", "", "feat/nodata", "opened")
 	firePRWebhook(t, secret, installationID, 73, created.Identifier+": old snapshot", "", "feat/old", "opened")
 
-	agSeedSnapshotForTest(t, 71, `UPDATE github_pull_request
+	fieldsPR := agSeedSnapshotForTest(t, 71, `UPDATE github_pull_request
 		SET review_decision = 'CHANGES_REQUESTED', base_ref_name = 'latest',
 		    latest_reviews = '[{"author":"alan","state":"APPROVED","submitted_at":"2026-10-16T10:00:00Z"}]'::jsonb
 		WHERE id = $1::uuid`,
@@ -102,6 +105,12 @@ func TestAGPatchListPullRequestsSnapshotFields(t *testing.T) {
 		[]any{"lint", "completed", "failure", false},
 		[]any{"e2e", "in_progress", nil, true},
 	)
+	if _, err := testPool.Exec(context.Background(), `UPDATE github_pull_request_check_run
+		SET workflow_name = 'CI', run_id = 40309530097, started_at = '2026-10-26T10:00:00+01:00',
+		    suite_status = 'COMPLETED', suite_conclusion = 'SUCCESS'
+		WHERE pr_id = $1::uuid AND name = 'backend'`, fieldsPR); err != nil {
+		t.Fatal(err)
+	}
 	// A snapshot from before the patch: no extras stored, required-ness NULL.
 	agSeedSnapshotForTest(t, 72, "", []any{"backend", "completed", "success", nil})
 	// A snapshot that is not for the current head is not exposed at all.
@@ -147,6 +156,29 @@ func TestAGPatchListPullRequestsSnapshotFields(t *testing.T) {
 		}
 	})
 
+	t.Run("AG patch: checks carry their own run fields, null where the snapshot has none", func(t *testing.T) {
+		checks := byNumber[71].Checks
+		backend := checks[0]
+		if backend.WorkflowName == nil || *backend.WorkflowName != "CI" || backend.RunID == nil || *backend.RunID != 40309530097 ||
+			backend.StartedAt == nil || *backend.StartedAt != "2026-10-26T09:00:00Z" ||
+			backend.SuiteStatus == nil || *backend.SuiteStatus != "completed" ||
+			backend.SuiteConclusion == nil || *backend.SuiteConclusion != "success" {
+			t.Fatalf("backend run fields = %+v", backend)
+		}
+		lint := checks[1]
+		if lint.WorkflowName != nil || lint.RunID != nil || lint.StartedAt != nil || lint.SuiteStatus != nil || lint.SuiteConclusion != nil {
+			t.Fatalf("lint run fields = %+v, want all null", lint)
+		}
+	})
+
+	t.Run("AG patch: head_sha is the mirrored head, with or without a current snapshot", func(t *testing.T) {
+		for number, want := range map[int32]string{71: "abc", 72: "abc", 73: "newer"} {
+			if got := byNumber[number].HeadSHA; got == nil || *got != want {
+				t.Errorf("PR %d head_sha = %v, want %s", number, got, want)
+			}
+		}
+	})
+
 	t.Run("AG patch: a snapshot without the new data reports null, never success", func(t *testing.T) {
 		pr := byNumber[72]
 		if pr.RequiredChecksState != nil || pr.ReviewDecision != nil || pr.BaseRefName != nil || pr.LatestReviews != nil {
@@ -166,11 +198,64 @@ func TestAGPatchListPullRequestsSnapshotFields(t *testing.T) {
 
 	t.Run("AG patch: the JSON carries the new keys on every PR, null when absent", func(t *testing.T) {
 		for _, pr := range agListRawForTest(t, created.ID) {
-			for _, key := range []string{"checks", "required_checks_state", "review_decision", "latest_reviews", "base_ref_name"} {
+			var checks []map[string]json.RawMessage
+			_ = json.Unmarshal(pr["checks"], &checks)
+			for _, check := range checks {
+				for _, key := range []string{"workflow_name", "run_id", "started_at", "suite_status", "suite_conclusion"} {
+					if _, ok := check[key]; !ok {
+						t.Errorf("check key %q missing from %s", key, pr["number"])
+					}
+				}
+			}
+			for _, key := range []string{"checks", "required_checks_state", "review_decision", "latest_reviews", "base_ref_name", "head_sha"} {
 				if _, ok := pr[key]; !ok {
 					t.Errorf("key %q missing from %s", key, pr["number"])
 				}
 			}
+		}
+	})
+}
+
+func TestAGPatchSkipViewRefreshForFinishedPRs(t *testing.T) {
+	fetched := pgtype.Timestamptz{Time: time.Now().Add(-time.Hour), Valid: true}
+	row := func(state, head, snapshotHead string, fetchedAt pgtype.Timestamptz) db.ListPullRequestsByIssueRow {
+		return db.ListPullRequestsByIssueRow{State: state, HeadSha: head, SnapshotHeadSha: snapshotHead, SnapshotFetchedAt: fetchedAt}
+	}
+	for _, tc := range []struct {
+		name string
+		row  db.ListPullRequestsByIssueRow
+		want bool
+	}{
+		{"merged with a snapshot", row("merged", "abc", "abc", fetched), true},
+		{"closed with a snapshot", row("closed", "abc", "abc", fetched), true},
+		{"open with a stale snapshot", row("open", "abc", "abc", fetched), false},
+		{"draft with a stale snapshot", row("draft", "abc", "abc", fetched), false},
+		{"merged without a snapshot", row("merged", "abc", "", pgtype.Timestamptz{}), false},
+		{"merged with a snapshot of an older head", row("merged", "new", "abc", fetched), false},
+		{"closed, never fetched", row("closed", "abc", "abc", pgtype.Timestamptz{}), false},
+	} {
+		t.Run("AG patch: no refresh on view for "+tc.name, func(t *testing.T) {
+			if got := agSkipViewRefresh(tc.row); got != tc.want {
+				t.Fatalf("agSkipViewRefresh = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAGPatchPullRequestHeadSHA(t *testing.T) {
+	t.Run("AG patch: head_sha is the mirrored row's head, null when it has none", func(t *testing.T) {
+		var resp GitHubPullRequestResponse
+		agSetPRHeadSHA(&resp, "abc123")
+		if resp.HeadSHA == nil || *resp.HeadSHA != "abc123" {
+			t.Fatalf("head_sha = %v", resp.HeadSHA)
+		}
+		var empty GitHubPullRequestResponse
+		agSetPRHeadSHA(&empty, "")
+		raw, _ := json.Marshal(empty.AGPRSnapshotFields)
+		var keys map[string]json.RawMessage
+		_ = json.Unmarshal(raw, &keys)
+		if string(keys["head_sha"]) != "null" {
+			t.Fatalf("head_sha JSON = %s, want null", keys["head_sha"])
 		}
 	})
 }

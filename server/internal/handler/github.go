@@ -985,18 +985,21 @@ func (h *Handler) ListPullRequestsForIssue(w http.ResponseWriter, r *http.Reques
 	for _, row := range rows {
 		resp := issuePullRequestRowToResponse(row, h.PRRefresh.Enabled())
 		resp.LinkSource = prLinkSource(row.LinkedByType, identifier, row.Title, row.Branch.String)
+		agSetPRHeadSHA(&resp, row.HeadSha)
 		out = append(out, resp)
 		// Page-visit trigger (MUL-5265): if this card's snapshot is missing or
 		// older than the view TTL, kick an async refresh. Non-blocking — the
 		// current (possibly stale) response is returned immediately and the
 		// fresh snapshot arrives via the pull_request:updated realtime event.
-		h.PRRefresh.MaybeEnqueueOnView(
-			row.InstallationID, row.RepoOwner, row.RepoName, row.PrNumber,
-			row.SnapshotFetchedAt.Time,
-			row.SnapshotFetchedAt.Valid &&
-				row.SnapshotHeadSha != "" &&
-				row.SnapshotHeadSha == row.HeadSha,
-		)
+		if !agSkipViewRefresh(row) {
+			h.PRRefresh.MaybeEnqueueOnView(
+				row.InstallationID, row.RepoOwner, row.RepoName, row.PrNumber,
+				row.SnapshotFetchedAt.Time,
+				row.SnapshotFetchedAt.Valid &&
+					row.SnapshotHeadSha != "" &&
+					row.SnapshotHeadSha == row.HeadSha,
+			)
+		}
 	}
 	if err := h.agEnrichPullRequests(r.Context(), issue.ID, out); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list pull requests")

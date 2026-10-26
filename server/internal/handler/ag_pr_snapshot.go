@@ -1,18 +1,22 @@
 package handler
 
 // AG patch: extra GitHub PR snapshot fields on GET /api/issues/{id}/pull-requests
-// — per-check required-ness, a required-checks rollup, review decision, latest
-// reviews and base ref. Kept in this file behind two hooks in github.go (the
-// embedded AGPRSnapshotFields and the agEnrichPullRequests call). See
+// — per-check required-ness and run fields, a required-checks rollup, review
+// decision, latest reviews, base ref and the mirrored head SHA — and the
+// no-refresh-on-view rule for finished PRs. Kept in this file behind small
+// hooks in github.go (the embedded AGPRSnapshotFields, agSetPRHeadSHA,
+// agSkipViewRefresh and the agEnrichPullRequests call). See
 // ag-patches/PATCHES.md.
 
 import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/integrations/ghsnapshot"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // AGPRSnapshotFields is embedded in GitHubPullRequestResponse, so its fields sit
@@ -37,6 +41,10 @@ type AGPRSnapshotFields struct {
 	LatestReviews []AGPRReview `json:"latest_reviews"`
 	// BaseRefName is the branch the PR targets, or null.
 	BaseRefName *string `json:"base_ref_name"`
+	// HeadSHA is the head the mirrored PR row holds (the value the snapshot's
+	// head is compared with), or null when the row has none. Present whether or
+	// not a current snapshot exists.
+	HeadSHA *string `json:"head_sha"`
 }
 
 // AGPRCheck is one check of the current snapshot.
@@ -47,6 +55,16 @@ type AGPRCheck struct {
 	DetailsURL *string `json:"details_url"`
 	// Required is null when the snapshot did not say.
 	Required *bool `json:"required"`
+	// The run fields belong to this row's own check run, not to its name. All
+	// are null when the snapshot did not carry them: older snapshot, commit
+	// status, a check run outside Actions, or the extras query not answering.
+	// WorkflowName and RunID are the Actions workflow run; StartedAt is RFC3339
+	// UTC; SuiteStatus and SuiteConclusion are the check suite's, lowercased.
+	WorkflowName    *string `json:"workflow_name"`
+	RunID           *int64  `json:"run_id"`
+	StartedAt       *string `json:"started_at"`
+	SuiteStatus     *string `json:"suite_status"`
+	SuiteConclusion *string `json:"suite_conclusion"`
 }
 
 // AGPRReview is a reviewer's latest review.
@@ -102,12 +120,42 @@ func (h *Handler) agEnrichPullRequests(ctx context.Context, issueID pgtype.UUID,
 			required := row.IsRequired.Bool
 			check.Required = &required
 		}
+		check.WorkflowName = textToPtr(row.WorkflowName)
+		if row.RunID.Valid {
+			runID := row.RunID.Int64
+			check.RunID = &runID
+		}
+		if row.StartedAt.Valid {
+			startedAt := row.StartedAt.Time.UTC().Format(time.RFC3339)
+			check.StartedAt = &startedAt
+		}
+		check.SuiteStatus = lowerTextPtr(row.SuiteStatus)
+		check.SuiteConclusion = lowerTextPtr(row.SuiteConclusion)
 		pr.Checks = append(pr.Checks, check)
 	}
 	for _, pr := range byID {
 		pr.RequiredChecksState = agChecksRollup(pr.Checks)
 	}
 	return nil
+}
+
+// agSetPRHeadSHA sets HeadSHA from the mirrored row.
+func agSetPRHeadSHA(resp *GitHubPullRequestResponse, headSHA string) {
+	if headSHA != "" {
+		resp.HeadSHA = &headSHA
+	}
+}
+
+// agSkipViewRefresh reports whether opening the PR's card must not re-fetch its
+// snapshot: a merged or closed PR that already has a current-head snapshot is
+// final, and a 60s on-view refresh of it would only spend GitHub quota on every
+// read of the list. Open and draft PRs, and finished ones with no snapshot,
+// keep upstream's behaviour.
+func agSkipViewRefresh(row db.ListPullRequestsByIssueRow) bool {
+	return (row.State == "merged" || row.State == "closed") &&
+		row.SnapshotFetchedAt.Valid &&
+		row.SnapshotHeadSha != "" &&
+		row.SnapshotHeadSha == row.HeadSha
 }
 
 // agChecksRollup is AGPRSnapshotFields.RequiredChecksState for a snapshot's
