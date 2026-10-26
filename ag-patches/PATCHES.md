@@ -949,14 +949,15 @@ a backend image from `ag-patches/build-backend.sh` and a CLI from
   - `server/internal/integrations/ghsnapshot/ag_extras.go` (new: the extras
     query over the token-mode patch's GraphQL client (`ag_graphql.go`),
     `agFetchSnapshotExtras`, `agApplySnapshotExtras`, `AGRequiredChecksState`),
-    `ag_extras_test.go`, `ag_extras_pagination_test.go`, `ag_extras_db_test.go` (new)
+    `ag_extras_test.go`, `ag_extras_pagination_test.go`, `ag_extras_db_test.go`,
+    `ag_extras_run_fields_test.go` (new)
   - `server/internal/integrations/ghsnapshot/snapshot.go` (`Required`, `AG`,
     `AGCheckRunID` and `AGRun` fields, `AGCheckRunID` set on each REST check run, one call to `agFetchSnapshotExtras` in `FetchPRSnapshot`),
     `refresh.go` (one call in `applySnapshot`), `rest_snapshot_test.go` (upstream's
     test server answers the extras query with a permission error)
   - `server/internal/handler/ag_pr_snapshot.go` (new: response fields,
     `agEnrichPullRequests`, `agSetPRHeadSHA`, `agSkipViewRefresh`),
-    `ag_pr_snapshot_test.go` (new)
+    `ag_pr_snapshot_test.go`, `ag_pr_snapshot_view_test.go` (new)
   - `server/internal/handler/github.go` (embedded `AGPRSnapshotFields`, one call
     in `ListPullRequestsForIssue`, plus `agSetPRHeadSHA` and an `if` around
     `MaybeEnqueueOnView` calling `agSkipViewRefresh`)
