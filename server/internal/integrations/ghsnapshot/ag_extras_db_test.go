@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -186,6 +187,84 @@ func TestAGPatchApplySnapshotCapsLatestReviews(t *testing.T) {
 		}
 		if got := apply(nil); len(got) != 1 || got[0] != nil {
 			t.Fatalf("is_required = %v, want [null] after a snapshot that could not fetch it", got)
+		}
+	})
+}
+
+func TestAGPatchApplySnapshotStoresRunFields(t *testing.T) {
+	pool := testDBPool(t)
+	q := db.New(pool)
+	m := NewManager(nil, q, pool, nil)
+	ctx := context.Background()
+	pr := seedPR(t, pool, q, "H2")
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM github_pull_request_check_run WHERE pr_id=$1`, pr.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM github_pull_request WHERE id=$1`, pr.ID)
+	})
+	type stored struct {
+		Workflow          *string
+		RunID             *int64
+		Started           *time.Time
+		Suite, Conclusion *string
+	}
+	read := func() []stored {
+		rows, err := pool.Query(ctx, `SELECT workflow_name, run_id, started_at, suite_status, suite_conclusion
+			FROM github_pull_request_check_run WHERE pr_id=$1 ORDER BY ordinal`, pr.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out []stored
+		for rows.Next() {
+			var s stored
+			if err := rows.Scan(&s.Workflow, &s.RunID, &s.Started, &s.Suite, &s.Conclusion); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, s)
+		}
+		return out
+	}
+	started := time.Date(2026, 10, 26, 10, 0, 0, 0, time.UTC)
+
+	t.Run("AG patch: run fields are stored on their own row and the rest stay null", func(t *testing.T) {
+		applied, err := m.applySnapshot(ctx, pr.ID, &PRSnapshot{
+			HeadSHA: "H2", Mergeable: "MERGEABLE", HasChecks: true, RollupState: "SUCCESS",
+			Contexts: []CheckContext{
+				{Name: "report", Status: "completed", Conclusion: "cancelled", AGRun: &AGCheckRun{WorkflowName: "CI", RunID: 40309530097, StartedAt: started, SuiteStatus: "completed", SuiteConclusion: "cancelled"}},
+				{Name: "report", Status: "completed", Conclusion: "success", AGRun: &AGCheckRun{WorkflowName: "CI", RunID: 40313137478, StartedAt: started.Add(time.Hour), SuiteStatus: "completed", SuiteConclusion: "success"}},
+				{Name: "external", Status: "completed", Conclusion: "success", AGRun: &AGCheckRun{SuiteStatus: "completed"}},
+				{Name: "vercel", Status: "completed", Conclusion: "success", IsStatusContext: true},
+			},
+		})
+		if err != nil || !applied {
+			t.Fatalf("applySnapshot = %v, %v", applied, err)
+		}
+		got := read()
+		if len(got) != 4 {
+			t.Fatalf("rows = %d", len(got))
+		}
+		if got[0].RunID == nil || *got[0].RunID != 40309530097 || got[1].RunID == nil || *got[1].RunID != 40313137478 ||
+			got[0].Workflow == nil || *got[0].Workflow != "CI" || got[0].Started == nil || !got[0].Started.Equal(started) ||
+			got[1].Conclusion == nil || *got[1].Conclusion != "success" {
+			t.Fatalf("stored = %+v / %+v", got[0], got[1])
+		}
+		if got[2].Workflow != nil || got[2].RunID != nil || got[2].Started != nil || got[2].Suite == nil || got[2].Conclusion != nil {
+			t.Fatalf("non-Actions run stored %+v", got[2])
+		}
+		if got[3] != (stored{}) {
+			t.Fatalf("status context stored %+v, want all null", got[3])
+		}
+	})
+
+	t.Run("AG patch: a later snapshot without run fields leaves them null rather than keeping old ones", func(t *testing.T) {
+		applied, err := m.applySnapshot(ctx, pr.ID, &PRSnapshot{
+			HeadSHA: "H2", Contexts: []CheckContext{{Name: "report", Status: "completed", Conclusion: "success"}},
+		})
+		if err != nil || !applied {
+			t.Fatalf("applySnapshot = %v, %v", applied, err)
+		}
+		if got := read(); len(got) != 1 || got[0] != (stored{}) {
+			t.Fatalf("stored = %+v", got)
 		}
 	})
 }

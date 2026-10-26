@@ -1,7 +1,8 @@
 package ghsnapshot
 
 // AG patch: extra PR snapshot fields — per-check required-ness (isRequired),
-// reviewDecision, latestReviews and baseRefName. Kept in this file behind small
+// reviewDecision, latestReviews, baseRefName and each check run's own workflow
+// run (workflow name, run id, start time, suite status). Kept in this file behind small
 // hooks in snapshot.go and refresh.go so the patch rebases cleanly.
 // See ag-patches/PATCHES.md.
 
@@ -9,6 +10,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -35,7 +38,10 @@ const agExtrasQuery = `query($owner:String!,$repo:String!,$number:Int!,$cursor:S
             pageInfo{hasNextPage endCursor}
             nodes{
               __typename
-              ... on CheckRun{name isRequired(pullRequestNumber:$number)}
+              ... on CheckRun{
+                databaseId name startedAt isRequired(pullRequestNumber:$number)
+                checkSuite{status conclusion workflowRun{databaseId workflow{name}}}
+              }
               ... on StatusContext{context isRequired(pullRequestNumber:$number)}
             }
           }
@@ -44,6 +50,20 @@ const agExtrasQuery = `query($owner:String!,$repo:String!,$number:Int!,$cursor:S
     }
   }
 }`
+
+// AGCheckRun is the part of a check run that belongs to the run itself, not to
+// its name: the same name can appear on several rows, one per superseded run.
+// It is set on a CheckContext only when the extras query answered for that
+// exact check run, so nil always means unknown. Within it, an empty string, a
+// zero RunID and a zero StartedAt are null (GitHub omitted the field, as for a
+// check run that is not an Actions job).
+type AGCheckRun struct {
+	WorkflowName    string
+	RunID           int64
+	StartedAt       time.Time
+	SuiteStatus     string
+	SuiteConclusion string
+}
 
 // AGReview is one reviewer's latest review.
 type AGReview struct {
@@ -87,17 +107,31 @@ type agExtrasPullRequest struct {
 							HasNextPage bool   `json:"hasNextPage"`
 							EndCursor   string `json:"endCursor"`
 						} `json:"pageInfo"`
-						Nodes []struct {
-							Typename   string `json:"__typename"`
-							Name       string `json:"name"`
-							Context    string `json:"context"`
-							IsRequired *bool  `json:"isRequired"`
-						} `json:"nodes"`
+						Nodes []agExtrasContext `json:"nodes"`
 					} `json:"contexts"`
 				} `json:"statusCheckRollup"`
 			} `json:"commit"`
 		} `json:"nodes"`
 	} `json:"commits"`
+}
+
+type agExtrasContext struct {
+	Typename   string `json:"__typename"`
+	DatabaseID int64  `json:"databaseId"`
+	Name       string `json:"name"`
+	Context    string `json:"context"`
+	IsRequired *bool  `json:"isRequired"`
+	StartedAt  string `json:"startedAt"`
+	CheckSuite *struct {
+		Status      string `json:"status"`
+		Conclusion  string `json:"conclusion"`
+		WorkflowRun *struct {
+			DatabaseID int64 `json:"databaseId"`
+			Workflow   *struct {
+				Name string `json:"name"`
+			} `json:"workflow"`
+		} `json:"workflowRun"`
+	} `json:"checkSuite"`
 }
 
 func (x *agExtrasPullRequest) snapshotExtras() AGSnapshotExtras {
@@ -129,6 +163,25 @@ func agCheckKey(isStatusContext bool, name string) string {
 	return "run\x00" + name
 }
 
+// agCheckRunFields is the AGCheckRun of one GraphQL CheckRun node.
+func agCheckRunFields(n *agExtrasContext) *AGCheckRun {
+	out := &AGCheckRun{}
+	if t, err := time.Parse(time.RFC3339, n.StartedAt); err == nil {
+		out.StartedAt = t.UTC()
+	}
+	if suite := n.CheckSuite; suite != nil {
+		out.SuiteStatus = strings.ToLower(suite.Status)
+		out.SuiteConclusion = strings.ToLower(suite.Conclusion)
+		if run := suite.WorkflowRun; run != nil {
+			out.RunID = run.DatabaseID
+			if run.Workflow != nil {
+				out.WorkflowName = run.Workflow.Name
+			}
+		}
+	}
+	return out
+}
+
 // agMergeRequired combines two answers for checks sharing a key: required wins,
 // then unknown, so a duplicate name can only make the rollup stricter.
 func agMergeRequired(a, b *bool) *bool {
@@ -153,6 +206,7 @@ func agMergeRequired(a, b *bool) *bool {
 func (c *Client) agFetchSnapshotExtras(ctx context.Context, installationID int64, owner, repo string, number int32, snap *PRSnapshot) error {
 	vars := map[string]any{"owner": owner, "repo": repo, "number": number}
 	required := map[string]*bool{}
+	runs := map[int64]*agExtrasContext{}
 	var extras AGSnapshotExtras
 	unavailable := func(err error) error {
 		var rl *RateLimitError
@@ -162,6 +216,7 @@ func (c *Client) agFetchSnapshotExtras(ctx context.Context, installationID int64
 		snap.AG = AGSnapshotExtras{}
 		for i := range snap.Contexts {
 			snap.Contexts[i].Required = nil
+			snap.Contexts[i].AGRun = nil
 		}
 		return nil
 	}
@@ -197,11 +252,19 @@ func (c *Client) agFetchSnapshotExtras(ctx context.Context, installationID int64
 			break
 		}
 		contexts := pr.Commits.Nodes[0].Commit.StatusCheckRollup.Contexts
-		for _, n := range contexts.Nodes {
+		for i, n := range contexts.Nodes {
 			var key string
 			switch n.Typename {
 			case "CheckRun":
 				key = agCheckKey(false, n.Name)
+				if n.DatabaseID > 0 {
+					if _, dup := runs[n.DatabaseID]; dup {
+						// One id twice is not a row we can trust.
+						runs[n.DatabaseID] = nil
+					} else {
+						runs[n.DatabaseID] = &contexts.Nodes[i]
+					}
+				}
 			case "StatusContext":
 				key = agCheckKey(true, n.Context)
 			default:
@@ -224,6 +287,13 @@ func (c *Client) agFetchSnapshotExtras(ctx context.Context, installationID int64
 	snap.AG = extras
 	for i := range snap.Contexts {
 		snap.Contexts[i].Required = required[agCheckKey(snap.Contexts[i].IsStatusContext, snap.Contexts[i].Name)]
+		// Run fields are per row, matched on the check run's own id: names repeat
+		// across superseded runs, so a name match could give a row another run's.
+		if c := &snap.Contexts[i]; !c.IsStatusContext && c.AGCheckRunID > 0 {
+			if n := runs[c.AGCheckRunID]; n != nil && n.Name == c.Name {
+				c.AGRun = agCheckRunFields(n)
+			}
+		}
 	}
 	return nil
 }
@@ -255,6 +325,19 @@ func agApplySnapshotExtras(ctx context.Context, q *db.Queries, prID pgtype.UUID,
 
 	var required, notRequired []int32
 	for i, c := range snap.Contexts {
+		if c.AGRun != nil {
+			if err := q.AGSetGitHubPRCheckRunRunFields(ctx, db.AGSetGitHubPRCheckRunRunFieldsParams{
+				PrID:            prID,
+				Ordinal:         int32(i),
+				WorkflowName:    textOrNull(c.AGRun.WorkflowName),
+				RunID:           pgtype.Int8{Int64: c.AGRun.RunID, Valid: c.AGRun.RunID > 0},
+				StartedAt:       pgtype.Timestamptz{Time: c.AGRun.StartedAt, Valid: !c.AGRun.StartedAt.IsZero()},
+				SuiteStatus:     textOrNull(c.AGRun.SuiteStatus),
+				SuiteConclusion: textOrNull(c.AGRun.SuiteConclusion),
+			}); err != nil {
+				return err
+			}
+		}
 		switch {
 		case c.Required == nil:
 		case *c.Required:

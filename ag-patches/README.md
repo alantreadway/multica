@@ -477,13 +477,17 @@ the old binary in `dist/` until the new one has run for a while.
 ## GitHub PR snapshot fields and `pull-requests link`
 
 Backend and CLI patch. `multica issue pull-requests <id> --output json` gains,
-per PR, `required_checks_state`, `checks` (each with `required`),
-`review_decision`, `latest_reviews` and `base_ref_name`, and
+per PR, `required_checks_state`, `checks` (each with `required` and its run's
+`workflow_name`, `run_id`, `started_at`, `suite_status`, `suite_conclusion`),
+`review_decision`, `latest_reviews`, `base_ref_name` and `head_sha`, and
 `multica issue pull-requests link|unlink` attaches or removes a PR by URL. Field
 semantics and the failure policy are in [`PATCHES.md`](./PATCHES.md). There is no
 new environment variable: the fields ride on the GitHub credentials the snapshot
 pipeline already uses, and they stay null until a PR's next snapshot refresh
-after the backend switch (a page visit, a check webhook or the sweep).
+after the backend switch (a page visit, a check webhook or the sweep). Merged
+and closed PRs that already have a snapshot are not re-fetched on a page visit,
+so one whose snapshot predates migration `9003` keeps null run fields until a
+webhook for it refreshes the snapshot (the sweep only covers open PRs).
 
 ```sh
 multica-ag issue pull-requests MUL-1 --output json | jq '.pull_requests[] | {number, required_checks_state, review_decision, base_ref_name}'
@@ -503,7 +507,8 @@ until you switch it:
 
 1. Backend: `ag-patches/build-backend.sh --rev N`, then switch as in "Backend
    image". The backend's migrate step applies `9001_ag_github_pr_snapshot_extras`
-   (four nullable columns, no index) on start.
+   (four nullable columns, no index) and `9003_ag_github_pr_check_run_fields`
+   (five nullable columns, no index) on start.
 2. CLI: `ag-patches/build-cli.sh --rev N`, then install it next to the stock one
    as in "Daemon/CLI patch, Install" (`~/.local/bin/multica-ag`). Use
    `multica-ag` for `link` and `unlink`; the stock `multica` has neither, and
@@ -523,6 +528,8 @@ anyway (only with the stock backend running, and no patched backend to come
 back to):
 
 ```sh
+psql "$DATABASE_URL" -f server/migrations/9003_ag_github_pr_check_run_fields.down.sql
+psql "$DATABASE_URL" -c "DELETE FROM schema_migrations WHERE version = '9003_ag_github_pr_check_run_fields'"
 psql "$DATABASE_URL" -f server/migrations/9001_ag_github_pr_snapshot_extras.down.sql
 psql "$DATABASE_URL" -c "DELETE FROM schema_migrations WHERE version = '9001_ag_github_pr_snapshot_extras'"
 ```

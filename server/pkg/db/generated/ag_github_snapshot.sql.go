@@ -12,7 +12,8 @@ import (
 )
 
 const aGListPullRequestChecksForIssue = `-- name: AGListPullRequestChecksForIssue :many
-SELECT cr.pr_id, cr.name, cr.status, cr.conclusion, cr.details_url, cr.is_required
+SELECT cr.pr_id, cr.name, cr.status, cr.conclusion, cr.details_url, cr.is_required,
+       cr.workflow_name, cr.run_id, cr.started_at, cr.suite_status, cr.suite_conclusion
 FROM github_pull_request_check_run cr
 JOIN github_pull_request pr ON pr.id = cr.pr_id
 JOIN issue_pull_request ipr ON ipr.pull_request_id = pr.id
@@ -23,12 +24,17 @@ ORDER BY cr.pr_id, cr.ordinal
 `
 
 type AGListPullRequestChecksForIssueRow struct {
-	PrID       pgtype.UUID `json:"pr_id"`
-	Name       string      `json:"name"`
-	Status     string      `json:"status"`
-	Conclusion pgtype.Text `json:"conclusion"`
-	DetailsUrl pgtype.Text `json:"details_url"`
-	IsRequired pgtype.Bool `json:"is_required"`
+	PrID            pgtype.UUID        `json:"pr_id"`
+	Name            string             `json:"name"`
+	Status          string             `json:"status"`
+	Conclusion      pgtype.Text        `json:"conclusion"`
+	DetailsUrl      pgtype.Text        `json:"details_url"`
+	IsRequired      pgtype.Bool        `json:"is_required"`
+	WorkflowName    pgtype.Text        `json:"workflow_name"`
+	RunID           pgtype.Int8        `json:"run_id"`
+	StartedAt       pgtype.Timestamptz `json:"started_at"`
+	SuiteStatus     pgtype.Text        `json:"suite_status"`
+	SuiteConclusion pgtype.Text        `json:"suite_conclusion"`
 }
 
 // Per-check rows for the CURRENT snapshot head of each of the issue's PRs.
@@ -48,6 +54,11 @@ func (q *Queries) AGListPullRequestChecksForIssue(ctx context.Context, issueID p
 			&i.Conclusion,
 			&i.DetailsUrl,
 			&i.IsRequired,
+			&i.WorkflowName,
+			&i.RunID,
+			&i.StartedAt,
+			&i.SuiteStatus,
+			&i.SuiteConclusion,
 		); err != nil {
 			return nil, err
 		}
@@ -115,6 +126,41 @@ type AGSetGitHubPRCheckRunRequiredParams struct {
 // snapshot said nothing about keep their inserted NULL.
 func (q *Queries) AGSetGitHubPRCheckRunRequired(ctx context.Context, arg AGSetGitHubPRCheckRunRequiredParams) error {
 	_, err := q.db.Exec(ctx, aGSetGitHubPRCheckRunRequired, arg.Required, arg.PrID, arg.Ordinals)
+	return err
+}
+
+const aGSetGitHubPRCheckRunRunFields = `-- name: AGSetGitHubPRCheckRunRunFields :exec
+UPDATE github_pull_request_check_run
+SET workflow_name    = $1,
+    run_id           = $2,
+    started_at       = $3,
+    suite_status     = $4,
+    suite_conclusion = $5
+WHERE pr_id = $6 AND ordinal = $7
+`
+
+type AGSetGitHubPRCheckRunRunFieldsParams struct {
+	WorkflowName    pgtype.Text        `json:"workflow_name"`
+	RunID           pgtype.Int8        `json:"run_id"`
+	StartedAt       pgtype.Timestamptz `json:"started_at"`
+	SuiteStatus     pgtype.Text        `json:"suite_status"`
+	SuiteConclusion pgtype.Text        `json:"suite_conclusion"`
+	PrID            pgtype.UUID        `json:"pr_id"`
+	Ordinal         int32              `json:"ordinal"`
+}
+
+// Sets the per-run fields of one check row (by ordinal). Rows the extras query
+// said nothing about are never written, so they keep their inserted NULLs.
+func (q *Queries) AGSetGitHubPRCheckRunRunFields(ctx context.Context, arg AGSetGitHubPRCheckRunRunFieldsParams) error {
+	_, err := q.db.Exec(ctx, aGSetGitHubPRCheckRunRunFields,
+		arg.WorkflowName,
+		arg.RunID,
+		arg.StartedAt,
+		arg.SuiteStatus,
+		arg.SuiteConclusion,
+		arg.PrID,
+		arg.Ordinal,
+	)
 	return err
 }
 
