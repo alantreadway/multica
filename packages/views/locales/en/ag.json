@@ -116,7 +116,12 @@
       "quota_paced_session": "Claude paced: {{cap}} of {{max}} · 5-hour {{percent}}%",
       "quota_paced_unknown": "Claude paced: {{cap}} of {{max}}",
       "quota_pace_off": "Claude pacing off",
-      "quota_urgent_backup": "Urgent on backup until {{time}}"
+      "quota_urgent_backup": "Urgent on backup until {{time}}",
+      "tokens": "↓ {{input}}/s in · ↑ {{output}}/s out",
+      "tokens_unknown": "— tokens/s",
+      "hover_tokens_header": "Tokens per second · last 60s",
+      "hover_tokens_rates": "{{input}} in · {{output}} out · {{cache}} cache reads",
+      "hover_tokens_unlisted": "Other runtime"
     }
   },
   "settings": {

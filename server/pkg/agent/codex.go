@@ -1282,6 +1282,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		notificationProtocol:     "unknown",
 		acceptNotification:       turnNotificationGate.accept,
 		guardianRateLimitCircuit: &codexGuardianRateLimitCircuit{},
+		agOnUsage:                opts.AGOnUsage, // AG patch: token rate
 		onGuardianRateLimit: func() {
 			guardianRateLimitTripped.Store(true)
 			b.cfg.Logger.Warn("codex Guardian approval rate-limit circuit opened",
@@ -2434,6 +2435,7 @@ type codexClient struct {
 	onSemanticActivity       func(description string)
 	onTurnDone               func(aborted bool)
 	guardianRateLimitCircuit *codexGuardianRateLimitCircuit
+	agOnUsage                func(TokenUsage) // AG patch: token rate
 	onGuardianRateLimit      func()
 	// onFinalAnswer fires only for an agent message the app-server itself
 	// labelled `phase: "final_answer"` — the turn's deliverable, as opposed to
@@ -3895,6 +3897,7 @@ func (c *codexClient) updateThreadTokenUsage(params map[string]any) {
 	c.usage.CacheReadTokens += u.CacheReadTokens
 	c.usage.CacheWriteTokens += u.CacheWriteTokens
 	c.usageMu.Unlock()
+	agEmitUsage(c.agOnUsage, u) // AG patch: token rate
 }
 
 func codexRawTokenUsageFromV2(usage map[string]any) codexRawTokenUsage {

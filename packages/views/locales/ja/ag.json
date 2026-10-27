@@ -114,7 +114,12 @@
       "quota_paced_session": "Claude 制限中: {{max}} 件中 {{cap}} 件 · 5 時間 {{percent}}%",
       "quota_paced_unknown": "Claude 制限中: {{max}} 件中 {{cap}} 件",
       "quota_pace_off": "Claude のペース調整オフ",
-      "quota_urgent_backup": "緊急はバックアップで実行 · {{time}} まで"
+      "quota_urgent_backup": "緊急はバックアップで実行 · {{time}} まで",
+      "tokens": "↓ 入力 {{input}}/秒 · ↑ 出力 {{output}}/秒",
+      "tokens_unknown": "— トークン/秒",
+      "hover_tokens_header": "毎秒トークン数 · 直近 60 秒",
+      "hover_tokens_rates": "入力 {{input}} · 出力 {{output}} · キャッシュ読み取り {{cache}}",
+      "hover_tokens_unlisted": "その他のランタイム"
     }
   },
   "settings": {

@@ -129,7 +129,7 @@ func (d *Daemon) agDrainReport() *protocol.DaemonDrainReport {
 // SendHeartbeatWithDrain is SendHeartbeat plus the AG patch drain report, which
 // an older server ignores. A nil report is omitted.
 func (c *Client) SendHeartbeatWithDrain(ctx context.Context, runtimeID string, drain *protocol.DaemonDrainReport) (*HeartbeatResponse, error) {
-	return c.SendHeartbeatWithReports(ctx, runtimeID, drain, nil)
+	return c.SendHeartbeatWithReports(ctx, runtimeID, drain, nil, nil)
 }
 
 // agDeferRestart is triggerRestart's gate. While draining it records why in

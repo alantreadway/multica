@@ -116,7 +116,12 @@
       "quota_paced_session": "Claude dosificado: {{cap}} de {{max}} · 5 horas {{percent}} %",
       "quota_paced_unknown": "Claude dosificado: {{cap}} de {{max}}",
       "quota_pace_off": "Dosificación de Claude desactivada",
-      "quota_urgent_backup": "Urgentes en la cuenta de respaldo hasta {{time}}"
+      "quota_urgent_backup": "Urgentes en la cuenta de respaldo hasta {{time}}",
+      "tokens": "↓ {{input}}/s entrada · ↑ {{output}}/s salida",
+      "tokens_unknown": "— tokens/s",
+      "hover_tokens_header": "Tokens por segundo · últimos 60 s",
+      "hover_tokens_rates": "{{input}} entrada · {{output}} salida · {{cache}} lecturas de caché",
+      "hover_tokens_unlisted": "Otro runtime"
     }
   },
   "settings": {

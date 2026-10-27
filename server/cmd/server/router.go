@@ -2442,6 +2442,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// Runtimes
 			r.Route("/api/runtimes", func(r chi.Router) {
 				r.Get("/", h.ListAgentRuntimes)
+				r.Get("/ag-token-rates", h.ListAGTokenRates) // AG patch: token rate
 				r.Route("/{runtimeId}", func(r chi.Router) {
 					r.Patch("/", h.UpdateAgentRuntime)
 					r.Put("/ag-settings", h.UpdateAGRuntimeSettings) // AG patch: runtime backup setting

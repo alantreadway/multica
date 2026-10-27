@@ -135,3 +135,26 @@ describe("ApiClient label response schemas", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("AG patch: ApiClient token rates", () => {
+  const json = (body: unknown) =>
+    new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+
+  it("AG patch: lists the workspace's rates and drops a malformed one", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      json([
+        { runtime_id: "rt-1", workspace_id: "ws-1", input_per_sec: 2, output_per_sec: 40, cache_read_per_sec: 300, active_runs: 1, observed_at: "2026-10-27T09:00:00Z" },
+        { runtime_id: null },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const rates = await new ApiClient("https://api.example.test").listAGTokenRates();
+    expect(rates.map((r) => [r.runtimeId, r.outputPerSec])).toEqual([["rt-1", 40]]);
+    expect((fetchMock.mock.calls[0] as [string])[0]).toBe("https://api.example.test/api/runtimes/ag-token-rates");
+  });
+
+  it("AG patch: a malformed body reads as no rates", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ unexpected: true })));
+    expect(await new ApiClient("https://api.example.test").listAGTokenRates()).toEqual([]);
+  });
+});
