@@ -1765,6 +1765,7 @@ branches. They do not touch product code. Landed in
 | `ag/v0.6.3-ag.2` | `9b15ccc316ded86a419f0eb7f532227ff0ae3f22` | `multica-web-ag:v0.6.3-ag.2` | `multica-backend-ag:v0.6.3-ag.2` | `dist/multica-v0.6.3-ag.2-darwin-arm64` | 2026-10-20 |
 | `ag/v0.6.5-ag.1` | `bc4a44822385e3e04407e38cf19a9c8c10d0ba6b` | `multica-web-ag:v0.6.5-ag.1` | `multica-backend-ag:v0.6.5-ag.1` | `dist/multica-v0.6.5-ag.1-darwin-arm64` | 2026-10-23 |
 | `ag/v0.7.0-ag.1` | `1e7aedc1e87f3675273b843135d5874543f34f21` | `multica-web-ag:v0.7.0-ag.1` | `multica-backend-ag:v0.7.0-ag.1` | `dist/multica-v0.7.0-ag.1-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-23 |
+| `ag/v0.7.0-ag.2` | `14e845ac6531ca412a2d2f7b0083c832f35893c5` | `multica-web-ag:v0.7.0-ag.1` (unchanged) | `multica-backend-ag:v0.7.0-ag.2` | `dist/multica-v0.7.0-ag.1-darwin-arm64` (unchanged) | 2026-10-27 |
 
 The CLI column is the `dist/multica-<tag>-ag.<n>-darwin-arm64` binary from
 `ag-patches/build-cli.sh`; `none (stock)` means the daemon runs the upstream
@@ -1825,6 +1826,15 @@ as upstream's own tests do. One web test followed upstream's copy change
 `585`–`592`), then frontend. The previous CLI stays beside the new one as
 `~/.local/bin/multica-ag.v0.6.5-ag.1`; the launchd daemon moves to the new
 binary at its next idle auto-reload.
+
+`v0.7.0-ag.2` is a backend-only build: `v0.7.0-ag.1` plus the PR snapshot run
+fields (head SHA, and per check `workflow_name`, `run_id`, `started_at`,
+`suite_status`, `suite_conclusion`; migration `9003`). The web image and the CLI
+stay on `-ag.1`. Deployed 2026-10-27 after a `pg_dump` backup
+(`~/multica-selfhost/backups/multica-pre-v0.7.0-ag.2-20261027-084243.sql.gz`):
+`multica-backend-ag:v0.7.0-ag.2` re-tagged as `multica-backend-ag:v0.7.0`, then
+`up -d backend` with the three compose files. `multica-backend-ag:v0.7.0-ag.1`
+stays as the rollback tag.
 
 Full Go suite: the same upstream failures as stock `v0.7.0` in the same
 container, the four Cursor background-process tests and
