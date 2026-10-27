@@ -120,7 +120,12 @@
       "quota_paced_session": "Темп Claude: {{cap}} из {{max}} · 5 часов {{percent}}%",
       "quota_paced_unknown": "Темп Claude: {{cap}} из {{max}}",
       "quota_pace_off": "Регулировка темпа Claude выключена",
-      "quota_urgent_backup": "Срочные на резервном аккаунте до {{time}}"
+      "quota_urgent_backup": "Срочные на резервном аккаунте до {{time}}",
+      "tokens": "↓ {{input}}/с вход · ↑ {{output}}/с выход",
+      "tokens_unknown": "— токенов/с",
+      "hover_tokens_header": "Токенов в секунду · последние 60 с",
+      "hover_tokens_rates": "{{input}} вход · {{output}} выход · {{cache}} чтение кэша",
+      "hover_tokens_unlisted": "Другая среда выполнения"
     }
   },
   "settings": {

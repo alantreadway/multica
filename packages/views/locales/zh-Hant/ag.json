@@ -114,7 +114,12 @@
       "quota_paced_session": "Claude 限速：{{cap}}/{{max}} · 5 小時 {{percent}}%",
       "quota_paced_unknown": "Claude 限速：{{cap}}/{{max}}",
       "quota_pace_off": "Claude 限速已關閉",
-      "quota_urgent_backup": "緊急任務使用備用帳號至 {{time}}"
+      "quota_urgent_backup": "緊急任務使用備用帳號至 {{time}}",
+      "tokens": "↓ 輸入 {{input}}/秒 · ↑ 輸出 {{output}}/秒",
+      "tokens_unknown": "— Token/秒",
+      "hover_tokens_header": "每秒 Token · 最近 60 秒",
+      "hover_tokens_rates": "輸入 {{input}} · 輸出 {{output}} · 快取讀取 {{cache}}",
+      "hover_tokens_unlisted": "其他執行時"
     }
   },
   "settings": {

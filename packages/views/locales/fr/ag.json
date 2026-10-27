@@ -116,7 +116,12 @@
       "quota_paced_session": "Claude ralenti : {{cap}} sur {{max}} · 5 h {{percent}} %",
       "quota_paced_unknown": "Claude ralenti : {{cap}} sur {{max}}",
       "quota_pace_off": "Ralentissement Claude désactivé",
-      "quota_urgent_backup": "Urgent sur le compte de secours jusqu'à {{time}}"
+      "quota_urgent_backup": "Urgent sur le compte de secours jusqu'à {{time}}",
+      "tokens": "↓ {{input}}/s entrée · ↑ {{output}}/s sortie",
+      "tokens_unknown": "— tokens/s",
+      "hover_tokens_header": "Tokens par seconde · 60 dernières s",
+      "hover_tokens_rates": "{{input}} entrée · {{output}} sortie · {{cache}} lus en cache",
+      "hover_tokens_unlisted": "Autre runtime"
     }
   },
   "settings": {
