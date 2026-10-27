@@ -5,14 +5,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AgentRuntime } from "@multica/core/types";
+import type { AGTokenRate } from "@multica/core/runtimes/ag-token-rate";
 import { SidebarProvider } from "@multica/ui/components/ui/sidebar";
 import { NavigationProvider, type NavigationAdapter } from "../navigation";
 import { renderWithI18n } from "../test/i18n";
 
 type Presence = { runningCount: number; queuedCount: number };
 
-const { presence, runtimeFetch } = vi.hoisted(() => ({
+const { presence, runtimeFetch, tokenRateFetch } = vi.hoisted(() => ({
   runtimeFetch: vi.fn(() => new Promise(() => {})),
+  tokenRateFetch: vi.fn(() => new Promise(() => {})),
   presence: {
     current: { byAgent: new Map(), loading: false } as {
       byAgent: Map<string, { runningCount: number; queuedCount: number }>;
@@ -31,6 +33,15 @@ vi.mock("@multica/core/runtimes/queries", async (importOriginal) => ({
   runtimeListOptions: () => ({
     queryKey: ["runtimes"],
     queryFn: runtimeFetch,
+  }),
+}));
+
+vi.mock("@multica/core/runtimes/ag-token-rate-queries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@multica/core/runtimes/ag-token-rate-queries")>()),
+  agTokenRateListOptions: () => ({
+    queryKey: ["ag-token-rates"],
+    queryFn: tokenRateFetch,
+    retry: false,
   }),
 }));
 
@@ -121,6 +132,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(2026, 9, 18, 12, 0));
   setPresence({});
   runtimeFetch.mockClear();
+  tokenRateFetch.mockClear();
 });
 afterEach(() => {
   cleanup();
@@ -423,6 +435,88 @@ describe("AG patch: AgentStatusIndicator", () => {
       ]);
       expect(screen.getByTestId("agent-status-drain")).toBeInTheDocument();
       expect(screen.getByTestId("agent-status-quota")).toBeInTheDocument();
+    });
+  });
+
+  describe("token rate line", () => {
+    // Pinned "now" is 2026-10-18 12:00 local.
+    const rate = (over: Partial<AGTokenRate> = {}): AGTokenRate => ({
+      runtimeId: "rt-1",
+      workspaceId: "ws-1",
+      inputPerSec: 12.5,
+      outputPerSec: 85,
+      cacheReadPerSec: 12400,
+      activeRuns: 1,
+      observedAt: new Date(2026, 9, 18, 11, 59, 50),
+      ...over,
+    });
+    const working = () => setPresence({ a1: { runningCount: 2, queuedCount: 0 } });
+
+    it("AG patch: shows input and output per second while agents run", () => {
+      working();
+      const { qc, ui, rerender } = renderIndicator([makeRuntime({})]);
+      act(() => {
+        qc.setQueryData(["ag-token-rates"], [rate(), rate({ runtimeId: "rt-2", inputPerSec: 2.5, outputPerSec: 1000 })]);
+      });
+      rerender(ui());
+      expect(screen.getByTestId("agent-status-tokens")).toHaveTextContent("↓ 15/s in · ↑ 1.1K/s out");
+    });
+
+    it("AG patch: shows a dash while agents run without a reported rate", () => {
+      working();
+      renderIndicator();
+      expect(screen.getByTestId("agent-status-tokens")).toHaveTextContent("— tokens/s");
+    });
+
+    it("AG patch: a rate older than three heartbeats reads as no rate", () => {
+      working();
+      const { qc, ui, rerender } = renderIndicator();
+      act(() => {
+        qc.setQueryData(["ag-token-rates"], [rate({ observedAt: new Date(2026, 9, 18, 11, 59, 14) })]);
+      });
+      rerender(ui());
+      expect(screen.getByTestId("agent-status-tokens")).toHaveTextContent("— tokens/s");
+    });
+
+    it("AG patch: hides the line when nothing runs, even with a rate", () => {
+      setPresence({ a1: { runningCount: 0, queuedCount: 1 } });
+      const { qc, ui, rerender } = renderIndicator();
+      act(() => {
+        qc.setQueryData(["ag-token-rates"], [rate()]);
+      });
+      rerender(ui());
+      expect(screen.queryByTestId("agent-status-tokens")).not.toBeInTheDocument();
+    });
+
+    it("AG patch: hover lists each runtime with cache reads", async () => {
+      working();
+      const { qc, ui, rerender } = renderIndicator([makeRuntime({ id: "rt-1", name: "mac-mini" })]);
+      act(() => {
+        qc.setQueryData(["ag-token-rates"], [rate(), rate({ runtimeId: "rt-hidden", outputPerSec: 3, inputPerSec: 0, cacheReadPerSec: 0 })]);
+      });
+      rerender(ui());
+      await userEvent.hover(screen.getByRole("link"));
+      const hover = await screen.findByTestId("agent-status-tokens-hover");
+      expect(hover).toHaveTextContent("Tokens per second · last 60s");
+      expect(hover).toHaveTextContent("mac-mini · 12.5 in · 85 out · 12.4K cache reads");
+      expect(hover).toHaveTextContent("Other runtime · 0 in · 3 out · 0 cache reads");
+    });
+
+    it("AG patch: follows cache updates from events without refetching", () => {
+      working();
+      const { qc, ui, rerender } = renderIndicator();
+      act(() => {
+        qc.setQueryData(["ag-token-rates"], [rate()]);
+      });
+      rerender(ui());
+      expect(screen.getByTestId("agent-status-tokens")).toHaveTextContent("↑ 85/s out");
+      act(() => {
+        qc.setQueryData(["ag-token-rates"], [rate({ outputPerSec: 240 })]);
+      });
+      rerender(ui());
+      expect(screen.getByTestId("agent-status-tokens")).toHaveTextContent("↑ 240/s out");
+      // The one list request on mount; the cache updates add none.
+      expect(tokenRateFetch).toHaveBeenCalledTimes(1);
     });
   });
 });

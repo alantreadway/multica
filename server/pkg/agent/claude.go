@@ -203,6 +203,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		sawAsyncLaunch := false
 		usage := make(map[string]TokenUsage)
 		seenUsage := make(map[string]struct{})
+		var agUsage agClaudeUsageTracker // AG patch: token rate
 		eventCount := 0
 		invalidEventCount := 0
 		assistantEventCount := 0
@@ -255,6 +256,10 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 			if err := json.Unmarshal([]byte(line), &msg); err != nil {
 				invalidEventCount++
 				agRateLimitGarbled(opts, line) // AG patch: quota
+				continue
+			}
+			if msg.Type == "stream_event" { // AG patch: token rate
+				agUsage.observe(opts, msg.Event, msg.APIMessageID, msg.ParentToolUseID)
 				continue
 			}
 			eventCount++
@@ -683,6 +688,9 @@ type claudeSDKMessage struct {
 
 	RateLimitInfo json.RawMessage `json:"rate_limit_info,omitempty"` // AG patch: quota
 
+	Event        json.RawMessage `json:"event,omitempty"`          // AG patch: token rate
+	APIMessageID string          `json:"api_message_id,omitempty"` // AG patch: token rate
+
 	// control request fields
 	RequestID string          `json:"request_id,omitempty"`
 	Request   json.RawMessage `json:"request,omitempty"`
@@ -1106,6 +1114,9 @@ func buildClaudeArgs(opts ExecOptions, logger *slog.Logger) []string {
 		// never sees the question (see GitHub #2588). User-facing
 		// clarification belongs in an issue comment instead.
 		"--disallowedTools", "AskUserQuestion",
+	}
+	if opts.AGOnUsage != nil { // AG patch: token rate
+		args = append(args, agClaudeIncludePartialMessages)
 	}
 	if hasManagedMcpConfig(opts.McpConfig) {
 		// A saved agent-level config is authoritative, including an explicitly

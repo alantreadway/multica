@@ -105,7 +105,12 @@
       "hover_runtime_draining_unknown": "{{name}} · 排空中",
       "hover_runtime_drained": "{{name}} · 已排空",
       "backup_urgent": "备用账号 · 仅限紧急",
-      "quota_hold": "Claude 暂停至 {{time}}"
+      "quota_hold": "Claude 暂停至 {{time}}",
+      "tokens": "↓ 输入 {{input}}/秒 · ↑ 输出 {{output}}/秒",
+      "tokens_unknown": "— Token/秒",
+      "hover_tokens_header": "每秒 Token · 最近 60 秒",
+      "hover_tokens_runtime": "{{name}} · 输入 {{input}} · 输出 {{output}} · 缓存读取 {{cache}}",
+      "hover_tokens_unlisted": "其他运行时"
     }
   },
   "settings": {

@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspacePresenceMap } from "@multica/core/agents";
 import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import { runtimeDrainState } from "@multica/core/runtimes/ag-drain";
 import { quotaSidebarState } from "@multica/core/runtimes/ag-quota";
+import { summarizeAGTokenRates } from "@multica/core/runtimes/ag-token-rate";
+import { agTokenRateListOptions } from "@multica/core/runtimes/ag-token-rate-queries";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { cn } from "@multica/ui/lib/utils";
 import {
@@ -23,12 +25,18 @@ import { AppLink } from "../navigation";
 import { useT } from "../i18n";
 import { useLocale } from "../i18n/use-locale";
 import { formatHoldUntil } from "../runtimes/ag-quota-format";
+import { formatTokenRate } from "../runtimes/ag-token-rate-format";
 
 // AG patch: sidebar agent status. One compact row above Analytics: how many
 // agents are working, plus a drain marker while a patched daemon is draining
 // and a quota line while a runtime is on the backup account or on hold.
 // It reads only queries the workspace presence prefetch already keeps warm, so
-// it adds no requests and no polling.
+// it adds no requests and no polling. The token rate line is the exception:
+// one list request on mount, then `ag:runtime_token_rate` events.
+
+// Re-checks rate freshness between events, so a runtime that stops
+// heartbeating drops out instead of showing its last rate forever.
+const TOKEN_RATE_RECHECK_MS = 15_000;
 
 interface DrainingRuntime {
   id: string;
@@ -73,6 +81,20 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
 
   const quota = useMemo(() => quotaSidebarState(runtimes ?? []), [runtimes]);
 
+  const { data: tokenRates } = useQuery({
+    ...agTokenRateListOptions(wsId ?? ""),
+    enabled: !!wsId,
+  });
+  const [now, setNow] = useState(() => Date.now());
+  const hasTokenRates = (tokenRates?.length ?? 0) > 0;
+  useEffect(() => {
+    setNow(Date.now());
+    if (!hasTokenRates) return;
+    const id = setInterval(() => setNow(Date.now()), TOKEN_RATE_RECHECK_MS);
+    return () => clearInterval(id);
+  }, [hasTokenRates, tokenRates]);
+  const tokens = useMemo(() => summarizeAGTokenRates(tokenRates, now), [tokenRates, now]);
+
   if (!wsId) return null;
 
   const isDraining = draining.length > 0;
@@ -110,6 +132,17 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
     }
   }
 
+  const tokenLabel = !isRunning
+    ? null
+    : tokens
+      ? t(($) => $.layout.agent_status.tokens, {
+          input: formatTokenRate(tokens.inputPerSec, locale),
+          output: formatTokenRate(tokens.outputPerSec, locale),
+        })
+      : t(($) => $.layout.agent_status.tokens_unknown);
+  const runtimeName = (id: string) =>
+    runtimes?.find((r) => r.id === id)?.name ?? t(($) => $.layout.agent_status.hover_tokens_unlisted);
+
   // Backup wins over a hold: it is the state that changes what runs.
   const quotaLabel = quota.backup
     ? t(($) => $.layout.agent_status.backup_urgent)
@@ -146,6 +179,14 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
         >
           {summary}
         </span>
+        {tokenLabel && (
+          <span
+            data-testid="agent-status-tokens"
+            className="truncate text-caption tabular-nums text-muted-foreground"
+          >
+            {tokenLabel}
+          </span>
+        )}
         {drainLabel && (
           <span
             data-testid="agent-status-drain"
@@ -184,6 +225,23 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
           <HoverCardContent side="right" align="end" className="w-72">
             <div className="flex flex-col gap-3">
               <WorkingAgentsHoverContent agents={unknown ? undefined : working} />
+              {isRunning && tokens && (
+                <div data-testid="agent-status-tokens-hover" className="flex flex-col gap-1">
+                  <div className="text-caption font-medium text-muted-foreground">
+                    {t(($) => $.layout.agent_status.hover_tokens_header)}
+                  </div>
+                  {tokens.runtimes.map((r) => (
+                    <div key={r.runtimeId} className="truncate text-caption tabular-nums">
+                      {t(($) => $.layout.agent_status.hover_tokens_runtime, {
+                        name: runtimeName(r.runtimeId),
+                        input: formatTokenRate(r.inputPerSec, locale),
+                        output: formatTokenRate(r.outputPerSec, locale),
+                        cache: formatTokenRate(r.cacheReadPerSec, locale),
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
               {isDraining && (
                 <div className="flex flex-col gap-1">
                   <div className="text-caption font-medium text-muted-foreground">

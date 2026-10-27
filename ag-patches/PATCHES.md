@@ -65,6 +65,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 21 | Deferred retry until quota reset (backend) | `fork-only` | [#7887](https://github.com/multica-ai/multica/issues/7887) (closed not_planned), [#8949](https://github.com/multica-ai/multica/pull/8949) (rejected), [#9159](https://github.com/multica-ai/multica/issues/9159) (open, 5 👍), [#8964](https://github.com/multica-ai/multica/pull/8964) (open), [#9310](https://github.com/multica-ai/multica/issues/9310) / [#9314](https://github.com/multica-ai/multica/pull/9314) (open, quota failure classification) | Declined by the maintainer | Very low | Watch #8964. |
 | 22 | Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (changes requested, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) | None: serves our quota-failover setup | Very low | None. |
 | 23 | Backup Claude account failover, urgent only (daemon) | `fork-only` | [#5282](https://github.com/multica-ai/multica/pull/5282), [#8579](https://github.com/multica-ai/multica/pull/8579) (fallback runtime, open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC) | Low: one subscriber's two-account setup | Very low | None. |
+| 24 | Live token rate in the sidebar (daemon + backend + web) | `fork-only` | none found (searched 2026-10-27) | Low: needs a second Claude output stream for one sidebar line | Low | None. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -1723,6 +1724,96 @@ preserved `worktree/` and no meta.
     re-checked 2026-10-23.
   - Fit: fixes cleanup of local_directory worktree runs; no change to what the
     product does for users.
+
+### Live token rate in the sidebar (daemon + backend + web)
+
+While agents run, the sidebar status row gets a line under the summary:
+"↓ 12.4K/s in · ↑ 85/s out", tokens per second averaged over the last 60s and
+summed across the workspace's Claude and Codex runtimes. "In" is new context:
+uncached input plus cache writes. Cache reads, which dwarf it on every call,
+appear only in the hover card, which lists each runtime ("mac-mini · 12.5 in ·
+85 out · 12.4K cache reads"), busiest first. With agents running but no live
+rate (a stock daemon or backend, or a provider without usage events) the line
+shows "— tokens/s". Subagent usage is included.
+
+- Agent: `ExecOptions.AGOnUsage` receives each usage increase as it streams.
+  - Claude: the observer adds `--include-partial-messages`, because the plain
+    stream's assistant `usage.output_tokens` is a placeholder until the
+    message ends; output comes from `message_delta`, input and cache from
+    `message_start`. Values are cumulative per message, so increases are taken
+    per `api_message_id` (subagents fall back to `parent_tool_use_id`). Billed
+    usage still comes from the result and assistant messages, unchanged. The
+    flag roughly doubles stdout volume; it is only added when an observer is set.
+  - Codex: `thread/tokenUsage/updated` already yields per-notification
+    increases, which go to the observer as is.
+- Daemon: a per-runtime 60s sample window (`ag_token_rate.go`) is reported as
+  `ag_token_rate` (`input_per_sec`, `output_per_sec`, `cache_read_per_sec`,
+  `window_seconds`, `active_runs`) on HTTP and WebSocket heartbeats (15s), for
+  Claude and Codex runtimes only. An idle runtime reports zeros.
+- Backend: nothing is stored. `agtokenrate.Board` keeps the latest rate per
+  runtime in memory for 45s (three missed heartbeats) and publishes
+  `ag:runtime_token_rate` to the workspace on every busy report and on the
+  first idle one after, so the line drops to zero; idle-to-idle heartbeats are
+  not published. `GET /api/runtimes/ag-token-rates` (workspace members) serves
+  the current rates to a page that loads between heartbeats. A server restart,
+  or a second server instance, only means no rate until the next heartbeat.
+- Web: one list request when the sidebar mounts (`retry: false`: a stock
+  backend answers 404), then the events patch the cached list. Unlike the drain
+  and quota lines, this is a new request. Rates older than 45s are dropped on a
+  15s re-check, so a runtime that stops heartbeating does not show its last
+  rate forever.
+- Mixed versions are safe in every direction: a stock backend ignores the
+  heartbeat field, a stock daemon sends none, and a stock-backend web shows the
+  dash. Rollback is switching any one of CLI, backend or web image back; the
+  line shows the dash until all three are patched again.
+- Visibility: every member of the workspace sees every runtime's rate, as they
+  already see its status on the Runtimes page.
+
+- Test prefix: `TestAGPatch` / `AG patch:` (`TestAGPatchUsage*`,
+  `TestAGPatchTokenRate*`, `TestAGPatchHubHandsTokenRateToHeartbeatHandler`;
+  vitest `runtimes/ag-token-rate.test.ts`, `api/ag-client.test.ts`,
+  `layout/agent-status-indicator.test.tsx`, `locales/ag-token-rate.test.ts`).
+  The DB-backed `TestAGPatchTokenRateHeartbeat` in `internal/handler` needs
+  `DATABASE_URL` and is not run by `ag-patches/test.sh`.
+- Files:
+  - `server/pkg/agent/ag_usage.go`, `ag_usage_test.go`,
+    `testdata/claude-code-2.1.311-partial-usage.jsonl` (new); `agent.go`
+    (`AGOnUsage`), `claude.go` (the flag, two message fields, the
+    `stream_event` branch), `codex.go` (one field, one call)
+  - `server/pkg/protocol/ag_token_rate.go` (new); `messages.go` (`AGTokenRate`
+    on the heartbeat request)
+  - `server/internal/daemon/ag_token_rate.go`, `ag_token_rate_test.go` (new);
+    `daemon.go` (the field, the wire defer, the two HTTP call sites),
+    `client.go` and `ag_drain.go` (the extra `SendHeartbeatWithReports`
+    argument), `ag_quota_report.go` (`agHeartbeatBody`), `wakeup.go` (the WS frame)
+  - `server/internal/agtokenrate/agtokenrate.go`, `agtokenrate_test.go` (new)
+  - `server/internal/handler/ag_token_rate.go`, `ag_token_rate_test.go` (new);
+    `daemon.go` (the request field, the HTTP and WS hooks)
+  - `server/internal/daemonws/hub.go` (the report on the heartbeat context),
+    `ag_token_rate_test.go` (new)
+  - `server/cmd/server/router.go` (one route)
+  - `packages/core/runtimes/ag-token-rate.ts`, `ag-token-rate-queries.ts`,
+    `ag-token-rate.test.ts` (new); `package.json` (two exports);
+    `api/ag-client.ts` (`listAGTokenRates`), `api/ag-client.test.ts`;
+    `types/events.ts` (the event); `realtime/use-realtime-sync.ts` (subscribe
+    and unsubscribe lines)
+  - `packages/views/runtimes/ag-token-rate-format.ts` (new);
+    `layout/agent-status-indicator.tsx`, `agent-status-indicator.test.tsx`
+  - `packages/views/locales/*/ag.json` (`layout.agent_status.tokens`,
+    `tokens_unknown`, `hover_tokens_header`, `hover_tokens_runtime`,
+    `hover_tokens_unlisted`), `locales/ag-token-rate.test.ts` (new)
+
+- Upstream:
+  - Status: `fork-only`.
+  - Overlap: none found for a live rate (searched "tokens per second", "token
+    rate", "tok/s", "include-partial-messages", "live token usage" across PRs and
+    issues, 2026-10-27). Usage and cost dashboards exist upstream
+    ([#4141](https://github.com/multica-ai/multica/pull/4141),
+    [#7955](https://github.com/multica-ai/multica/pull/7955), open) but report
+    totals after the fact.
+  - Fit: a glanceable activity signal for an operator; the Claude half costs a
+    second stream on every run, which upstream is unlikely to want for a
+    sidebar line.
 
 ## Tooling (not a patch)
 

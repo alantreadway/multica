@@ -105,7 +105,12 @@
       "hover_runtime_draining_unknown": "{{name}} · 排空中",
       "hover_runtime_drained": "{{name}} · 已排空",
       "backup_urgent": "備用帳號 · 僅限緊急",
-      "quota_hold": "Claude 暫停至 {{time}}"
+      "quota_hold": "Claude 暫停至 {{time}}",
+      "tokens": "↓ 輸入 {{input}}/秒 · ↑ 輸出 {{output}}/秒",
+      "tokens_unknown": "— Token/秒",
+      "hover_tokens_header": "每秒 Token · 最近 60 秒",
+      "hover_tokens_runtime": "{{name}} · 輸入 {{input}} · 輸出 {{output}} · 快取讀取 {{cache}}",
+      "hover_tokens_unlisted": "其他執行時"
     }
   },
   "settings": {
