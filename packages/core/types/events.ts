@@ -46,6 +46,7 @@ export type WSEventType =
   | "member:removed"
   | "daemon:heartbeat"
   | "daemon:register"
+  | "ag:runtime_token_rate" // AG patch: token rate
   | "skill:created"
   | "skill:updated"
   | "skill:deleted"
@@ -640,6 +641,7 @@ export interface WSEventPayloadMap {
   // currently consume as opaque triggers (refetch on receipt).
   "daemon:heartbeat": unknown;
   "daemon:register": unknown;
+  "ag:runtime_token_rate": unknown; // AG patch: parsed by runtimes/ag-token-rate.ts
   "skill:created": unknown;
   "skill:updated": unknown;
   "skill:deleted": unknown;

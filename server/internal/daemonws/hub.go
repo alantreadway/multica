@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/multica-ai/multica/server/internal/agdrain"
 	"github.com/multica-ai/multica/server/internal/agquota"
+	"github.com/multica-ai/multica/server/internal/agtokenrate"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
@@ -1122,7 +1123,7 @@ func (c *client) handleHeartbeatFrame(raw json.RawMessage) {
 	// that keeps the HTTP heartbeat from putting a per-call timeout on
 	// PopPending. The natural bound is the read pump's lifetime (the conn
 	// closes if the daemon goes away) plus Redis's own server-side limits.
-	ack, err := handler(agquota.WithReport(agdrain.WithReport(context.Background(), payload.AGDrain), payload.AGQuota), c.identity, payload.RuntimeID, payload.SupportsBatchImport)
+	ack, err := handler(agtokenrate.WithReport(agquota.WithReport(agdrain.WithReport(context.Background(), payload.AGDrain), payload.AGQuota), payload.AGTokenRate), c.identity, payload.RuntimeID, payload.SupportsBatchImport)
 	if err != nil {
 		slog.Warn("daemon websocket heartbeat handler failed",
 			"error", err,

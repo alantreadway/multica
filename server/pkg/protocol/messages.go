@@ -416,6 +416,8 @@ type DaemonHeartbeatRequestPayload struct {
 	AGDrain *DaemonDrainReport `json:"ag_drain,omitempty"`
 	// AGQuota is the AG patch Claude quota report; Claude runtimes only.
 	AGQuota *DaemonQuotaReport `json:"ag_quota,omitempty"`
+	// AGTokenRate is the AG patch live token rate; see DaemonTokenRateReport.
+	AGTokenRate *DaemonTokenRateReport `json:"ag_token_rate,omitempty"`
 }
 
 // DaemonDrainReport is the drain state a patched daemon attaches to every

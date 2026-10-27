@@ -76,6 +76,8 @@
     "./runtimes": "./runtimes/index.ts",
     "./runtimes/ag-drain": "./runtimes/ag-drain.ts",
     "./runtimes/ag-quota": "./runtimes/ag-quota.ts",
+    "./runtimes/ag-token-rate": "./runtimes/ag-token-rate.ts",
+    "./runtimes/ag-token-rate-queries": "./runtimes/ag-token-rate-queries.ts",
     "./runtimes/queries": "./runtimes/queries.ts",
     "./runtimes/mutations": "./runtimes/mutations.ts",
     "./runtimes/custom-pricing-store": "./runtimes/custom-pricing-store.ts",

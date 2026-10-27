@@ -105,7 +105,12 @@
       "hover_runtime_draining_unknown": "{{name}} · ドレイン中",
       "hover_runtime_drained": "{{name}} · ドレイン済み",
       "backup_urgent": "バックアップアカウント · 緊急のみ",
-      "quota_hold": "Claude は {{time}} まで保留中"
+      "quota_hold": "Claude は {{time}} まで保留中",
+      "tokens": "↓ 入力 {{input}}/秒 · ↑ 出力 {{output}}/秒",
+      "tokens_unknown": "— トークン/秒",
+      "hover_tokens_header": "毎秒トークン数 · 直近 60 秒",
+      "hover_tokens_runtime": "{{name}} · 入力 {{input}} · 出力 {{output}} · キャッシュ読み取り {{cache}}",
+      "hover_tokens_unlisted": "その他のランタイム"
     }
   },
   "settings": {

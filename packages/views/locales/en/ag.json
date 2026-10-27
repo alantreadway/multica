@@ -107,7 +107,12 @@
       "hover_runtime_draining_unknown": "{{name}} · draining",
       "hover_runtime_drained": "{{name}} · drained",
       "backup_urgent": "Backup account · urgent only",
-      "quota_hold": "Claude on hold until {{time}}"
+      "quota_hold": "Claude on hold until {{time}}",
+      "tokens": "↓ {{input}}/s in · ↑ {{output}}/s out",
+      "tokens_unknown": "— tokens/s",
+      "hover_tokens_header": "Tokens per second · last 60s",
+      "hover_tokens_runtime": "{{name}} · {{input}} in · {{output}} out · {{cache}} cache reads",
+      "hover_tokens_unlisted": "Other runtime"
     }
   },
   "settings": {

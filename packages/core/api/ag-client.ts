@@ -3,6 +3,7 @@
 // ApiClient instance, so callers use `api.reorderLabels(...)` as usual.
 import type { ListLabelsResponse, ReorderLabelsRequest } from "../types";
 import type { ApiClient } from "./client";
+import { parseAGTokenRateList, type AGTokenRate } from "../runtimes/ag-token-rate";
 import { parseWithFallback } from "./schema";
 import { EMPTY_LIST_LABELS_RESPONSE, ListLabelsResponseSchema } from "./schemas";
 
@@ -14,6 +15,8 @@ declare module "./client" {
       runtimeId: string,
       body: { backup_enabled: boolean; backup_max_concurrent: number },
     ): Promise<{ backup_enabled: boolean; backup_max_concurrent: number }>;
+    // Live token rates of the current workspace (see runtimes/ag-token-rate.ts).
+    listAGTokenRates(): Promise<AGTokenRate[]>;
   }
 }
 
@@ -24,7 +27,7 @@ function clientFetch<T>(client: ApiClient, path: string, init?: RequestInit): Pr
   return (client as unknown as ClientFetch).fetch<T>(path, init);
 }
 
-type AgApiMethodName = "reorderLabels" | "updateAGRuntimeSettings";
+type AgApiMethodName = "reorderLabels" | "updateAGRuntimeSettings" | "listAGTokenRates";
 
 const agApiMethods: Pick<ApiClient, AgApiMethodName> & ThisType<ApiClient> = {
   async reorderLabels(data) {
@@ -42,6 +45,10 @@ const agApiMethods: Pick<ApiClient, AgApiMethodName> & ThisType<ApiClient> = {
       method: "PUT",
       body: JSON.stringify(body),
     });
+  },
+
+  async listAGTokenRates() {
+    return parseAGTokenRateList(await clientFetch<unknown>(this, `/api/runtimes/ag-token-rates`));
   },
 };
 

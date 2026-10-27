@@ -105,7 +105,12 @@
       "hover_runtime_draining_unknown": "{{name}} · 드레인 중",
       "hover_runtime_drained": "{{name}} · 드레인 완료",
       "backup_urgent": "백업 계정 · 긴급만",
-      "quota_hold": "Claude {{time}}까지 보류 중"
+      "quota_hold": "Claude {{time}}까지 보류 중",
+      "tokens": "↓ 입력 {{input}}/초 · ↑ 출력 {{output}}/초",
+      "tokens_unknown": "— 토큰/초",
+      "hover_tokens_header": "초당 토큰 · 최근 60초",
+      "hover_tokens_runtime": "{{name}} · 입력 {{input}} · 출력 {{output}} · 캐시 읽기 {{cache}}",
+      "hover_tokens_unlisted": "기타 런타임"
     }
   },
   "settings": {

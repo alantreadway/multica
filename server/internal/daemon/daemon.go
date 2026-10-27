@@ -690,6 +690,8 @@ type Daemon struct {
 	agSettings agSettingsState // AG patch: runtime backup setting (see ag_quota_report.go)
 	agBackup   agBackupState   // AG patch: backup Claude account (see ag_quota_backup.go)
 
+	agTokens agTokenRateState // AG patch: live token rate (see ag_token_rate.go)
+
 	agSlotDir string                      // AG patch: slot dir override for tests (see ag_slotlock.go)
 	agSlots   atomic.Pointer[agTaskSlots] // AG patch: set by pollLoop (see ag_slotlock.go)
 	agHandoff agHandoffState              // AG patch: handoff / overlap mode (see ag_handoff.go)
@@ -4504,7 +4506,7 @@ func (d *Daemon) runHeartbeatTick(ctx context.Context, rid string) bool {
 		return false
 	}
 	d.logger.Debug("heartbeat: HTTP tick", "runtime_id", rid)
-	resp, err := d.client.SendHeartbeatWithReports(ctx, rid, d.agDrainReport(), d.agQuotaReport(rid))
+	resp, err := d.client.SendHeartbeatWithReports(ctx, rid, d.agDrainReport(), d.agQuotaReport(rid), d.agTokenRateReport(rid))
 	if err != nil {
 		if ctx.Err() == nil {
 			if isRuntimeNotFoundError(err) {
@@ -4650,7 +4652,7 @@ func (d *Daemon) handlePendingWorkHint(runtimeID, kind string) {
 		return
 	}
 	hbCtx, cancel := context.WithTimeout(ctx, pendingWorkHeartbeatTimeout)
-	resp, err := d.client.SendHeartbeatWithReports(hbCtx, runtimeID, d.agDrainReport(), d.agQuotaReport(runtimeID))
+	resp, err := d.client.SendHeartbeatWithReports(hbCtx, runtimeID, d.agDrainReport(), d.agQuotaReport(runtimeID), d.agTokenRateReport(runtimeID))
 	cancel()
 	if err != nil {
 		if isRuntimeNotFoundError(err) {
@@ -8832,6 +8834,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		QwenpawWorkspace:       env.QwenpawWorkspace,
 	}
 	defer d.agQuotaWire(&execOpts, task, provider, agentEnv)() // AG patch: quota
+	defer d.agTokenRateWire(&execOpts, task, provider)()       // AG patch: token rate
 	// Some providers do not reliably load the per-task runtime config files we
 	// write into the task workdir:
 	//   - openclaw is pinned to the task workdir via the per-task config we

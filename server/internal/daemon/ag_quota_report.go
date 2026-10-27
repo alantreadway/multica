@@ -32,14 +32,17 @@ const (
 	agQuotaAccountPrimary = "primary"
 )
 
-// agHeartbeatBody adds the AG patch drain and Claude quota reports to
+// agHeartbeatBody adds the AG patch drain, Claude quota and token rate reports to
 // SendHeartbeat's body. A nil report is omitted.
-func agHeartbeatBody(body map[string]any, drain *protocol.DaemonDrainReport, quota *protocol.DaemonQuotaReport) map[string]any {
+func agHeartbeatBody(body map[string]any, drain *protocol.DaemonDrainReport, quota *protocol.DaemonQuotaReport, tokens *protocol.DaemonTokenRateReport) map[string]any {
 	if drain != nil {
 		body["ag_drain"] = drain
 	}
 	if quota != nil {
 		body["ag_quota"] = quota
+	}
+	if tokens != nil {
+		body["ag_token_rate"] = tokens
 	}
 	return body
 }

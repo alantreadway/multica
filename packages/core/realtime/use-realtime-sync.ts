@@ -68,6 +68,7 @@ import {
 } from "../chat/queries";
 import { useChatStore } from "../chat";
 import { upsertChatMessageToCaches } from "../chat/message-cache";
+import { subscribeAGTokenRates } from "../runtimes/ag-token-rate-queries"; // AG patch: token rate
 import {
   promotePendingChatTask,
   removePendingChatTask,
@@ -1819,8 +1820,11 @@ export function useRealtimeSync(
       }
     });
 
+    const unsubAGTokenRates = subscribeAGTokenRates(ws, qc); // AG patch: token rate
+
     return () => {
       unsubAny();
+      unsubAGTokenRates(); // AG patch: token rate
       unsubIssueUpdated();
       unsubIssueCreated();
       unsubIssueDeleted();
