@@ -1048,6 +1048,8 @@ type claudeSDKMessage struct {
 	CommandUUID string `json:"command_uuid,omitempty"`
 	State       string `json:"state,omitempty"`
 
+	APIMessageID string `json:"api_message_id,omitempty"` // AG patch: token rate
+
 	// control request fields
 	RequestID string          `json:"request_id,omitempty"`
 	Request   json.RawMessage `json:"request,omitempty"`

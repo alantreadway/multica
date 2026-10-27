@@ -49,6 +49,7 @@ type codexTurnHooks struct {
 	onGuardianRateLimit      func()
 	rateLimits               *rateLimitTracker
 	preserveUsageBaseline    bool
+	agOnUsage                func(TokenUsage) // AG patch: token rate
 }
 
 func (c *codexClient) attachTurnHooks(h codexTurnHooks) {
@@ -78,6 +79,7 @@ func (c *codexClient) attachTurnHooks(h codexTurnHooks) {
 	c.turnErrorMu.Unlock()
 
 	c.usageMu.Lock()
+	c.agOnUsage = h.agOnUsage // AG patch: token rate
 	c.usage = TokenUsage{}
 	if !h.preserveUsageBaseline {
 		c.usageTotal = codexRawTokenUsage{}
@@ -101,6 +103,9 @@ func (c *codexClient) detachTurnHooks() {
 	c.onTurnDone = nil
 	c.onGuardianRateLimit = nil
 	c.rateLimits = nil
+	c.usageMu.Lock()
+	c.agOnUsage = nil // AG patch: token rate
+	c.usageMu.Unlock()
 	c.agentMessageStreams = nil
 	c.agentMessageOrder = nil
 	c.setActiveTurnID("")

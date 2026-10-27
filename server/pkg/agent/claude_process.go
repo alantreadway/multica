@@ -41,6 +41,7 @@ type claudeProcess struct {
 	initialized              bool
 	initializedCommands      map[string]bool
 	lastCumulativeModelUsage map[string]TokenUsage
+	agUsage                  agClaudeUsageTracker // AG patch: token rate
 
 	turnMu     sync.Mutex
 	activeTurn *claudeTurn
@@ -308,6 +309,7 @@ func (p *claudeProcess) readStdout() {
 			continue
 		}
 		p.agDispatchRateLimit(&msg, line) // AG patch: quota
+		p.agDispatchUsage(&msg)           // AG patch: token rate
 		p.dispatch(func(turn *claudeTurn) { turn.handleMessage(msg) })
 	}
 	scanErr := scanner.Err()

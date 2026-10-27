@@ -28,6 +28,7 @@ type ExecOptions struct {
 	// SkillInvocation is set only for validated member-authored skill selections.
 	SkillInvocation *SkillInvocation
 	AGOnRateLimit   func(json.RawMessage) // AG patch: quota, see ag_ratelimit.go
+	AGOnUsage       func(TokenUsage)      // AG patch: token rate, see ag_usage.go
 	// EnableTaskSupplement installs provider hooks only for runs whose daemon/server
 	// capability handshake enabled additional messages.
 	EnableTaskSupplement bool
