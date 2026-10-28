@@ -1861,8 +1861,9 @@ branches. They do not touch product code. Landed in
 | `ag/v0.6.3-ag.1` | `d19013ab84e81751d031bb894f374ccae6afbffe` | `multica-web-ag:v0.6.3-ag.1` | `multica-backend-ag:v0.6.3-ag.1` | `dist/multica-v0.6.3-ag.1-darwin-arm64` | 2026-10-19 |
 | `ag/v0.6.3-ag.2` | `9b15ccc316ded86a419f0eb7f532227ff0ae3f22` | `multica-web-ag:v0.6.3-ag.2` | `multica-backend-ag:v0.6.3-ag.2` | `dist/multica-v0.6.3-ag.2-darwin-arm64` | 2026-10-20 |
 | `ag/v0.6.5-ag.1` | `bc4a44822385e3e04407e38cf19a9c8c10d0ba6b` | `multica-web-ag:v0.6.5-ag.1` | `multica-backend-ag:v0.6.5-ag.1` | `dist/multica-v0.6.5-ag.1-darwin-arm64` | 2026-10-23 |
-| `ag/v0.7.0-ag.1` | `1e7aedc1e87f3675273b843135d5874543f34f21` | `multica-web-ag:v0.7.0-ag.1` | `multica-backend-ag:v0.7.0-ag.1` | `dist/multica-v0.7.0-ag.1-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-23 |
+| `ag/v0.7.0-ag.1` | `1e7aedc1e87f3675273b843135d5874543f34f21` | `multica-web-ag:v0.7.0-ag.1` | `multica-backend-ag:v0.7.0-ag.1` | `dist/multica-v0.7.0-ag.1-darwin-arm64` | 2026-10-23 |
 | `ag/v0.7.0-ag.2` | `14e845ac6531ca412a2d2f7b0083c832f35893c5` | `multica-web-ag:v0.7.0-ag.1` (unchanged) | `multica-backend-ag:v0.7.0-ag.2` | `dist/multica-v0.7.0-ag.1-darwin-arm64` (unchanged) | 2026-10-27 |
+| `ag/v0.7.1-ag.1` | `50892196d782143219ace0de349771b03c1b3061` | `multica-web-ag:v0.7.1-ag.1` | `multica-backend-ag:v0.7.1-ag.1` | `dist/multica-v0.7.1-ag.1-darwin-arm64` (installed as `~/.local/bin/multica-ag`) | 2026-10-28 |
 
 The CLI column is the `dist/multica-<tag>-ag.<n>-darwin-arm64` binary from
 `ag-patches/build-cli.sh`; `none (stock)` means the daemon runs the upstream
@@ -1937,3 +1938,20 @@ Full Go suite: the same upstream failures as stock `v0.7.0` in the same
 container, the four Cursor background-process tests and
 `TestClaimTasksForRuntimes_EmptyReclaimDefersHintForRetry` (failed 9 of 20 runs
 on stock `v0.7.0` and 9 of 20 on the patch branch).
+
+`v0.7.1-ag.1` is the first build on `v0.7.1`: the 23 patches, the task GC meta
+fix, the PR snapshot run fields (from `v0.7.0-ag.2`) and the live token rate
+(first deploy), rebased. One conflict: an import in `connect-remote-dialog.tsx`
+(upstream added `useDaemonSetupCommands`). `v0.7.1` adds a `zh-Hant` locale, so
+each patch with `ag.json` strings gained a `zh-Hant/ag.json` (Traditional Chinese
+in upstream's terms: 智慧體, 執行時, 載入, 檢視); the quota patch's
+`connect-remote-dialog.ag-quota.test.tsx` now sets the daemon config ready,
+since the dialog waits for it. Deployed 2026-10-28 after a `pg_dump` backup
+(`~/multica-selfhost/backups/multica-pre-v0.7.1-ag.1-20261028-100534.sql.gz`;
+`.env` saved as `.env.pre-v0.7.1-ag.1`, the compose file as
+`docker-compose.selfhost.yml.pre-v0.7.1` before it was replaced with
+`v0.7.1`'s): `MULTICA_IMAGE_TAG` to `v0.7.1`, backend (applied upstream's `593`
+and `594`), then frontend. The previous CLI stays beside the new one as
+`~/.local/bin/multica-ag.v0.7.0-ag.1`; the daemon moved over with
+`multica-daemon-reload` (handoff). Full Go suite: the same five upstream
+failures as stock `v0.7.1` in the same container.
