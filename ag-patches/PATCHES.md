@@ -2076,7 +2076,10 @@ web build. Read-only for now. The design and later phases are in
 [`DECISION-DESK-DESIGN.md`](./DECISION-DESK-DESIGN.md).
 
 - Tables: `ag_decision_card`, `ag_decision_record` and `ag_decision_engine`
-  (migrations `9004`-`9008`, no foreign keys).
+  (migrations `9004`-`9008`, no foreign keys). One-line hooks in upstream files:
+  the two index builds in `concurrentIndexCleanups` (`cmd/migrate/main.go`), and
+  the tables in `DeleteWorkspace` (`queries/workspace.sql`, generated code) and
+  `workspaceDeletionManifest`.
 - API: `/api/ag/decisions` (`GET /`, `GET /count`, `PUT /cards`, `GET` and `POST
   /records`), behind `RequireHumanActor`. `PUT /cards` takes the complete set: an
   open card that is not listed is resolved. `POST /records` ignores a repeated id.

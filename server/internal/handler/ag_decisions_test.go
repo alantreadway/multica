@@ -98,6 +98,65 @@ func agDecisionsCleanup(t *testing.T) {
 	t.Cleanup(clean)
 }
 
+func TestAGPatchDeleteWorkspaceClearsDecisionRows(t *testing.T) {
+	if testPool == nil {
+		t.Skip("database not available")
+	}
+	agDecisionsCleanup(t)
+	ctx := context.Background()
+
+	const slug = "handler-tests-ag-decision-delete"
+	_, _ = testPool.Exec(ctx, `DELETE FROM workspace WHERE slug = $1`, slug)
+	var wsID string
+	if err := testPool.QueryRow(ctx, `
+INSERT INTO workspace (name, slug, description) VALUES ($1, $2, $3) RETURNING id
+`, "AG Decision Delete", slug, "DeleteWorkspace clears decision rows").Scan(&wsID); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx := context.Background()
+		for _, table := range []string{"ag_decision_card", "ag_decision_record", "ag_decision_engine"} {
+			_, _ = testPool.Exec(ctx, `DELETE FROM `+table+` WHERE workspace_id = $1`, wsID)
+		}
+		_, _ = testPool.Exec(ctx, `DELETE FROM workspace WHERE id = $1`, wsID)
+	})
+
+	for _, id := range []string{wsID, testWorkspaceID} {
+		if _, err := testPool.Exec(ctx, `
+INSERT INTO ag_decision_card (workspace_id, dedupe_key, waiting_on, card_type) VALUES ($1, 'k', 'alan', 'pr')
+`, id); err != nil {
+			t.Fatalf("insert card: %v", err)
+		}
+		if _, err := testPool.Exec(ctx, `
+INSERT INTO ag_decision_record (id, workspace_id, at, actor, action, record) VALUES ($1, $2, now(), 'alan', 'approve', '{}')
+`, "delete-test-"+id, id); err != nil {
+			t.Fatalf("insert record: %v", err)
+		}
+		if _, err := testPool.Exec(ctx, `
+INSERT INTO ag_decision_engine (workspace_id, last_sync_at) VALUES ($1, now())
+`, id); err != nil {
+			t.Fatalf("insert engine: %v", err)
+		}
+	}
+
+	if err := testHandler.Queries.DeleteWorkspace(ctx, parseUUID(wsID)); err != nil {
+		t.Fatalf("DeleteWorkspace: %v", err)
+	}
+
+	for _, table := range []string{"ag_decision_card", "ag_decision_record", "ag_decision_engine"} {
+		var deleted, kept int
+		if err := testPool.QueryRow(ctx, `SELECT count(*) FROM `+table+` WHERE workspace_id = $1`, wsID).Scan(&deleted); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if err := testPool.QueryRow(ctx, `SELECT count(*) FROM `+table+` WHERE workspace_id = $1`, testWorkspaceID).Scan(&kept); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if deleted != 0 || kept != 1 {
+			t.Errorf("%s: deleted workspace has %d rows, other workspace has %d; want 0 and 1", table, deleted, kept)
+		}
+	}
+}
+
 func agPutCards(t *testing.T, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := newRequestAs(testUserID, http.MethodPut, "/api/ag/decisions/cards", json.RawMessage(body))
