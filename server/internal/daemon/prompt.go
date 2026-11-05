@@ -68,6 +68,7 @@ func perTurnContextBlocks(task Task, opts promptOpts) string {
 	b.WriteString(buildSharedLocalDirectoryBlock(opts.sharedLocalDirectory))
 	b.WriteString(buildWorktreeReplayConflictBlock(opts.worktreeReplayConflicts))
 	b.WriteString(buildWorktreeBranchBlock(opts.worktreeBranch, opts.worktreeBase, opts.worktreeCommitsAllLeftovers))
+	b.WriteString(agBuildResumedWorkDirBlock(task, opts.resumedWorkDir)) // AG patch: claude resume across worktrees
 	if task.PriorSessionResumeUnavailable {
 		b.WriteString(sessionContinuityNoticeFor(task))
 	}
@@ -150,6 +151,7 @@ type promptOpts struct {
 	worktreeBranch              string
 	worktreeBase                string
 	worktreeCommitsAllLeftovers bool
+	resumedWorkDir              string // AG patch: claude resume across worktrees
 }
 
 // PromptOption tunes per-turn prompt copy with run-scoped context.
