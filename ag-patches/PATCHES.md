@@ -2067,6 +2067,30 @@ is the fallback.
   - Fit: depends on Claude Code keying transcripts on the working directory and
     on our uncached-read cost; upstream has no reason to prefer it.
 
+### Decision Desk: Decisions page (backend + web + CLI)
+
+A `Decisions` page directly under Inbox, with a count badge, listing every open
+issue by who it waits on: you, the PR author, a colleague, an agent or nobody.
+`ag-jira-sync` job 17 writes the cards, so their text and rules change without a
+web build. Read-only for now. The design and later phases are in
+[`DECISION-DESK-DESIGN.md`](./DECISION-DESK-DESIGN.md).
+
+- Tables: `ag_decision_card`, `ag_decision_record` and `ag_decision_engine`
+  (migrations `9004`-`9008`, no foreign keys).
+- API: `/api/ag/decisions` (`GET /`, `GET /count`, `PUT /cards`, `GET` and `POST
+  /records`), behind `RequireHumanActor`. `PUT /cards` takes the complete set: an
+  open card that is not listed is resolved. `POST /records` ignores a repeated id.
+- WebSocket: `ag:decision_changed` carries no data and invalidates the queries.
+- CLI: `multica decisions push` reads `{cards, records}` from stdin, so the sync
+  never reads the CLI's token, and refuses input with no card list.
+- Web: `packages/core/decisions/` (parser, queries), `packages/views/decisions/`
+  (page), web and desktop routes, the reserved slug `decisions`, and one-line
+  hooks in the sidebar, paths, route icons, tab subjects, diagnostics buckets and
+  search palette.
+- **Upstream**
+  - Status: `fork-only`.
+  - Fit: built around one person's review queue and an external sync job.
+
 ## Tooling (not a patch)
 
 `ag-patches/` and `.github/workflows/ag-patches.yml` exist only on the patch

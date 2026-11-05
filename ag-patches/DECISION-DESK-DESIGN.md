@@ -1,6 +1,6 @@
 # Decision Desk: design
 
-Status: phase 0 shipped (`ag-jira-sync` `df308e4`); phase 1 is next. Section 1's numbers are from read-only checks on
+Status: phase 0 shipped (`ag-jira-sync` `df308e4`); phase 1 is built and tested but not deployed (the engine is on `ag-jira-sync` branch `desk-phase1`). Section 1's numbers are from read-only checks on
 2026-11-05, before phase 0.
 
 **Goal:** one screen that lists everything stuck on Alan, offers one-tap actions, lets low-risk items
@@ -270,7 +270,8 @@ a 403.
 | `POST /intents/claim`, `POST /intents/{id}/result` | Worker: claim and report |
 | `GET /records` | Auto tab and weekly report |
 
-A new WebSocket event, `ag_decision:changed`, invalidates the Query caches.
+A new WebSocket event, `ag:decision_changed`, invalidates the Query caches. Phase 1 has the read routes, `PUT /cards`
+and `POST /records`; the intent routes come with phase 2.
 
 ### Behaviour that matters
 
@@ -284,8 +285,8 @@ A new WebSocket event, `ag_decision:changed`, invalidates the Query caches.
   reading the CLI token from disk, but those agents already run with Alan's `gh` login, so extra protection
   here would add complexity without closing the gap.
 
-To verify when building: which token type the engine uses for these calls. It must not be classed as a machine
-actor. The worker can call the API over HTTP or through new `multica-ag` commands; HTTP avoids a CLI rebuild.
+The engine sends through `multica-ag decisions push`, so `ag-jira-sync` never reads the CLI's token. The CLI's `mul_`
+token is not classed as a machine token, so it should pass `RequireHumanActor`; the first live push confirms that.
 
 ### Rebase cost
 
@@ -307,6 +308,11 @@ green by build time and MAG-958's `PR: Feedback` label came from the PR author's
 conflict) parks. The bigger gain is that 6 items now say what they need. Two lessons for the engine: read whose turn
 it is with job 3's `prTurn`, not the `PR: Feedback` label, which over-reports on colleague PRs; and removing noise
 will not shrink this queue much, so batching and one-tap plan approvals are what have to.
+
+**What phase 1 leaves out.** Agent question cards show the title, not the agent's options (those arrive with the
+decision block in phase 2). `aiw-tiny` cannot yet read the AIW `Auto-proceed` signal or a colleague's comment hold on the
+ticket, so each shadow record lists them under `not_checked`, and the backtest has to apply them before any promotion.
+Issues with a run in flight are not told apart from stuck ones beyond their status.
 
 Phase 1 ships through the normal path: `build-backend.sh`, `build-web.sh`, then `deploy-selfhost.sh`, which
 takes the `pg_dump` first.
