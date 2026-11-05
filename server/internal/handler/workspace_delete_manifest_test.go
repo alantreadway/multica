@@ -21,6 +21,7 @@ const (
 var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"ag_decision_card":                   workspaceDelete,
 	"ag_decision_engine":                 workspaceDelete,
+	"ag_decision_intent":                 workspaceDelete,
 	"ag_decision_record":                 workspaceDelete,
 	"cloud_agent_connection":             workspaceDelete,
 	"activity_log":                       workspaceDelete,
