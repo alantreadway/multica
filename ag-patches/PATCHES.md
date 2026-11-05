@@ -1877,8 +1877,9 @@ minutes costs more than a new session.
   when `LocalWorktree.Continued` is true.
 - Wider rule (ours): `LocalWorktree.OwnBranchResumable`, set by
   `agOwnBranchResumable` in `execenv/ag_resume.go`, is true when the worktree is
-  on the conversation's own branch and that branch was created or reset onto
-  HEAD this run. `Continued` is unchanged, because the Codex rule reads it.
+  on the conversation's own branch, reached without the preferred name having
+  been refused, and that branch was created or reset onto HEAD this run.
+  `Continued` is unchanged, because the Codex rule reads it.
 
 | New worktree state | Prior work in the tree? | Action |
 |---|---|---|
@@ -1886,23 +1887,29 @@ minutes costs more than a new session.
 | Own branch newly created | Prior run made no commits | Resume |
 | Own branch reset (merged into HEAD) | Yes, through HEAD | Resume |
 | Forked, a sibling holds the branch | No | Fresh, with the notice |
+| Fingerprint fallback branch (preferred name refused) | Unknown | Fresh, with the notice |
 | Task-scoped fallback | Unknown | Fresh, with the notice |
-| Prior run not in a worktree (`workdir`) | Unknown | Fresh, with the notice |
+| Prior run not in a worktree (`workdir`), whatever the new state | Unknown | Fresh, with the notice |
+| Chat task | Not covered | Fresh, with the notice (base behaviour) |
 
-  The two non-`Continued` resume rows also need the prior working directory to
-  be inside a `worktree` directory (`agIsWorktreePath`). On our logs #9734
+  Every resume row also needs the prior working directory to be inside a
+  `worktree` directory (`agIsWorktreePath`), `Continued` included. A fork off a
+  busy branch that still carries unmerged work starts from that branch's tip,
+  so it has `Continued` set and resumes through the cherry-picked rule. On our logs #9734
   alone would have resumed 13 of 143 recent dropped worktree runs; none of the
   Lead or Reviewer drops with a known outcome had `Continued` set, because a run
   with no commits has its created branch deleted at Finalize.
 - Hooks: `migrateClaudeWorktreeTranscript` asks `agClaudeWorktreeResumable`
-  instead of testing `Continued`; `runTask` passes `agWithResumedWorkDir` into
-  the prompt options; `perTurnContextBlocks` renders `agBuildResumedWorkDirBlock`
+  instead of testing `Continued`; `runTask` asks `agClaudeMayMigrate` (Claude,
+  not a chat task) before it and passes `agWithResumedWorkDir` into the prompt
+  options; `perTurnContextBlocks` renders `agBuildResumedWorkDirBlock`
   (field `resumedWorkDir` on `promptOpts`); `LocalWorktree` gains the one field,
   set by one line in `PrepareLocalWorktree`.
 - Directory line: a `## Working directory` block in the per-turn text, after the
   cached prefix, only when a Claude run resumed with a different working
   directory than the prior run's. It names the directory and says to ignore
-  earlier paths.
+  earlier paths. It renders only while the task still carries a prior session,
+  so the fresh-session retry drops it.
 - Window order: `agClaudeFreshAfterWindow` runs before the migration and finds
   the prior transcript by session id under every project directory, so the age
   is read before the copy sets a new mtime. Keep that order.
@@ -1912,8 +1919,14 @@ minutes costs more than a new session.
   `shouldRetryWithFreshSession` covers "no conversation found" at launch. A
   session never carries to another agent or issue: the server's lookup is keyed
   on both, and the branch rule keys on the conversation.
-- Known limit: a branch someone deleted without merging looks like "no
-  commits", so that run resumes onto a tree without that work.
+- Known limits: a branch someone deleted without merging looks like "no
+  commits", so that run resumes onto a tree without that work. Likewise, run 2
+  forks because a sibling holds the merged own branch and commits on the fork;
+  once the branch is released, run 3 resets or creates it and resumes without
+  run 2's commits.
+- Rebase note: the cherry-picked `TestGateClaudeResumeAcrossLocalWorktrees` and
+  the `claude_worktree_resume_test.go` migration tests use a prior directory
+  named `worktree`, because the wider rule requires it of `Continued` too.
 - Checked on Claude Code 2.1.317 with Opus: a session created in one scratch
   worktree and copied to two others resumed in each, and the edit and commit of
   each hop landed in that hop's worktree.

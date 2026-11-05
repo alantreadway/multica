@@ -2161,7 +2161,10 @@ func TestGateClaudeResumeAcrossLocalWorktrees(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			prior, work, configDir := t.TempDir(), t.TempDir(), t.TempDir()
+			prior, work, configDir := filepath.Join(t.TempDir(), "worktree"), t.TempDir(), t.TempDir()
+			if err := os.MkdirAll(prior, 0o755); err != nil {
+				t.Fatal(err)
+			}
 			if tt.sameWorkdir {
 				work = prior
 			}

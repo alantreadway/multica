@@ -65,7 +65,7 @@ func perTurnContextBlocks(task Task, opts promptOpts) string {
 	b.WriteString(buildSharedLocalDirectoryBlock(opts.sharedLocalDirectory))
 	b.WriteString(buildWorktreeReplayConflictBlock(opts.worktreeReplayConflicts))
 	b.WriteString(buildWorktreeBranchBlock(opts.worktreeBranch, opts.worktreeBase))
-	b.WriteString(agBuildResumedWorkDirBlock(opts.resumedWorkDir)) // AG patch: claude resume across worktrees
+	b.WriteString(agBuildResumedWorkDirBlock(task, opts.resumedWorkDir)) // AG patch: claude resume across worktrees
 	if task.PriorSessionResumeUnavailable {
 		b.WriteString(sessionContinuityNoticeFor(task))
 	}

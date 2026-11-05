@@ -8606,7 +8606,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// Claude's config lookup needs only the inherited environment plus allowed
 	// custom_env; taskMulticaEnvironment below does not override its config or
 	// home variables. Apply the same blocklist as the eventual child env.
-	claudeResumeReady := provider == "claude" && migrateClaudeWorktreeTranscript(
+	claudeResumeReady := agClaudeMayMigrate(&task, provider) && migrateClaudeWorktreeTranscript( // AG patch: claude resume across worktrees
 		env, task.PriorSessionID, env.WorkDir, task.PriorWorkDir, sanitizeAgentEnv(agentEnvOverrides), taskLog,
 	)
 	resumeReachable := gateResumeToReachableSession(
@@ -8653,7 +8653,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if env.LocalWorktree != nil {
 		promptOptions = append(promptOptions, WithWorktreeBranch(env.LocalWorktree.Branch, env.LocalWorktree.BaseCommit))
 	}
-	promptOptions = agWithResumedWorkDir(promptOptions, &task, provider, claudeResumeReady && resumeReachable, env.WorkDir) // AG patch: claude resume across worktrees
+	promptOptions = agWithResumedWorkDir(promptOptions, claudeResumeReady && resumeReachable, env.WorkDir) // AG patch: claude resume across worktrees
 	prompt := BuildPrompt(task, provider, promptOptions...)
 
 	// Pass task-scoped auth credentials and context so the spawned agent CLI

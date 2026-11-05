@@ -23,7 +23,7 @@ func TestMigrateClaudeWorktreeTranscriptConfiguredDir(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
-	priorDir, workDir := t.TempDir(), t.TempDir()
+	priorDir, workDir := filepath.Join(t.TempDir(), "worktree"), t.TempDir()
 	const sessionID = "session-configured-dir"
 	src := filepath.Join(configDir, "projects", encodeClaudeCwd(priorDir), sessionID+".jsonl")
 	if err := os.MkdirAll(filepath.Dir(src), 0o700); err != nil {
@@ -72,7 +72,7 @@ func TestMigrateClaudeWorktreeTranscriptFailureLogs(t *testing.T) {
 	for _, blockedDestination := range []bool{false, true} {
 		t.Run(map[bool]string{false: "missing source", true: "unwritable destination"}[blockedDestination], func(t *testing.T) {
 			t.Parallel()
-			configDir, priorDir, workDir := t.TempDir(), t.TempDir(), t.TempDir()
+			configDir, priorDir, workDir := t.TempDir(), filepath.Join(t.TempDir(), "worktree"), t.TempDir()
 			src := filepath.Join(configDir, "projects", encodeClaudeCwd(priorDir), "session-1.jsonl")
 			wantMessage, wantPath := "claude: cannot read prior session transcript", src
 			if blockedDestination {
@@ -107,7 +107,7 @@ func TestMigrateClaudeWorktreeTranscriptFailureLogs(t *testing.T) {
 
 func TestMigrateClaudeWorktreeTranscriptRejectsUnsafeSessionID(t *testing.T) {
 	t.Parallel()
-	configDir, priorDir, workDir := t.TempDir(), t.TempDir(), t.TempDir()
+	configDir, priorDir, workDir := t.TempDir(), filepath.Join(t.TempDir(), "worktree"), t.TempDir()
 	projectsDir := filepath.Join(configDir, "projects")
 	if err := os.MkdirAll(projectsDir, 0o700); err != nil {
 		t.Fatal(err)

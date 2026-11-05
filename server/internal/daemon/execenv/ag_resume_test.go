@@ -151,3 +151,26 @@ func TestAGPatchOwnBranchResumableIsNotSetForTaskScopedBranch(t *testing.T) {
 		t.Errorf("task-scoped: OwnBranchResumable=%v Continued=%v, want false/false", wt.OwnBranchResumable, wt.Continued)
 	}
 }
+
+// The preferred branch exists but is no longer the one the conversation
+// recorded (rewritten, so the recorded checkpoint is not an ancestor). The run
+// moves to the fingerprint branch, newly created from HEAD, and the prior work
+// is on the refused branch, not here.
+func TestAGPatchOwnBranchResumableIsNotSetOnFingerprintFallback(t *testing.T) {
+	t.Parallel()
+	repo := newTestRepo(t)
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
+	finalizeOK(t, first)
+	orphan := gitRun(t, repo, "commit-tree", "-m", "rewritten", "HEAD^{tree}")
+	gitRun(t, repo, "update-ref", "refs/heads/agent/j/mul-6881", orphan)
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if second.Branch == "agent/j/mul-6881" {
+		t.Fatal("premise: the rewritten branch should have been refused")
+	}
+	if second.OwnBranchResumable || second.Continued {
+		t.Errorf("fingerprint fallback: OwnBranchResumable=%v Continued=%v, want false/false", second.OwnBranchResumable, second.Continued)
+	}
+}

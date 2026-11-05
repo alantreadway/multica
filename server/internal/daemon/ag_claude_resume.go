@@ -59,20 +59,24 @@ func agClaudeFreshAfterWindow(task *Task, taskCtx *execenv.TaskContextForEnv, pr
 	taskCtx.PriorSessionResumed = false
 }
 
+// agClaudeMayMigrate reports whether a task is one whose Claude session may be
+// copied into a new worktree directory. Chat tasks keep the base behaviour:
+// agClaudeFreshAfterWindow leaves them alone, so a copy would resume them at
+// any age.
+func agClaudeMayMigrate(task *Task, provider string) bool {
+	return provider == "claude" && task.ChatSessionID == ""
+}
+
 // agClaudeWorktreeResumable reports whether a Claude session from priorWorkDir
-// may follow this run into its worktree. A continued branch always may. A
-// newly created or reset own branch may too, provided the prior run was also in
-// a worktree: a prior run in a managed workdir (or anywhere unknown) may have
-// left work that this tree does not hold, so that run starts fresh with the
-// existing notice.
+// may follow this run into its worktree: the new tree holds the prior run's
+// work (a continued branch) or the prior run left none (a created or reset own
+// branch), and the prior run was also in a worktree. A prior run in a managed
+// workdir, or anywhere unknown, may have left work this tree does not hold.
 func agClaudeWorktreeResumable(env *execenv.Environment, priorWorkDir string) bool {
 	if env == nil || env.LocalWorktree == nil {
 		return false
 	}
-	if env.LocalWorktree.Continued {
-		return true
-	}
-	return env.LocalWorktree.OwnBranchResumable && agIsWorktreePath(priorWorkDir)
+	return (env.LocalWorktree.Continued || env.LocalWorktree.OwnBranchResumable) && agIsWorktreePath(priorWorkDir)
 }
 
 // agIsWorktreePath reports whether dir is, or is inside, the "worktree"
@@ -91,21 +95,22 @@ func agIsWorktreePath(dir string) bool {
 	return false
 }
 
-// agWithResumedWorkDir adds the working-directory line to the prompt of a
-// Claude run that resumed a session started in another directory. Claude Code
-// keeps the first directory in the resumed history, and a later hop has been
-// seen to report it as the environment path.
-func agWithResumedWorkDir(opts []PromptOption, task *Task, provider string, resumed bool, workDir string) []PromptOption {
-	if !resumed || provider != "claude" || task.PriorSessionID == "" || task.PriorWorkDir == "" || task.PriorWorkDir == workDir {
+// agWithResumedWorkDir records the directory a resumed run is in, for
+// agBuildResumedWorkDirBlock. Claude Code keeps the first directory in the
+// resumed history, and a later hop has been seen to report it as the
+// environment path.
+func agWithResumedWorkDir(opts []PromptOption, resumed bool, workDir string) []PromptOption {
+	if !resumed {
 		return opts
 	}
 	return append(opts, func(o *promptOpts) { o.resumedWorkDir = workDir })
 }
 
 // agBuildResumedWorkDirBlock states the current working directory. It is
-// per-turn text, after the cached prefix.
-func agBuildResumedWorkDirBlock(workDir string) string {
-	if workDir == "" || strings.ContainsAny(workDir, "`\n") {
+// per-turn text, after the cached prefix. It renders only while the task still
+// carries a prior session, so a fresh-session retry drops it.
+func agBuildResumedWorkDirBlock(task Task, workDir string) string {
+	if task.PriorSessionID == "" || workDir == "" || strings.ContainsAny(workDir, "`\n") {
 		return ""
 	}
 	return fmt.Sprintf("## Working directory\n\nThis run's working directory is `%s`. It differs from the one earlier turns used: do every file and git operation here, and ignore any earlier path.\n\n", workDir)

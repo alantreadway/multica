@@ -37,8 +37,8 @@ func TestAGPatchClaudeWorktreeResumable(t *testing.T) {
 		want  bool
 	}{
 		{"continued branch", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true}}, prior, true},
-		{"continued branch, prior run in a managed workdir", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true}}, managed, true},
-		{"continued branch, prior dir unknown", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true}}, "", true},
+		{"continued branch, prior run in a managed workdir", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true}}, managed, false},
+		{"continued branch, prior dir unknown", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true}}, "", false},
 		{"own branch created or reset, prior run in a worktree", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{OwnBranchResumable: true}}, prior, true},
 		{"own branch created or reset, prior run in a worktree root", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{OwnBranchResumable: true}}, filepath.Join("/data", "task-1", "worktree"), true},
 		{"own branch created or reset, prior run in a workdir", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{OwnBranchResumable: true}}, managed, false},
@@ -110,6 +110,7 @@ func TestAGPatchMigrateClaudeWorktreeTranscript(t *testing.T) {
 		{"continued branch", execenv.LocalWorktree{Continued: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, true, true},
 		{"own branch created or reset, prior run in a worktree", execenv.LocalWorktree{OwnBranchResumable: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, true, true},
 		{"own branch created or reset, prior run in a workdir", execenv.LocalWorktree{OwnBranchResumable: true}, func(r string) string { return filepath.Join(r, "a", "workdir") }, true, false},
+		{"continued branch, prior run in a workdir", execenv.LocalWorktree{Continued: true}, func(r string) string { return filepath.Join(r, "a", "workdir") }, true, false},
 		{"neither flag", execenv.LocalWorktree{}, func(r string) string { return filepath.Join(r, "a", "worktree") }, true, false},
 		{"own branch, missing transcript", execenv.LocalWorktree{OwnBranchResumable: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, false, false},
 		{"continued branch, missing transcript", execenv.LocalWorktree{Continued: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, false, false},
@@ -174,11 +175,11 @@ func TestAGPatchResumedWorkDirOption(t *testing.T) {
 	t.Parallel()
 	const workDir = "/data/task-2/worktree/repo"
 	resumed := Task{PriorSessionID: "s", PriorWorkDir: "/data/task-1/worktree/repo"}
-	build := func(task Task, provider string, wasResumed bool, dir string) string {
-		return perTurnContextBlocksFor(task, agWithResumedWorkDir(nil, &task, provider, wasResumed, dir))
+	build := func(task Task, wasResumed bool, dir string) string {
+		return perTurnContextBlocksFor(task, agWithResumedWorkDir(nil, wasResumed, dir))
 	}
 
-	got := build(resumed, "claude", true, workDir)
+	got := build(resumed, true, workDir)
 	if !strings.Contains(got, "## Working directory") || !strings.Contains(got, "`"+workDir+"`") {
 		t.Fatalf("a cross-directory Claude resume should state the directory:\n%s", got)
 	}
@@ -187,18 +188,33 @@ func TestAGPatchResumedWorkDirOption(t *testing.T) {
 	}
 
 	for name, got := range map[string]string{
-		"same directory":          build(Task{PriorSessionID: "s", PriorWorkDir: workDir}, "claude", true, workDir),
-		"not resumed":             build(resumed, "claude", false, workDir),
-		"no prior session":        build(Task{PriorWorkDir: resumed.PriorWorkDir}, "claude", true, workDir),
-		"no prior directory":      build(Task{PriorSessionID: "s"}, "claude", true, workDir),
-		"codex":                   build(resumed, "codex", true, workDir),
-		"cursor":                  build(resumed, "cursor", true, workDir),
-		"path with a backtick":    build(resumed, "claude", true, "/data/we`ird/worktree"),
-		"path with a newline":     build(resumed, "claude", true, "/data/we\nird/worktree"),
-		"empty current directory": build(resumed, "claude", true, ""),
+		"not resumed": build(resumed, false, workDir),
+		// The fresh-session retry clears the prior session but reuses the options.
+		"session cleared after the options were built": build(Task{PriorWorkDir: resumed.PriorWorkDir}, true, workDir),
+		"path with a backtick":                         build(resumed, true, "/data/we`ird/worktree"),
+		"path with a newline":                          build(resumed, true, "/data/we\nird/worktree"),
+		"empty current directory":                      build(resumed, true, ""),
 	} {
 		if strings.Contains(got, "## Working directory") {
 			t.Errorf("%s: unexpected directory line:\n%s", name, got)
+		}
+	}
+}
+
+func TestAGPatchClaudeMayMigrate(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name     string
+		task     Task
+		provider string
+		want     bool
+	}{
+		{"issue task on claude", Task{IssueID: "i"}, "claude", true},
+		{"chat task on claude", Task{ChatSessionID: "c"}, "claude", false},
+		{"issue task on codex", Task{IssueID: "i"}, "codex", false},
+	} {
+		if got := agClaudeMayMigrate(&tt.task, tt.provider); got != tt.want {
+			t.Errorf("%s: agClaudeMayMigrate = %v, want %v", tt.name, got, tt.want)
 		}
 	}
 }
@@ -218,7 +234,7 @@ func perTurnContextBlocksFor(task Task, opts []PromptOption) string {
 func TestAGPatchResumedWorkDirIsPerTurnText(t *testing.T) {
 	t.Parallel()
 	task := Task{ID: "t", IssueID: "i", AgentID: "a", PriorSessionID: "s", PriorWorkDir: "/data/task-1/worktree/repo"}
-	opts := agWithResumedWorkDir([]PromptOption{WithWorktreeBranch("agent/j/mul-1", "abc123")}, &task, "claude", true, "/data/task-2/worktree/repo")
+	opts := agWithResumedWorkDir([]PromptOption{WithWorktreeBranch("agent/j/mul-1", "abc123")}, true, "/data/task-2/worktree/repo")
 	prompt := BuildPrompt(task, "claude", opts...)
 	if !strings.Contains(prompt, "This run's working directory is `/data/task-2/worktree/repo`") {
 		t.Fatalf("the prompt should state the directory:\n%s", prompt)

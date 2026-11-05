@@ -388,21 +388,21 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 	}
 
 	wt := &LocalWorktree{
-		GitRoot:            gitRoot,
-		Path:               worktreePath,
-		WorkDir:            filepath.Join(worktreePath, rel),
-		Branch:             actualBranch,
-		BaseCommit:         plan.base,
-		Continued:          plan.continues,
-		OwnBranchResumable: agOwnBranchResumable(plan, actualBranch), // AG patch: claude resume across worktrees
-		createdBranch:      createdBranch,
-		userState:          userState,
-		priorState:         plan.priorState,
-		owner:              plan.owner,
+		GitRoot:       gitRoot,
+		Path:          worktreePath,
+		WorkDir:       filepath.Join(worktreePath, rel),
+		Branch:        actualBranch,
+		BaseCommit:    plan.base,
+		Continued:     plan.continues,
+		createdBranch: createdBranch,
+		userState:     userState,
+		priorState:    plan.priorState,
+		owner:         plan.owner,
 		// A branch a sibling task forked because the conversation's own branch
 		// was busy is delivered once and never continued, so it records nothing.
 		tracksState: plan.tracksState && actualBranch == plan.name,
 	}
+	wt.OwnBranchResumable = agOwnBranchResumable(plan, actualBranch) // AG patch: claude resume across worktrees
 
 	// Tear the worktree back down on every failure below. A half-replayed tree
 	// is the worst outcome available: it looks like a working checkout, so
