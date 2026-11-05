@@ -2485,6 +2485,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Get("/api/chat/history", h.GetChatChannelHistory)
 			r.Get("/api/chat/thread", h.GetChatThread)
 
+			// AG patch: Decision Desk
+			r.Route("/api/ag/decisions", func(r chi.Router) {
+				r.Use(handler.RequireHumanActor)
+				r.Get("/", h.ListAGDecisions)
+				r.Get("/count", h.CountAGDecisions)
+				r.Put("/cards", h.PutAGDecisionCards)
+				r.Get("/records", h.ListAGDecisionRecords)
+				r.Post("/records", h.PostAGDecisionRecords)
+			})
+
 			// Inbox
 			r.Route("/api/inbox", func(r chi.Router) {
 				r.Get("/", h.ListInbox)
