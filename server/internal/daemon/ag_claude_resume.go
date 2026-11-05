@@ -20,12 +20,8 @@ import (
 // Exactly the window counts as over it.
 const agClaudeResumeWindow = 60 * time.Minute
 
-// Swapped in tests.
-var (
-	agClaudeResumeNow     = time.Now
-	agClaudeSessionMtime  = agent.ClaudeSessionModTime
-	agClaudeResumeEnviron = os.Environ
-)
+// agClaudeResumeNow is swapped in tests.
+var agClaudeResumeNow = time.Now
 
 // agClaudeFreshAfterWindow clears the prior session of an issue run on the
 // claude provider when its transcript is at least agClaudeResumeWindow old. It
@@ -36,13 +32,13 @@ func agClaudeFreshAfterWindow(task *Task, taskCtx *execenv.TaskContextForEnv, pr
 	if provider != "claude" || task.PriorSessionID == "" || task.ChatSessionID != "" {
 		return
 	}
-	env := agClaudeResumeEnviron()
+	env := os.Environ()
 	if task.Agent != nil {
 		for k, v := range task.Agent.CustomEnv {
 			env = append(env, k+"="+v)
 		}
 	}
-	modTime, err := agClaudeSessionMtime(env, workDir, task.PriorSessionID)
+	modTime, err := agent.ClaudeSessionModTime(env, workDir, task.PriorSessionID)
 	if err != nil {
 		return
 	}

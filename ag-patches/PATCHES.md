@@ -1845,8 +1845,10 @@ is deliberate, so the run gets no "prior session unavailable" notice.
   distinct from `dropping prior session`.
 - Fails open: with no transcript, or a stat error, the age is unknown and the
   session is left to the existing gate and `shouldRetryWithFreshSession`, which
-  do show the notice. A prior run on the backup account lives in another config
-  dir and is treated the same way.
+  do show the notice. A prior run on the backup account is aged like any other:
+  `claude-backup-setup.sh` symlinks `projects/` from the primary account, so the
+  lookup finds its transcript and the window applies. Only a backup config dir
+  without that link fails open.
 - Files:
   - `server/pkg/agent/ag_claude_session.go` (new: `ClaudeSessionModTime`)
   - `server/internal/daemon/ag_claude_resume.go` (new); `daemon.go` (`runTask`,
