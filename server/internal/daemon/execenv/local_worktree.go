@@ -402,7 +402,7 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 		// was busy is delivered once and never continued, so it records nothing.
 		tracksState: plan.tracksState && actualBranch == plan.name,
 	}
-	wt.OwnBranchResumable = agOwnBranchResumable(plan, actualBranch) // AG patch: claude resume across worktrees
+	wt.OwnBranchResumable = agOwnBranchResumable(gitRoot, plan, actualBranch) // AG patch: claude resume across worktrees
 
 	// Tear the worktree back down on every failure below. A half-replayed tree
 	// is the worst outcome available: it looks like a working checkout, so

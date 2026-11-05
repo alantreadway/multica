@@ -1878,8 +1878,12 @@ minutes costs more than a new session.
 - Wider rule (ours): `LocalWorktree.OwnBranchResumable`, set by
   `agOwnBranchResumable` in `execenv/ag_resume.go`, is true when the worktree is
   on the conversation's own branch, reached without the preferred name having
-  been refused, and that branch was created or reset onto HEAD this run.
-  `Continued` is unchanged, because the Codex rule reads it.
+  been refused, that branch was created or reset onto HEAD this run, and no
+  other branch in the repo is recorded (`refs/multica/local-state/`) as this
+  conversation's with its tip outside HEAD. A record that names another owner
+  is ignored; a merged branch doesn't refuse. A failed ref listing, record read
+  or ancestor test also refuses. `Continued` is unchanged, because the Codex
+  rule reads it.
 
 | New worktree state | Prior work in the tree? | Action |
 |---|---|---|
@@ -1919,11 +1923,19 @@ minutes costs more than a new session.
   `shouldRetryWithFreshSession` covers "no conversation found" at launch. A
   session never carries to another agent or issue: the server's lookup is keyed
   on both, and the branch rule keys on the conversation.
-- Known limits: a branch someone deleted without merging looks like "no
-  commits", so that run resumes onto a tree without that work. Likewise, run 2
-  forks because a sibling holds the merged own branch and commits on the fork;
-  once the branch is released, run 3 resets or creates it and resumes without
-  run 2's commits.
+- Record check: the branch name comes from the agent's display name, so a free
+  name doesn't prove the prior run committed nothing. The check closes an agent
+  renamed after committing, and commits on the `<preferred>-<fingerprint>`
+  branch after the preferred branch was deleted. A run with no commits has its
+  branch and record deleted at Finalize, so it still resumes, renamed or not.
+- Known limits, not closed by the record check: a branch someone deleted
+  without merging looks like "no commits" and leaves no record, so that run
+  resumes onto a tree without that work. Likewise, run 2 forks because a
+  sibling holds the merged own branch and commits on the fork; once the branch
+  is released, run 3 resets or creates it and resumes without run 2's commits
+  (a fork records nothing). An issue moved to a project on
+  another repo keeps its commits in the first repo, which this repo's records
+  can't show (read in code only).
 - Rebase note: the cherry-picked `TestGateClaudeResumeAcrossLocalWorktrees` and
   the `claude_worktree_resume_test.go` migration tests use a prior directory
   named `worktree`, because the wider rule requires it of `Continued` too.
