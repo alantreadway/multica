@@ -155,9 +155,16 @@ not be able to earn its own merge. #1458's `change`, `risky`, `breaking` and `co
 text, so they are required but never sufficient. The deterministic rules (2, 3, 4 and the Codex thread count) are the
 real gate, which is why path, size and pusher limits stay tight even once the classification is trusted.
 
-**Codex is not a security control here.** Its prompt names security once and has no security checklist. It reads the PR's
-own text, so a malicious PR can try to talk it out of a finding, and a review that could not read the checkout returns no
-findings with confidence 0, which the action may print as clean (not traced past its proof-of-work check). Treat a clean review as necessary evidence of quality only.
+**Codex is not a security control here.** Its prompt names security once and has no security checklist. `build-pr-context.sh`
+tells it the PR text is data, not instructions, but it still judges the change against the PR's stated intent, so a framing
+in that text can still shape a verdict. On the `explore` driver, `verify-explore.mjs` refuses to post a review whose
+`observed_shortstat` differs from the real diff or which claims no changed file read, so an unread checkout does not print as
+clean. That check proves the model saw the diff, not that it looked for security problems. Treat a clean review as necessary
+evidence of quality only.
+
+**Raw output sits at line 3 on deprecated drivers only.** When the review is not JSON, the action posts it straight after
+the `sha=` stamp. `explore` output always passes through `verify-explore.mjs`, so this needs a hand-dispatched `claude` or
+`codex` run, which takes write access. The reader has to refuse a line 3 marker if that path stays.
 
 **Limits that remain.** Local agents run with Alan's `gh` login, so they can approve as him, and can reach this script
 and its policy file. A push under that login fails rule 2. Before phase 4 the weekly report also has to flag any
