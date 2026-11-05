@@ -20,6 +20,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -412,9 +413,25 @@ func TestAGPatchClaudeStablePathChain(t *testing.T) {
 	}
 }
 
+var agStartCommit = regexp.MustCompile("starting from commit `([0-9a-f]{40})`")
+
+// agMaskStartCommit returns the prompt with the commit its worktree started
+// from replaced by a placeholder. That commit is created anew every turn, so it
+// is not something the stable path controls; any other SHA is left in place and
+// still shows as a difference. ok is false when the prompt names no start
+// commit.
+func agMaskStartCommit(prompt string) (masked string, ok bool) {
+	m := agStartCommit.FindStringSubmatch(prompt)
+	if m == nil {
+		return prompt, false
+	}
+	return strings.ReplaceAll(prompt, m[1], "<start-commit>"), true
+}
+
 // A stable-path resume is not told the directory changed, and the same root
 // gives the same brief: turn 2 and turn 3 are sent byte-identical prompts (the
-// cache prefix the patch is for), and neither names the chain's root.
+// cache prefix the patch is for) apart from the start commit of each turn's
+// worktree, and neither names the chain's root.
 func TestAGPatchClaudeStablePathPromptNamesNoDirectoryChange(t *testing.T) {
 	c := newAgChain(t)
 	first := c.run(agTurnOpts{})
@@ -437,8 +454,16 @@ func TestAGPatchClaudeStablePathPromptNamesNoDirectoryChange(t *testing.T) {
 			}
 		}
 	}
-	if second.stdin != third.stdin {
-		t.Errorf("turn 2 and turn 3 prompts differ:\n%s\n%s", second.stdin, third.stdin)
+	secondMasked, ok := agMaskStartCommit(second.stdin)
+	if !ok {
+		t.Fatalf("second turn: the prompt names no start commit:\n%s", second.stdin)
+	}
+	thirdMasked, ok := agMaskStartCommit(third.stdin)
+	if !ok {
+		t.Fatalf("third turn: the prompt names no start commit:\n%s", third.stdin)
+	}
+	if secondMasked != thirdMasked {
+		t.Errorf("turn 2 and turn 3 prompts differ:\n%s\n%s", secondMasked, thirdMasked)
 	}
 }
 

@@ -2002,7 +2002,7 @@ is the fallback.
   the chained root or fell back. The own root a stable run leaves holds only the
   owner marker and lock. It has no `.gc_meta.json` and is not marked after the
   run, so GC takes the no-record orphan path and removes the empty directory once
-  its mtime is past `GCOrphanTTL` (30 days by default). A GC pass never sees it
+  its mtime is past `GCOrphanTTL` (72 hours by default). A GC pass never sees it
   as work: it is marked active while the run is.
 - Claim (`execenv.ClaimChainedEnvRoot`, `execenv/ag_chain_root.go`): the daemon
   parent takes the root's execution lock without waiting (preparation runs in a
