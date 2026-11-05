@@ -126,15 +126,35 @@ Starting levels:
 reason shown on the card:
 
 1. Author is `app/ag-jira-agent-ci`. Base is `latest` (not `bX.Y.Z`, not another PR's branch).
-2. 50 changed lines or fewer, 5 files or fewer. Touches `packages/ag-*` public option definitions: veto.
-3. `report` passes on the head, with at least one check that actually succeeded.
-4. Codex marker sha equals the head, with zero unresolved Codex threads.
-5. No `Breaking`, `Risky` or `Complex` label on these heads, and the class is not `unclassified`.
-6. No change request, no person's comment on the PR, no colleague comment hold on the ticket.
-7. Ticket is at `Needs Review`, and AIW's `Auto-proceed` signal does not say no.
+2. The branch is in this repo, and every push to it, per GitHub's activity log, is by app id `286720198`.
+3. 50 changed lines or fewer, 5 files or fewer, and every file under `packages/ag-charts-{community,enterprise,core}/src/`.
+4. `report` passes on the head, with at least one check that actually succeeded.
+5. The `github-actions[bot]` Codex summary comment's stamp equals the head, with zero unresolved Codex threads.
+6. That comment's classification line exists for this head: `content` is `library`, `change` is `mechanical` or
+   `small-fix`, and `risky`, `breaking` and `complex` are false. Any `Breaking`, `Risky` or `Complex` label also refuses.
+7. No change request, no person's comment on the PR, no colleague comment hold on the ticket.
+8. Ticket is at `Needs Review`, and AIW's `Auto-proceed` signal does not say no.
+
+**Lock-down.** A PR is untrusted input until proven otherwise, and every fact above needs a source it cannot forge.
+
+| Fact | Approved source | Not accepted, and why |
+|---|---|---|
+| Classification | `<!-- codex-pr-review-class -->` at line 3 of the summary comment, from ag-dev-prompts #1458, for this head | Multica labels and Haiku: anything can edit them, and Haiku reads PR text. They can only refuse |
+| Codex reviewed the head | `sha=` at line 2 of a comment by `github-actions[bot]` | The same text from anyone else, or lower in the comment, where it is model output |
+| Who wrote the PR | App id for the bot. For a person, the collaborator permission API returning `write`, `maintain` or `admin` | `author_association`: the bot reads `CONTRIBUTOR`. The permission API also rejects apps ("not a user") |
+| Who pushed | GitHub's activity log for the branch, by numeric id | Commit authors are free text, and bot commits are unsigned, so signatures cannot be required |
+| CI | The `report` check, which the ruleset pins to GitHub Actions (`15368`) | On its own: same-repo `pull_request` workflows run from the PR's branch, hence the path allowlist |
 
 **The model can veto, never approve.** PR text is untrusted on a public repo, so a persuasive PR body must
-not be able to earn its own merge. Haiku's labels can only remove a PR from the auto lane.
+not be able to earn its own merge. #1458's `change`, `risky`, `breaking` and `complex` come from a model reading that
+text, so they are required but never sufficient. The deterministic rules (2, 3, 4 and the Codex thread count) are the
+real gate, which is why path, size and pusher limits stay tight even once the classification is trusted.
+
+**Limits that remain.** Local agents run with Alan's `gh` login, so they can approve as him, and can reach this script
+and its policy file. A push under that login fails rule 2. Before phase 4 the weekly report also has to flag any
+`alantreadway` approval with no matching click or decision record, and the executor has to log the policy's git commit
+and refuse a dirty checkout. A renamed file reports only its new path through `gh pr view`, so the executor reads
+`/pulls/N/files` with `previous_filename` instead.
 
 **Executor rules, extending job 14:**
 
@@ -312,6 +332,7 @@ will not shrink this queue much, so batching and one-tap plan approvals are what
 **What phase 1 leaves out.** Agent question cards show the title, not the agent's options (those arrive with the
 decision block in phase 2). `aiw-tiny` cannot yet read the AIW `Auto-proceed` signal or a colleague's comment hold on the
 ticket, so each shadow record lists them under `not_checked`, and the backtest has to apply them before any promotion.
+Every bot PR also stays held until #1458 (merged to `canary`) reaches ag-charts and writes the classification line.
 Issues with a run in flight are not told apart from stuck ones beyond their status.
 
 Phase 1 ships through the normal path: `build-backend.sh`, `build-web.sh`, then `deploy-selfhost.sh`, which
