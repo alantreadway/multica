@@ -67,6 +67,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 23 | Backup Claude account failover, urgent only (daemon) | `fork-only` | [#5282](https://github.com/multica-ai/multica/pull/5282), [#8579](https://github.com/multica-ai/multica/pull/8579) (fallback runtime, open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC) | Low: one subscriber's two-account setup | Very low | None. |
 | 24 | Live token rate in the sidebar (daemon + backend + web) | `fork-only` | none found (searched 2026-10-27) | Low: needs a second Claude output stream for one sidebar line | Low | None. |
 | 25 | Claude fresh session past the resume window (daemon) | `fork-only` | [#8070](https://github.com/multica-ai/multica/issues/8070) (open, no maintainer reply on 2026-11-05) | Low: the 60-minute threshold is our cost policy | Very low | None. |
+| 26 | Claude sessions resume across worktree directories (daemon) | `candidate` | [#9731](https://github.com/multica-ai/multica/issues/9731) / [#9734](https://github.com/multica-ai/multica/pull/9734) (merged in v0.8.0; the cherry-pick), no overlap for the wider rule | Good for the wider rule: it closes a gap in #9734 | Low | Offer the wider rule after the rebase onto v0.8.0, if asked. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -1861,6 +1862,77 @@ is deliberate, so the run gets no "prior session unavailable" notice.
     maintainer reply on 2026-11-05).
   - Fit: a cost trade-off for a subscriber who pays for uncached reads; upstream
     resumes unconditionally.
+
+### Claude sessions resume across worktree directories (daemon)
+
+A Claude Code run on a worktree-mode project resumes the prior session even
+though the worktree path changes every run. It is the second part of the resume
+work and must never deploy without the resume window above: a resume past 60
+minutes costs more than a new session.
+
+- Cherry-pick: upstream `f75db6ad5` ([#9734](https://github.com/multica-ai/multica/pull/9734),
+  in v0.8.0). `migrateClaudeWorktreeTranscript` copies the prior transcript
+  into the new worktree's `<config dir>/projects/<encoded cwd>/` and the gate
+  accepts the resume only when that copy is present. Upstream does this only
+  when `LocalWorktree.Continued` is true.
+- Wider rule (ours): `LocalWorktree.OwnBranchResumable`, set by
+  `agOwnBranchResumable` in `execenv/ag_resume.go`, is true when the worktree is
+  on the conversation's own branch and that branch was created or reset onto
+  HEAD this run. `Continued` is unchanged, because the Codex rule reads it.
+
+| New worktree state | Prior work in the tree? | Action |
+|---|---|---|
+| `Continued` | Yes | Resume |
+| Own branch newly created | Prior run made no commits | Resume |
+| Own branch reset (merged into HEAD) | Yes, through HEAD | Resume |
+| Forked, a sibling holds the branch | No | Fresh, with the notice |
+| Task-scoped fallback | Unknown | Fresh, with the notice |
+| Prior run not in a worktree (`workdir`) | Unknown | Fresh, with the notice |
+
+  The two non-`Continued` resume rows also need the prior working directory to
+  be inside a `worktree` directory (`agIsWorktreePath`). On our logs #9734
+  alone would have resumed 13 of 143 recent dropped worktree runs; none of the
+  Lead or Reviewer drops with a known outcome had `Continued` set, because a run
+  with no commits has its created branch deleted at Finalize.
+- Hooks: `migrateClaudeWorktreeTranscript` asks `agClaudeWorktreeResumable`
+  instead of testing `Continued`; `runTask` passes `agWithResumedWorkDir` into
+  the prompt options; `perTurnContextBlocks` renders `agBuildResumedWorkDirBlock`
+  (field `resumedWorkDir` on `promptOpts`); `LocalWorktree` gains the one field,
+  set by one line in `PrepareLocalWorktree`.
+- Directory line: a `## Working directory` block in the per-turn text, after the
+  cached prefix, only when a Claude run resumed with a different working
+  directory than the prior run's. It names the directory and says to ignore
+  earlier paths.
+- Window order: `agClaudeFreshAfterWindow` runs before the migration and finds
+  the prior transcript by session id under every project directory, so the age
+  is read before the copy sets a new mtime. Keep that order.
+- Fails closed to a fresh session with the existing notice when the prior
+  directory is not a worktree, or the copy or lookup fails. A missing transcript
+  follows the existing path: the gate drops the resume, and
+  `shouldRetryWithFreshSession` covers "no conversation found" at launch. A
+  session never carries to another agent or issue: the server's lookup is keyed
+  on both, and the branch rule keys on the conversation.
+- Known limit: a branch someone deleted without merging looks like "no
+  commits", so that run resumes onto a tree without that work.
+- Checked on Claude Code 2.1.317 with Opus: a session created in one scratch
+  worktree and copied to two others resumed in each, and the edit and commit of
+  each hop landed in that hop's worktree.
+- Files:
+  - `server/internal/daemon/execenv/ag_resume.go` (new); `local_worktree.go`
+    (one field, one line)
+  - `server/internal/daemon/ag_claude_resume.go`; `daemon.go` (`runTask`, the
+    migration check, one line each); `prompt.go` (one field, one line)
+  - Cherry-pick: `daemon.go`, `server/pkg/agent/claude.go` and two test files.
+- Test prefix: `TestAGPatch…`.
+
+- Upstream:
+  - Status: `candidate` for the wider rule; the cherry-pick drops out at the
+    next rebase onto v0.8.0 or later, and the wider rule stays.
+  - Overlap: [#9731](https://github.com/multica-ai/multica/issues/9731) fixed by
+    [#9734](https://github.com/multica-ai/multica/pull/9734) for `Continued`
+    only.
+  - Fit: closes the gap where a run with no commits has no branch to continue.
+    Nothing goes upstream without alan's say-so.
 
 ## Tooling (not a patch)
 

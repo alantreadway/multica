@@ -6631,7 +6631,7 @@ func encodeClaudeCwd(cwd string) string {
 // rule. The copy left behind in the prior task's directory is orphaned until
 // the operator or a future GC pass reclaims it.
 func migrateClaudeWorktreeTranscript(env *execenv.Environment, sessionID, envWorkDir, priorWorkDir string, childEnv map[string]string, taskLog *slog.Logger) bool {
-	if env == nil || env.LocalWorktree == nil || !env.LocalWorktree.Continued {
+	if !agClaudeWorktreeResumable(env, priorWorkDir) { // AG patch: claude resume across worktrees
 		return false
 	}
 	if sessionID == "" || priorWorkDir == "" || envWorkDir == "" || priorWorkDir == envWorkDir {
@@ -8653,6 +8653,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if env.LocalWorktree != nil {
 		promptOptions = append(promptOptions, WithWorktreeBranch(env.LocalWorktree.Branch, env.LocalWorktree.BaseCommit))
 	}
+	promptOptions = agWithResumedWorkDir(promptOptions, &task, provider, claudeResumeReady && resumeReachable, env.WorkDir) // AG patch: claude resume across worktrees
 	prompt := BuildPrompt(task, provider, promptOptions...)
 
 	// Pass task-scoped auth credentials and context so the spawned agent CLI
