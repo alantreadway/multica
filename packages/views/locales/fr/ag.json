@@ -148,5 +148,54 @@
       "kpi_rate_label": "Taux d'échec · {{period}}",
       "kpi_agents_label": "Agents touchés · {{period}}"
     }
+  },
+  "decisions": {
+    "waiting_on": {
+      "alan": "Vous",
+      "author": "Auteur",
+      "colleague": "Collègue",
+      "agent": "Agent",
+      "nobody": "Personne"
+    },
+    "updated": "Mis à jour {{time}}",
+    "stale": "Dernière mise à jour {{time}}. Ces cartes ne sont peut-être plus à jour.",
+    "never_synced": "Aucune synchronisation pour le moment.",
+    "empty": "Rien ne vous attend.",
+    "nothing_here": "Rien ici.",
+    "recommended": "Recommandé : {{action}}",
+    "blocked": "Non automatique : {{reason}}",
+    "load_error": "Impossible de charger les décisions.",
+    "waiting": "En attente depuis {{time}}",
+    "actions": {
+      "queued": "En file : {{action}}",
+      "working": "En cours : {{action}}",
+      "cancel": "Annuler",
+      "back": "Retour",
+      "confirm": "Confirmer",
+      "expired": "Expiré avant d'être pris en charge par le worker.",
+      "failed": "Échec : {{message}}",
+      "not_done": "Non effectué : {{message}}",
+      "queue_error": "Impossible de mettre en file : {{message}}",
+      "override_reason": "Pourquoi pas la recommandation ?",
+      "batch_title": "{{action}} : {{total}} cartes",
+      "batch_partial": "{{failed}} sur {{total}} n'ont pas pu être mises en file.",
+      "worker_offline": "Le worker ne tourne pas. Les actions l'attendent et expirent après 15 minutes.",
+      "undo": "Annuler",
+      "queued_toast": "{{action}} en file pour {{ref}}",
+      "too_late": "Trop tard pour annuler : le worker a commencé."
+    },
+    "needs_retry": "À revoir",
+    "activity": "Activité",
+    "keys": {
+      "move": "déplacer",
+      "act": "agir",
+      "undo": "annuler"
+    },
+    "status": {
+      "queued": "En file",
+      "not_done": "Non effectué",
+      "failed": "Échec",
+      "expired": "Expiré"
+    }
   }
 }

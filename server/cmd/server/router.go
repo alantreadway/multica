@@ -2711,6 +2711,20 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Post("/{id}/reject", h.RejectAppRequest)
 			})
 
+			// AG patch: Decision Desk
+			r.Route("/api/ag/decisions", func(r chi.Router) {
+				r.Use(handler.RequireHumanActor)
+				r.Get("/", h.ListAGDecisions)
+				r.Get("/count", h.CountAGDecisions)
+				r.Put("/cards", h.PutAGDecisionCards)
+				r.Get("/records", h.ListAGDecisionRecords)
+				r.Post("/records", h.PostAGDecisionRecords)
+				r.Post("/{id}/intents", h.CreateAGDecisionIntent)
+				r.Post("/intents/claim", h.ClaimAGDecisionIntent)
+				r.Delete("/intents/{id}", h.CancelAGDecisionIntent)
+				r.Post("/intents/{id}/result", h.FinishAGDecisionIntent)
+			})
+
 			// Inbox
 			r.Route("/api/inbox", func(r chi.Router) {
 				r.Get("/", h.ListInbox)

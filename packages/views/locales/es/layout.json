@@ -1,6 +1,7 @@
 {
   "nav": {
     "inbox": "Bandeja de entrada",
+    "decisions": "Decisiones",
     "chat": "Chat",
     "my_issues": "Mis tareas",
     "issues": "Tareas",
@@ -98,6 +99,7 @@
   "rail": {
     "label": "Navegación de la app",
     "sheet_description": "Cambia de sección y de espacio de trabajo.",
+    "decisions": "Decisiones",
     "work": "Trabajo",
     "team": "Equipo",
     "chat": "Chat",

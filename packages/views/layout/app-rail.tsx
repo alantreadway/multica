@@ -28,6 +28,7 @@ import { useMarkAllInboxRead } from "@multica/core/inbox/mutations";
 import { useInboxSnoozeWake } from "@multica/core/inbox/use-snooze-wake";
 import { useSidebarTreeStore } from "@multica/core/issues/stores/sidebar-tree-store";
 import { resolveRailOrder, useRailOrderStore } from "@multica/core/navigation";
+import { useAGDecisionCount } from "../decisions/use-ag-decision-count"; // AG patch: Decision Desk
 import {
   RAIL_SPACES,
   useCurrentWorkspace,
@@ -79,6 +80,7 @@ function useRailBadges(): Partial<Record<RailSpaceId, RailBadge>> {
   const inboxUnread = useInboxUnreadCount(wsId);
   useInboxSnoozeWake(wsId);
   const inboxBadge = useSidebarTreeStore((s) => s.inboxSettings.railBadge);
+  const decisionCount = useAGDecisionCount(wsId); // AG patch: Decision Desk
 
   const { data: chatSessions = [] } = useQuery({
     ...chatSessionsOptions(wsId ?? ""),
@@ -106,6 +108,7 @@ function useRailBadges(): Partial<Record<RailSpaceId, RailBadge>> {
 
   const badges: Partial<Record<RailSpaceId, RailBadge>> = {};
   if (inboxBadge && inboxUnread > 0) badges.work = { kind: "count", value: inboxUnread, tone: "brand" };
+  if (decisionCount > 0) badges.decisions = { kind: "count", value: decisionCount, tone: "neutral" }; // AG patch: Decision Desk
   if (chatUnread > 0) badges.chat = { kind: "count", value: chatUnread, tone: "neutral" };
   if (stuck.length > 0) badges.team = { kind: "dot" };
   return badges;
@@ -382,6 +385,13 @@ export function AppRail({
   );
 
   const items: Record<RailSpaceId, { href: string; icon: IconComponent; label: string; fullLabel: string }> = {
+    // AG patch: Decision Desk
+    decisions: {
+      href: p.decisions(),
+      icon: routeIconForPath(p.decisions()),
+      label: t(($) => $.rail.decisions),
+      fullLabel: t(($) => $.nav.decisions),
+    },
     work: {
       href: p.issues(),
       icon: routeIconForPath(p.issues()),

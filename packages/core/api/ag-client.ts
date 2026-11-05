@@ -3,6 +3,12 @@
 // ApiClient instance, so callers use `api.reorderLabels(...)` as usual.
 import type { ListLabelsResponse, ReorderLabelsRequest } from "../types";
 import type { ApiClient } from "./client";
+import {
+  parseAGDecisionCount,
+  parseAGDecisionList,
+  type AGDecisionIntentInput,
+  type AGDecisionList,
+} from "../decisions/ag-decisions";
 import { parseAGTokenRateList, type AGTokenRate } from "../runtimes/ag-token-rate";
 import { parseWithFallback } from "./schema";
 import { EMPTY_LIST_LABELS_RESPONSE, ListLabelsResponseSchema } from "./schemas";
@@ -27,6 +33,11 @@ declare module "./client" {
     }>;
     // Live token rates of the current workspace (see runtimes/ag-token-rate.ts).
     listAGTokenRates(): Promise<AGTokenRate[]>;
+    // Decision Desk (see decisions/ag-decisions.ts).
+    listAGDecisions(): Promise<AGDecisionList>;
+    getAGDecisionCount(): Promise<number>;
+    createAGDecisionIntent(cardId: string, intent: AGDecisionIntentInput): Promise<void>;
+    cancelAGDecisionIntent(intentId: string): Promise<void>;
   }
 }
 
@@ -37,7 +48,14 @@ function clientFetch<T>(client: ApiClient, path: string, init?: RequestInit): Pr
   return (client as unknown as ClientFetch).fetch<T>(path, init);
 }
 
-type AgApiMethodName = "reorderLabels" | "updateAGRuntimeSettings" | "listAGTokenRates";
+type AgApiMethodName =
+  | "reorderLabels"
+  | "updateAGRuntimeSettings"
+  | "listAGTokenRates"
+  | "listAGDecisions"
+  | "getAGDecisionCount"
+  | "createAGDecisionIntent"
+  | "cancelAGDecisionIntent";
 
 const agApiMethods: Pick<ApiClient, AgApiMethodName> & ThisType<ApiClient> = {
   async reorderLabels(data) {
@@ -59,6 +77,25 @@ const agApiMethods: Pick<ApiClient, AgApiMethodName> & ThisType<ApiClient> = {
 
   async listAGTokenRates() {
     return parseAGTokenRateList(await clientFetch<unknown>(this, `/api/runtimes/ag-token-rates`));
+  },
+
+  async listAGDecisions() {
+    return parseAGDecisionList(await clientFetch<unknown>(this, `/api/ag/decisions`));
+  },
+
+  async getAGDecisionCount() {
+    return parseAGDecisionCount(await clientFetch<unknown>(this, `/api/ag/decisions/count`));
+  },
+
+  async createAGDecisionIntent(cardId, intent) {
+    await clientFetch<unknown>(this, `/api/ag/decisions/${cardId}/intents`, {
+      method: "POST",
+      body: JSON.stringify(intent),
+    });
+  },
+
+  async cancelAGDecisionIntent(intentId) {
+    await clientFetch<unknown>(this, `/api/ag/decisions/intents/${intentId}`, { method: "DELETE" });
   },
 };
 

@@ -1,6 +1,7 @@
 {
   "nav": {
     "inbox": "インボックス",
+    "decisions": "意思決定",
     "chat": "チャット",
     "my_issues": "マイタスク",
     "issues": "タスク",
@@ -97,6 +98,7 @@
   "rail": {
     "label": "アプリナビゲーション",
     "sheet_description": "スペースとワークスペースを切り替えます。",
+    "decisions": "意思決定",
     "work": "作業",
     "team": "チーム",
     "chat": "チャット",

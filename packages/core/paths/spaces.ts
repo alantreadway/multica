@@ -7,6 +7,7 @@
  */
 
 export type AppSpaceId =
+  | "decisions" // AG patch: Decision Desk
   | "work"
   | "team"
   | "chat"
@@ -18,6 +19,7 @@ export type RailSpaceId = Exclude<AppSpaceId, "settings">;
 
 /** Spaces in rail order. */
 export const RAIL_SPACES: readonly RailSpaceId[] = [
+  "decisions", // AG patch: Decision Desk
   "work",
   "team",
   "chat",
@@ -27,6 +29,7 @@ export const RAIL_SPACES: readonly RailSpaceId[] = [
 const SPACE_BY_SEGMENT: Record<string, AppSpaceId> = {
   // The full notification list; its sidebar section heads the Work panel.
   inbox: "work",
+  decisions: "decisions", // AG patch: Decision Desk
   "my-issues": "work",
   issues: "work",
   projects: "work",

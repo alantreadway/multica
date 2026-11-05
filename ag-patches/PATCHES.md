@@ -2150,6 +2150,52 @@ is the fallback.
   - Fit: depends on Claude Code keying transcripts on the working directory and
     on our uncached-read cost; upstream has no reason to prefer it.
 
+### Decision Desk: Decisions page (backend + web + CLI)
+
+A `Decisions` page with its own app-rail space directly under Overview, with a count badge, listing every open
+issue by who it waits on: you, the PR author, a colleague, an agent or nobody.
+`ag-jira-sync` job 17 writes the cards, including the actions each one offers, so
+their text and rules change without a web build. A click queues an intent, and
+the sync's desk worker runs it on the Mac, since the server has no JIRA access.
+The design and later phases are in
+[`DECISION-DESK-DESIGN.md`](./DECISION-DESK-DESIGN.md).
+
+- Tables: `ag_decision_card`, `ag_decision_record`, `ag_decision_engine` and
+  `ag_decision_intent` (migrations `9004`-`9013`, no foreign keys). One-line hooks in upstream files:
+  the two index builds in `concurrentIndexCleanups` (`cmd/migrate/main.go`), and
+  the tables in `DeleteWorkspace` (`queries/workspace.sql`, generated code) and
+  `workspaceDeletionManifest`.
+- API: `/api/ag/decisions` (`GET /`, `GET /count`, `PUT /cards`, `GET` and `POST
+  /records`), behind `RequireHumanActor`. `PUT /cards` takes the complete set: an
+  open card that is not listed is resolved. `GET /`, `GET /count` and the
+  Overview leave out a card whose issue is `done` or `cancelled`, so closing the
+  issue clears its card without waiting for the engine's next pass. `POST /records` ignores a repeated id.
+  Intents: `POST /{id}/intents` checks the card is open, at the revision on screen
+  and offers the action; one live intent per card. `POST /intents/claim` is also the
+  worker's heartbeat, expires intents unclaimed after 15 minutes and fails ones
+  running over 10, never retrying them. `DELETE /intents/{id}` cancels a queued one,
+  and `POST /intents/{id}/result` stores the outcome and its record together.
+- WebSocket: `ag:decision_changed` carries no data and invalidates the queries,
+  as does an `issue:updated` with `status_changed`.
+- CLI: `multica decisions push` reads `{cards, records}` from stdin, so the sync
+  never reads the CLI's token, and refuses input with no card list. `decisions
+  claim` and `decisions result <id>` are the worker's two calls.
+- Web: `packages/core/decisions/` (parser, queries, mutations),
+  `packages/views/decisions/` (page: a list of compact rows beside the selected
+  card's detail, which is the card's summary above the issue itself (the shared
+  `IssueDetail`, opened at the card's `focus_comment_id` when the engine sends
+  one), action buttons with number-key shortcuts and `j`/`k`/`z`, each action's
+  `effect` sentence listed under the buttons by its key,
+  second-tap and note dialogs, override reasons, group batches, clicked cards
+  moving to an Activity list with an undo toast, a worker-offline warning), web and desktop routes, the reserved slug `decisions`, and one-line
+  hooks in the app rail (`app-rail.tsx`, `spaces.ts`, `rail.decisions` in
+  `layout.json`), paths, route icons (`CheckCircle2`: a rail icon needs a
+  body), tab subjects, diagnostics buckets and the palette's page keywords
+  (`search/use-root-model.ts`).
+- **Upstream**
+  - Status: `fork-only`.
+  - Fit: built around one person's review queue and an external sync job.
+
 ## Tooling (not a patch)
 
 `ag-patches/` and `.github/workflows/ag-patches.yml` exist only on the patch
