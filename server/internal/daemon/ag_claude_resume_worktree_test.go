@@ -1,0 +1,501 @@
+package daemon
+
+// AG patch: Claude resume across worktree directories. A worktree-mode run
+// starts in a new directory every time. A Claude session follows it when the
+// prior run's work is in the new tree (a continued branch, a merged branch) or
+// the prior run left none (no commits); otherwise the run starts fresh with the
+// "prior session unavailable" notice. A resume whose directory changed tells
+// the agent which directory it is in. Codex and other providers are untouched.
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/multica-ai/multica/server/internal/daemon/execenv"
+)
+
+func TestAGPatchClaudeWorktreeResumable(t *testing.T) {
+	t.Parallel()
+	prior := filepath.Join("/data", "task-1", "worktree", "repo")
+	managed := filepath.Join("/data", "task-1", "workdir")
+	for _, tt := range []struct {
+		name  string
+		env   *execenv.Environment
+		prior string
+		want  bool
+	}{
+		{"continued branch", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true}}, prior, true},
+		{"continued branch, prior run in a managed workdir", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true}}, managed, true},
+		{"continued branch, prior dir unknown", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true}}, "", true},
+		{"own branch created or reset, prior run in a worktree", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{OwnBranchResumable: true}}, prior, true},
+		{"own branch created or reset, prior run in a worktree root", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{OwnBranchResumable: true}}, filepath.Join("/data", "task-1", "worktree"), true},
+		{"own branch created or reset, prior run in a workdir", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{OwnBranchResumable: true}}, managed, false},
+		{"own branch created or reset, prior dir unknown", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{OwnBranchResumable: true}}, "", false},
+		{"own branch created or reset, prior run outside any env root", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{OwnBranchResumable: true}}, "/home/u/repo", false},
+		{"forked or task-scoped branch", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{}}, prior, false},
+		{"not a worktree run", &execenv.Environment{}, prior, false},
+		{"no environment", nil, prior, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := agClaudeWorktreeResumable(tt.env, tt.prior); got != tt.want {
+				t.Fatalf("agClaudeWorktreeResumable = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// A managed workdir that happens to sit under a path with a "worktree"
+// component is still a workdir: the nearest of the two decides.
+func TestAGPatchIsWorktreePath(t *testing.T) {
+	t.Parallel()
+	for path, want := range map[string]bool{
+		"/data/t/worktree":             true,
+		"/data/t/worktree/sub/dir":     true,
+		"/data/worktree/t/workdir":     false,
+		"/data/worktree/t/workdir/sub": false,
+		"/data/t/workdir/worktree":     true,
+		"/data/t/repo":                 false,
+		"":                             false,
+		"/":                            false,
+		"relative/worktree/x":          true,
+		"/data/t/worktrees/x":          false,
+		"/data/t/worktree-old/x":       false,
+	} {
+		if got := agIsWorktreePath(path); got != want {
+			t.Errorf("agIsWorktreePath(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+// Writes the prior transcript, last written age ago, where Claude Code keeps it
+// for the prior directory.
+func agWTWriteTranscript(t *testing.T, configDir, priorDir, sessionID string, age time.Duration) string {
+	t.Helper()
+	path := filepath.Join(configDir, "projects", encodeClaudeCwd(priorDir), sessionID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{\"type\":\"user\",\"message\":{\"content\":\"prior discussion\"}}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mtime := time.Now().Add(-age)
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestAGPatchMigrateClaudeWorktreeTranscript(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name       string
+		lw         execenv.LocalWorktree
+		priorDir   func(root string) string
+		transcript bool
+		want       bool
+	}{
+		{"continued branch", execenv.LocalWorktree{Continued: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, true, true},
+		{"own branch created or reset, prior run in a worktree", execenv.LocalWorktree{OwnBranchResumable: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, true, true},
+		{"own branch created or reset, prior run in a workdir", execenv.LocalWorktree{OwnBranchResumable: true}, func(r string) string { return filepath.Join(r, "a", "workdir") }, true, false},
+		{"neither flag", execenv.LocalWorktree{}, func(r string) string { return filepath.Join(r, "a", "worktree") }, true, false},
+		{"own branch, missing transcript", execenv.LocalWorktree{OwnBranchResumable: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, false, false},
+		{"continued branch, missing transcript", execenv.LocalWorktree{Continued: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, false, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			root, configDir := t.TempDir(), t.TempDir()
+			priorDir := tt.priorDir(root)
+			workDir := filepath.Join(root, "b", "worktree")
+			const sessionID = "session-wt-migrate"
+			if tt.transcript {
+				agWTWriteTranscript(t, configDir, priorDir, sessionID, 10*time.Minute)
+			}
+			lw := tt.lw
+			env := &execenv.Environment{WorkDir: workDir, LocalWorktree: &lw}
+
+			got := migrateClaudeWorktreeTranscript(env, sessionID, workDir, priorDir, map[string]string{"CLAUDE_CONFIG_DIR": configDir}, slog.New(slog.DiscardHandler))
+
+			if got != tt.want {
+				t.Fatalf("migrate = %v, want %v", got, tt.want)
+			}
+			_, err := os.Stat(filepath.Join(configDir, "projects", encodeClaudeCwd(workDir), sessionID+".jsonl"))
+			if copied := err == nil; copied != tt.want {
+				t.Fatalf("transcript copied into the new directory = %v, want %v (%v)", copied, tt.want, err)
+			}
+		})
+	}
+}
+
+// Only the Claude gate branch reads claudeResumeReady, and Codex's rule reads
+// Continued alone: neither moves for a worktree that is resumable only because
+// its own branch was created or reset.
+func TestAGPatchOtherProvidersUnchanged(t *testing.T) {
+	t.Parallel()
+	own := &execenv.Environment{WorkDir: t.TempDir(), CodexHome: t.TempDir(), LocalWorktree: &execenv.LocalWorktree{OwnBranchResumable: true}}
+	if codexWorktreeResumeEligible(own, "/store") {
+		t.Fatal("Codex must not resume on OwnBranchResumable")
+	}
+	continued := &execenv.Environment{WorkDir: t.TempDir(), CodexHome: t.TempDir(), LocalWorktree: &execenv.LocalWorktree{Continued: true}}
+	if !codexWorktreeResumeEligible(continued, "/store") {
+		t.Fatal("Codex must still resume a continued worktree")
+	}
+
+	for _, provider := range []string{"codex", "cursor", "gemini", "opencode"} {
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+			priorDir, workDir := t.TempDir(), t.TempDir()
+			task := Task{PriorSessionID: "session-1", PriorWorkDir: priorDir}
+			taskCtx := execenv.TaskContextForEnv{PriorSessionResumed: true}
+
+			// claudeResumeReady is true here; for any provider but claude it must be ignored.
+			reachable := gateResumeToReachableSession(&task, &taskCtx, provider, workDir, true, false, false, true, slog.New(slog.DiscardHandler))
+
+			if reachable || task.PriorSessionID != "" || taskCtx.PriorSessionResumed || !task.PriorSessionResumeUnavailable {
+				t.Fatalf("%s: a changed workdir should still drop the session with its notice: reachable=%v task=%+v", provider, reachable, task)
+			}
+		})
+	}
+}
+
+func TestAGPatchResumedWorkDirOption(t *testing.T) {
+	t.Parallel()
+	const workDir = "/data/task-2/worktree/repo"
+	resumed := Task{PriorSessionID: "s", PriorWorkDir: "/data/task-1/worktree/repo"}
+	build := func(task Task, provider string, wasResumed bool, dir string) string {
+		return perTurnContextBlocksFor(task, agWithResumedWorkDir(nil, &task, provider, wasResumed, dir))
+	}
+
+	got := build(resumed, "claude", true, workDir)
+	if !strings.Contains(got, "## Working directory") || !strings.Contains(got, "`"+workDir+"`") {
+		t.Fatalf("a cross-directory Claude resume should state the directory:\n%s", got)
+	}
+	if strings.Contains(got, "/data/task-1/") {
+		t.Errorf("the line should not repeat the earlier path:\n%s", got)
+	}
+
+	for name, got := range map[string]string{
+		"same directory":          build(Task{PriorSessionID: "s", PriorWorkDir: workDir}, "claude", true, workDir),
+		"not resumed":             build(resumed, "claude", false, workDir),
+		"no prior session":        build(Task{PriorWorkDir: resumed.PriorWorkDir}, "claude", true, workDir),
+		"no prior directory":      build(Task{PriorSessionID: "s"}, "claude", true, workDir),
+		"codex":                   build(resumed, "codex", true, workDir),
+		"cursor":                  build(resumed, "cursor", true, workDir),
+		"path with a backtick":    build(resumed, "claude", true, "/data/we`ird/worktree"),
+		"path with a newline":     build(resumed, "claude", true, "/data/we\nird/worktree"),
+		"empty current directory": build(resumed, "claude", true, ""),
+	} {
+		if strings.Contains(got, "## Working directory") {
+			t.Errorf("%s: unexpected directory line:\n%s", name, got)
+		}
+	}
+}
+
+// perTurnContextBlocksFor renders the per-turn blocks with the options a run
+// would carry. promptOpts is built the way BuildPrompt builds it.
+func perTurnContextBlocksFor(task Task, opts []PromptOption) string {
+	var o promptOpts
+	for _, apply := range opts {
+		apply(&o)
+	}
+	return perTurnContextBlocks(task, o)
+}
+
+// The directory line is run-scoped text and so belongs after the cached
+// prefix, with the other per-turn blocks, not in the runtime brief.
+func TestAGPatchResumedWorkDirIsPerTurnText(t *testing.T) {
+	t.Parallel()
+	task := Task{ID: "t", IssueID: "i", AgentID: "a", PriorSessionID: "s", PriorWorkDir: "/data/task-1/worktree/repo"}
+	opts := agWithResumedWorkDir([]PromptOption{WithWorktreeBranch("agent/j/mul-1", "abc123")}, &task, "claude", true, "/data/task-2/worktree/repo")
+	prompt := BuildPrompt(task, "claude", opts...)
+	if !strings.Contains(prompt, "This run's working directory is `/data/task-2/worktree/repo`") {
+		t.Fatalf("the prompt should state the directory:\n%s", prompt)
+	}
+	branch, dir := strings.Index(prompt, "agent/j/mul-1"), strings.Index(prompt, "## Working directory")
+	if branch < 0 || dir < branch {
+		t.Errorf("the directory line should follow the branch block (branch at %d, directory at %d)", branch, dir)
+	}
+}
+
+// ---- Through runTask, with real worktrees and a fake claude ----
+
+type agWTCase struct {
+	firstCommits    bool                // the prior run commits on its branch
+	mergeAfterFirst bool                // the user merges that branch into HEAD
+	holdBranch      bool                // the user's checkout holds the branch, so the next run forks
+	transcriptAge   *time.Duration      // nil: no transcript is written
+	priorWorkDir    func(string) string // override the prior directory the server reports
+	noPriorSession  bool                // the server reports no prior session
+}
+
+type agWTOutcome struct {
+	first, second TaskResult
+	repo          string
+	configDir     string
+	args, stdin   string // the second run's claude invocation
+	pwd           string // directory claude ran in on the second run
+	log           string
+	invocations   int
+}
+
+func (o agWTOutcome) resumed() bool {
+	return strings.Contains(o.args, "--resume\n"+o.first.SessionID+"\n")
+}
+func (o agWTOutcome) notice() bool  { return strings.Contains(o.stdin, "could not be restored") }
+func (o agWTOutcome) dirLine() bool { return strings.Contains(o.stdin, "## Working directory") }
+func (o agWTOutcome) freshLogged() bool {
+	return strings.Contains(o.log, "starting fresh Claude session")
+}
+func (o agWTOutcome) copied() bool {
+	_, err := os.Stat(filepath.Join(o.configDir, "projects", encodeClaudeCwd(o.second.WorkDir), o.first.SessionID+".jsonl"))
+	return err == nil
+}
+
+// agWTRun runs two turns of one issue on a worktree-mode project: the first
+// creates the session, then the second carries it and is the run under test.
+func agWTRun(t *testing.T, c agWTCase) agWTOutcome {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script agent fixture is POSIX-only")
+	}
+	t.Setenv("IS_SANDBOX", "1")
+	configDir := filepath.Join(t.TempDir(), "claude-config")
+	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
+	prevNow := agClaudeResumeNow
+	agClaudeResumeNow = time.Now
+	t.Cleanup(func() { agClaudeResumeNow = prevNow })
+
+	repo := createDaemonTestRepo(t)
+	out := t.TempDir()
+	argsFile, stdinFile, pwdFile := filepath.Join(out, "args"), filepath.Join(out, "stdin"), filepath.Join(out, "pwd")
+	fakeBin := filepath.Join(t.TempDir(), "claude")
+	script := func(commit bool) []byte {
+		body := ""
+		if commit {
+			body = "printf 'first turn work\\n' > turn-one.txt\ngit add turn-one.txt\ngit -c user.name=t -c user.email=t@example.com commit -q -m 'turn one'\n"
+		}
+		return []byte(`#!/bin/sh
+case "$*" in *--version*) echo '2.1.299'; exit 0;; esac
+printf '%s\n' "$@" >> '` + argsFile + `'
+printf '%s\n' '--invocation-end--' >> '` + argsFile + `'
+pwd >> '` + pwdFile + `'
+` + body + `IFS= read -r line
+printf '%s\n--prompt-end--\n' "$line" >> '` + stdinFile + `'
+printf '%s\n' '{"type":"system","session_id":"session-wt"}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id":"session-wt","result":"done"}'
+`)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{}`)) }))
+	t.Cleanup(srv.Close)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	d := &Daemon{
+		client: NewClient(srv.URL), logger: logger, localPathLocks: NewLocalPathLocker(),
+		workspaces: make(map[string]*workspaceState), activeEnvRoots: make(map[string]int),
+		cfg: Config{
+			DaemonID: "daemon-wt", WorkspacesRoot: t.TempDir(), AgentTimeout: 5 * time.Second,
+			ServerBaseURL: srv.URL, Agents: map[string]AgentEntry{"claude": {Path: fakeBin}},
+		},
+	}
+	ref, err := json.Marshal(localDirectoryRef{LocalPath: repo, DaemonID: d.cfg.DaemonID, ExecutionMode: localDirectoryModeWorktree})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := Task{
+		ID: "task-wt-first", WorkspaceID: "ws-wt", IssueID: "issue-wt", IssueIdentifier: "MUL-9001",
+		RuntimeID: "runtime-wt", AgentID: "agent-wt", AuthToken: "mat_wt_test",
+		Agent:            &AgentData{ID: "agent-wt", Name: "wt-agent"},
+		ProjectResources: []ProjectResourceData{{ID: "repo-wt", ResourceType: localDirectoryResourceType, ResourceRef: ref}},
+	}
+
+	writeTestExecutable(t, fakeBin, script(c.firstCommits))
+	first, err := d.runTask(context.Background(), task, "claude", 0, logger)
+	if err != nil || first.Status != "completed" {
+		t.Fatalf("first turn = %+v, %v", first, err)
+	}
+	if first.SessionID != "session-wt" {
+		t.Fatalf("first turn session = %q", first.SessionID)
+	}
+	if _, err := os.Stat(first.WorkDir); !os.IsNotExist(err) {
+		t.Fatalf("prior worktree was not removed: %v", err)
+	}
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if outp, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, outp)
+		}
+	}
+	if c.mergeAfterFirst {
+		git("merge", "--no-edit", first.BranchName)
+	}
+	if c.holdBranch {
+		git("checkout", first.BranchName)
+	}
+
+	priorDir := first.WorkDir
+	if c.priorWorkDir != nil {
+		priorDir = c.priorWorkDir(first.WorkDir)
+	}
+	if c.transcriptAge != nil {
+		agWTWriteTranscript(t, configDir, priorDir, first.SessionID, *c.transcriptAge)
+	}
+	task.ID = "task-wt-second"
+	if !c.noPriorSession {
+		task.PriorSessionID, task.PriorWorkDir = first.SessionID, priorDir
+	}
+	writeTestExecutable(t, fakeBin, script(false))
+	// Truncate what the first turn recorded, so only the run under test remains.
+	for _, f := range []string{argsFile, stdinFile, pwdFile} {
+		if err := os.Truncate(f, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var logs bytes.Buffer
+	runLog := slog.New(slog.NewTextHandler(&logs, nil))
+	second, err := d.runTask(context.Background(), task, "claude", 0, runLog)
+	if err != nil || second.Status != "completed" {
+		t.Fatalf("second turn = %+v, %v\n%s", second, err, logs.String())
+	}
+	args, _ := os.ReadFile(argsFile)
+	stdin, _ := os.ReadFile(stdinFile)
+	pwd, _ := os.ReadFile(pwdFile)
+	return agWTOutcome{
+		first: first, second: second, repo: repo, configDir: configDir,
+		args: string(args), stdin: string(stdin), pwd: strings.TrimSpace(string(pwd)), log: logs.String(),
+		invocations: strings.Count(string(args), "--invocation-end--"),
+	}
+}
+
+func agWTMinutes(m int) *time.Duration { d := time.Duration(m) * time.Minute; return &d }
+
+func TestAGPatchClaudeWorktreeResumeRunTask(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		c          agWTCase
+		wantResume bool // --resume, the copy and the directory line, together
+	}{
+		// AC1, AC3: resumes into a new directory.
+		{"continued branch", agWTCase{firstCommits: true, transcriptAge: agWTMinutes(10)}, true},
+		{"prior run committed nothing", agWTCase{transcriptAge: agWTMinutes(10)}, true},
+		{"branch merged into HEAD", agWTCase{firstCommits: true, mergeAfterFirst: true, transcriptAge: agWTMinutes(10)}, true},
+		// AC6: a worktree where the prior work may not be present starts fresh.
+		{"forked because the branch is held", agWTCase{firstCommits: true, mergeAfterFirst: true, holdBranch: true, transcriptAge: agWTMinutes(10)}, false},
+		{"prior run was in a managed workdir", agWTCase{transcriptAge: agWTMinutes(10), priorWorkDir: func(string) string { return filepath.Join(t.TempDir(), "task-0", "workdir") }}, false},
+		{"prior directory not under an env root", agWTCase{transcriptAge: agWTMinutes(10), priorWorkDir: func(string) string { return filepath.Join(t.TempDir(), "elsewhere") }}, false},
+		// AC6: a missing session file falls back to a fresh start.
+		{"missing transcript, nothing committed", agWTCase{}, false},
+		{"missing transcript, continued branch", agWTCase{firstCommits: true}, false},
+		// AC4: no session from the server, no session in the run.
+		{"no prior session id", agWTCase{noPriorSession: true, transcriptAge: agWTMinutes(10)}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := agWTRun(t, tt.c)
+
+			if got.invocations != 1 {
+				t.Fatalf("want one claude run, got %d\n%s", got.invocations, got.log)
+			}
+			if got.resumed() != tt.wantResume {
+				t.Errorf("--resume passed = %v, want %v\nargs:\n%s\n%s", got.resumed(), tt.wantResume, got.args, got.log)
+			}
+			if got.copied() != tt.wantResume {
+				t.Errorf("transcript copied into the new directory = %v, want %v", got.copied(), tt.wantResume)
+			}
+			if got.dirLine() != tt.wantResume {
+				t.Errorf("working-directory line = %v, want %v\n%s", got.dirLine(), tt.wantResume, got.stdin)
+			}
+			// A session lost or left behind carries the notice, except when the
+			// server never offered one.
+			wantNotice := !tt.wantResume && !tt.c.noPriorSession
+			if got.notice() != wantNotice {
+				t.Errorf("continuity notice = %v, want %v\n%s", got.notice(), wantNotice, got.stdin)
+			}
+			if got.freshLogged() {
+				t.Errorf("only the resume window logs a deliberate fresh start\n%s", got.log)
+			}
+		})
+	}
+}
+
+// AC3: the resumed run works in its own worktree, and the prompt names it.
+func TestAGPatchClaudeWorktreeResumeWorksInTheNewDirectory(t *testing.T) {
+	got := agWTRun(t, agWTCase{transcriptAge: agWTMinutes(10)})
+
+	if !got.resumed() {
+		t.Fatalf("premise: the run should have resumed\n%s", got.args)
+	}
+	if got.second.WorkDir == got.first.WorkDir {
+		t.Fatalf("premise: the second run should have a new directory, both %s", got.first.WorkDir)
+	}
+	want, _ := filepath.EvalSymlinks(got.second.WorkDir)
+	if gotPwd, _ := filepath.EvalSymlinks(got.pwd); gotPwd != want {
+		t.Errorf("claude ran in %q, want the new worktree %q", gotPwd, want)
+	}
+	if !strings.Contains(got.stdin, "`"+got.second.WorkDir+"`") {
+		t.Errorf("the prompt should state %q:\n%s", got.second.WorkDir, got.stdin)
+	}
+	if strings.Contains(got.stdin, got.first.WorkDir) {
+		t.Errorf("the prompt should not name the earlier directory %q:\n%s", got.first.WorkDir, got.stdin)
+	}
+}
+
+// The 60-minute check must read the transcript's mtime before the copy, which
+// writes a new one. A stale transcript on an otherwise resumable worktree
+// starts fresh; a recent one resumes.
+func TestAGPatchClaudeWorktreeResumeWindowReadsMtimeBeforeTheCopy(t *testing.T) {
+	t.Run("stale", func(t *testing.T) {
+		got := agWTRun(t, agWTCase{transcriptAge: agWTMinutes(180)})
+		if got.resumed() {
+			t.Errorf("a 3 hour old session resumed: the copy's fresh mtime was read instead of the original\n%s", got.args)
+		}
+		if !got.freshLogged() {
+			t.Errorf("the deliberate fresh start should be logged\n%s", got.log)
+		}
+		if got.notice() || got.dirLine() {
+			t.Errorf("a deliberate fresh start carries neither the notice nor the directory line\n%s", got.stdin)
+		}
+	})
+	t.Run("just past the window", func(t *testing.T) {
+		got := agWTRun(t, agWTCase{transcriptAge: agWTMinutes(61)})
+		if got.resumed() || !got.freshLogged() {
+			t.Errorf("a session past the window should start fresh: resumed=%v\n%s", got.resumed(), got.log)
+		}
+	})
+	t.Run("recent", func(t *testing.T) {
+		got := agWTRun(t, agWTCase{transcriptAge: agWTMinutes(59)})
+		if !got.resumed() || got.freshLogged() {
+			t.Errorf("a session inside the window should resume: resumed=%v\n%s", got.resumed(), got.log)
+		}
+	})
+}
+
+// A resume that keeps its directory (same directory, no worktree) is not told
+// its directory: only a cross-directory resume gets the line.
+func TestAGPatchWorkingDirectoryLineOnlyOnCrossDirectoryResume(t *testing.T) {
+	for _, mode := range []agResumeMode{agResumeManaged, agResumeInPlace} {
+		t.Run(string(mode), func(t *testing.T) {
+			age := 10 * time.Minute
+			got := agResumeRunTask(t, mode, &age, false)
+
+			if !got.resumed(0) {
+				t.Fatalf("premise: the run should have resumed\n%s", got.invocations[0].args)
+			}
+			if strings.Contains(got.invocations[0].stdin, "## Working directory") {
+				t.Errorf("a same-directory resume should not get the directory line:\n%s", got.invocations[0].stdin)
+			}
+		})
+	}
+}
