@@ -6,6 +6,7 @@ package execenv
 // a separate flag that the Codex rule reads, so it must not move.
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -172,5 +173,188 @@ func TestAGPatchOwnBranchResumableIsNotSetOnFingerprintFallback(t *testing.T) {
 	}
 	if second.OwnBranchResumable || second.Continued {
 		t.Errorf("fingerprint fallback: OwnBranchResumable=%v Continued=%v, want false/false", second.OwnBranchResumable, second.Continued)
+	}
+}
+
+// ---- The record check: another branch holds this conversation's work ----
+
+// prepareNamed is prepareTurnAs with the agent's display name chosen, which is
+// what names the conversation's preferred branch.
+func prepareNamed(t *testing.T, repo, agentName, conversationKey, taskID string, owner branchOwner) *LocalWorktree {
+	t.Helper()
+	wt, err := PrepareLocalWorktree(LocalWorktreeParams{
+		LocalPath:       repo,
+		EnvRoot:         t.TempDir(),
+		AgentName:       agentName,
+		TaskID:          taskID,
+		ConversationKey: conversationKey,
+		WorkspaceID:     owner.WorkspaceID,
+		AgentID:         owner.AgentID,
+		ConversationID:  owner.ConversationID,
+	}, worktreeTestLogger())
+	if err != nil {
+		t.Fatalf("PrepareLocalWorktree(%s as %s): %v", taskID, agentName, err)
+	}
+	return wt
+}
+
+// The agent was renamed after a run committed. The preferred branch name moves
+// with the name, so the new one is free, but the earlier work sits on the old
+// branch and this tree lacks it.
+func TestAGPatchOwnBranchResumableIsNotSetWhenAgentRenamedAfterCommitting(t *testing.T) {
+	t.Parallel()
+	repo := newTestRepo(t)
+
+	first := prepareNamed(t, repo, "J", "MUL-6881", turnOneTask, testBranchOwner)
+	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
+	finalizeOK(t, first)
+
+	second := prepareNamed(t, repo, "K", "MUL-6881", turnTwoTask, testBranchOwner)
+	if second.Branch != "agent/k/mul-6881" {
+		t.Fatalf("premise: the renamed agent should get a branch of its own, got %q", second.Branch)
+	}
+	if second.OwnBranchResumable || second.Continued {
+		t.Errorf("renamed after committing: OwnBranchResumable=%v Continued=%v, want false/false", second.OwnBranchResumable, second.Continued)
+	}
+}
+
+// The preferred name was refused on the first run (a branch of the user's holds
+// it), so the work went to <preferred>-<fingerprint>. The user then deleted the
+// preferred branch, which makes it free again while the work is still on the
+// fingerprint branch.
+func TestAGPatchOwnBranchResumableIsNotSetWhenWorkIsOnFingerprintBranchAndPreferredDeleted(t *testing.T) {
+	t.Parallel()
+	repo := newTestRepo(t)
+	gitRun(t, repo, "branch", "agent/j/mul-6881")
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	if first.Branch == "agent/j/mul-6881" {
+		t.Fatal("premise: the first run should have been refused the preferred name")
+	}
+	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
+	finalizeOK(t, first)
+	gitRun(t, repo, "branch", "-D", "agent/j/mul-6881")
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if second.Branch != "agent/j/mul-6881" {
+		t.Fatalf("premise: the preferred name should be free again, got %q", second.Branch)
+	}
+	if second.OwnBranchResumable || second.Continued {
+		t.Errorf("work on the fingerprint branch: OwnBranchResumable=%v Continued=%v, want false/false", second.OwnBranchResumable, second.Continued)
+	}
+}
+
+// A renamed agent whose earlier run committed nothing has no record anywhere:
+// Finalize deleted the branch and its record. That is the case the wider rule
+// exists for.
+func TestAGPatchOwnBranchResumableWhenAgentRenamedAfterCommittingNothing(t *testing.T) {
+	t.Parallel()
+	repo := newTestRepo(t)
+
+	first := prepareNamed(t, repo, "J", "MUL-6881", turnOneTask, testBranchOwner)
+	finalizeOK(t, first)
+	if out := gitRun(t, repo, "for-each-ref", "refs/multica/local-state/"); out != "" {
+		t.Fatalf("premise: a run with no commits should leave no record, got %q", out)
+	}
+
+	second := prepareNamed(t, repo, "K", "MUL-6881", turnTwoTask, testBranchOwner)
+	if second.Branch != "agent/k/mul-6881" {
+		t.Fatalf("premise: the renamed agent should get a branch of its own, got %q", second.Branch)
+	}
+	if !second.OwnBranchResumable {
+		t.Error("a renamed agent whose earlier run committed nothing should resume")
+	}
+	if second.Continued {
+		t.Error("Continued must stay false")
+	}
+}
+
+// The old-name branch holds work, but the user merged it, so the work is in
+// HEAD and in this tree.
+func TestAGPatchOwnBranchResumableWhenOtherNamedBranchWasMerged(t *testing.T) {
+	t.Parallel()
+	repo := newTestRepo(t)
+
+	first := prepareNamed(t, repo, "J", "MUL-6881", turnOneTask, testBranchOwner)
+	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
+	finalizeOK(t, first)
+	gitRun(t, repo, "merge", "--no-edit", "agent/j/mul-6881")
+
+	second := prepareNamed(t, repo, "K", "MUL-6881", turnTwoTask, testBranchOwner)
+	if second.Branch != "agent/k/mul-6881" {
+		t.Fatalf("premise: the renamed agent should get a branch of its own, got %q", second.Branch)
+	}
+	if !second.OwnBranchResumable {
+		t.Error("a merged old-name branch has its work in HEAD, so the run should resume")
+	}
+	if got := readFile(t, filepath.Join(second.WorkDir, "turn-one.txt")); got != "work from turn one\n" {
+		t.Errorf("the merged work should be in the new tree: %q", got)
+	}
+}
+
+// A record that names a different workspace, agent or conversation is not this
+// conversation's, whatever work its branch holds.
+func TestAGPatchOwnBranchResumableIgnoresRecordsOfOtherOwners(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name  string
+		other branchOwner
+	}{
+		{"another conversation", branchOwner{WorkspaceID: testBranchOwner.WorkspaceID, AgentID: testBranchOwner.AgentID, ConversationID: "11112222-3333-4444-5555-0000000000c1"}},
+		{"another agent", branchOwner{WorkspaceID: testBranchOwner.WorkspaceID, AgentID: "11112222-3333-4444-5555-0000000000a1", ConversationID: testBranchOwner.ConversationID}},
+		{"another workspace", branchOwner{WorkspaceID: "11112222-3333-4444-5555-0000000000b1", AgentID: testBranchOwner.AgentID, ConversationID: testBranchOwner.ConversationID}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			repo := newTestRepo(t)
+
+			elsewhere := prepareNamed(t, repo, "J", "MUL-7000", turnOneTask, tt.other)
+			writeFile(t, filepath.Join(elsewhere.WorkDir, "other.txt"), "someone else's work\n")
+			finalizeOK(t, elsewhere)
+			if out := gitRun(t, repo, "for-each-ref", "refs/multica/local-state/"); out == "" {
+				t.Fatal("premise: the other conversation should have left a record")
+			}
+
+			wt := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+			if wt.Branch != "agent/j/mul-6881" {
+				t.Fatalf("premise: branch = %q, want the conversation's own", wt.Branch)
+			}
+			if !wt.OwnBranchResumable {
+				t.Error("another owner's unmerged record should not block the resume")
+			}
+		})
+	}
+}
+
+// A record that cannot be read leaves the prior work's location unknown, so the
+// run is not resumable.
+func TestAGPatchOwnBranchResumableIsNotSetWhenARecordCannotBeRead(t *testing.T) {
+	t.Parallel()
+	repo := newTestRepo(t)
+
+	other := prepareNamed(t, repo, "J", "MUL-7000", turnOneTask, branchOwner{
+		WorkspaceID: testBranchOwner.WorkspaceID, AgentID: testBranchOwner.AgentID,
+		ConversationID: "11112222-3333-4444-5555-0000000000c1",
+	})
+	writeFile(t, filepath.Join(other.WorkDir, "other.txt"), "other work\n")
+	finalizeOK(t, other)
+	record := gitRun(t, repo, "rev-parse", "refs/multica/local-state/agent/j/mul-7000")
+	object := filepath.Join(repo, ".git", "objects", record[:2], record[2:])
+	if err := os.Remove(object); err != nil {
+		t.Fatalf("premise: the record should be a loose object: %v", err)
+	}
+	if _, err := gitTry(t, repo, "log", "-1", "--format=%B", record); err == nil {
+		t.Fatal("premise: the record should no longer be readable")
+	}
+
+	wt := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if wt.Branch != "agent/j/mul-6881" {
+		t.Fatalf("premise: branch = %q, want the conversation's own", wt.Branch)
+	}
+	if wt.OwnBranchResumable {
+		t.Error("an unreadable record should fail closed")
+	}
+	if wt.Continued {
+		t.Error("Continued must stay false")
 	}
 }

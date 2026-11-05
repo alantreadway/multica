@@ -248,16 +248,21 @@ func TestAGPatchResumedWorkDirIsPerTurnText(t *testing.T) {
 // ---- Through runTask, with real worktrees and a fake claude ----
 
 type agWTCase struct {
-	firstCommits    bool                // the prior run commits on its branch
-	mergeAfterFirst bool                // the user merges that branch into HEAD
-	holdBranch      bool                // the user's checkout holds the branch, so the next run forks
-	transcriptAge   *time.Duration      // nil: no transcript is written
-	priorWorkDir    func(string) string // override the prior directory the server reports
-	noPriorSession  bool                // the server reports no prior session
-	rewriteBranch   bool                // the user rewrites the branch, so it can no longer be proved the conversation's
-	rejectResume    bool                // the fake claude refuses a --resume, as it does for a session it cannot load
-	chat            bool                // a chat task rather than an issue task
-	provider        string              // "" is claude; "grok" is the one non-Claude fake
+	firstCommits      bool                // the prior run commits on its branch
+	mergeAfterFirst   bool                // the user merges that branch into HEAD
+	holdBranch        bool                // the user's checkout holds the branch, so the next run forks
+	transcriptAge     *time.Duration      // nil: no transcript is written
+	priorWorkDir      func(string) string // override the prior directory the server reports
+	noPriorSession    bool                // the server reports no prior session
+	rewriteBranch     bool                // the user rewrites the branch, so it can no longer be proved the conversation's
+	renameAgent       bool                // the agent's name changes before the second run, so its preferred branch name does
+	preferredHeld     bool                // the user holds the preferred branch name, so the first run lands on the fingerprint branch
+	deletePreferred   bool                // the user then deletes that preferred branch
+	otherConversation bool                // another conversation left an unmerged branch and record in the repo
+	lostRecord        bool                // ...and that record's object is then lost, so it cannot be read
+	rejectResume      bool                // the fake claude refuses a --resume, as it does for a session it cannot load
+	chat              bool                // a chat task rather than an issue task
+	provider          string              // "" is claude; "grok" is the one non-Claude fake
 }
 
 type agWTOutcome struct {
@@ -388,6 +393,12 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 		task.Agent.Model = "grok-4.6"
 	}
 
+	if c.preferredHeld {
+		agWTGit(t, repo, "branch", "agent/wt-agent/mul-9001")
+	}
+	if c.otherConversation {
+		agWTLeaveOtherConversation(t, repo, c.lostRecord)
+	}
 	writeTestExecutable(t, fakeBin, script(c.firstCommits, false))
 	first, err := d.runTask(context.Background(), task, provider, 0, logger)
 	if err != nil || first.Status != "completed" {
@@ -417,6 +428,15 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 	}
 	if c.holdBranch {
 		git("checkout", first.BranchName)
+	}
+	if c.preferredHeld && first.BranchName == "agent/wt-agent/mul-9001" {
+		t.Fatalf("premise: the first run should have landed on the fingerprint branch, got %s", first.BranchName)
+	}
+	if c.deletePreferred {
+		git("branch", "-D", "agent/wt-agent/mul-9001")
+	}
+	if c.renameAgent {
+		task.Agent = &AgentData{ID: "agent-wt", Name: "renamed-agent"}
 	}
 
 	priorDir := first.WorkDir
@@ -453,6 +473,43 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 	}
 }
 
+func agWTGit(t *testing.T, repo string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// agWTLeaveOtherConversation leaves a branch with unmerged work and its record,
+// owned by a different issue in the same repo. With lost set, the record's
+// object is then deleted, so reading it fails.
+func agWTLeaveOtherConversation(t *testing.T, repo string, lost bool) {
+	t.Helper()
+	wt, err := execenv.PrepareLocalWorktree(execenv.LocalWorktreeParams{
+		LocalPath: repo, EnvRoot: t.TempDir(), AgentName: "wt-agent", TaskID: "task-other",
+		ConversationKey: "MUL-9002", WorkspaceID: "ws-wt", AgentID: "agent-wt", ConversationID: "issue-other",
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("prepare the other conversation: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wt.WorkDir, "other.txt"), []byte("other work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := wt.Finalize(slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+		t.Fatalf("finalize the other conversation: %v", err)
+	}
+	record := agWTGit(t, repo, "rev-parse", "refs/multica/local-state/agent/wt-agent/mul-9002")
+	if lost {
+		if err := os.Remove(filepath.Join(repo, ".git", "objects", record[:2], record[2:])); err != nil {
+			t.Fatalf("premise: the record should be a loose object: %v", err)
+		}
+	}
+}
+
 func agWTMinutes(m int) *time.Duration { d := time.Duration(m) * time.Minute; return &d }
 
 func TestAGPatchClaudeWorktreeResumeRunTask(t *testing.T) {
@@ -483,6 +540,14 @@ func TestAGPatchClaudeWorktreeResumeRunTask(t *testing.T) {
 		// AC6: a missing session file falls back to a fresh start.
 		{"missing transcript, nothing committed", agWTCase{}, false},
 		{"missing transcript, continued branch", agWTCase{firstCommits: true}, false},
+		// The record check: another branch in the repo holds this conversation's
+		// work that HEAD lacks.
+		{"agent renamed after committing", agWTCase{firstCommits: true, renameAgent: true, transcriptAge: agWTMinutes(10)}, false},
+		{"work on the fingerprint branch, preferred branch deleted", agWTCase{firstCommits: true, preferredHeld: true, deletePreferred: true, transcriptAge: agWTMinutes(10)}, false},
+		{"agent renamed, prior run committed nothing", agWTCase{renameAgent: true, transcriptAge: agWTMinutes(10)}, true},
+		{"agent renamed, old branch merged into HEAD", agWTCase{firstCommits: true, mergeAfterFirst: true, renameAgent: true, transcriptAge: agWTMinutes(10)}, true},
+		{"another conversation's unmerged record", agWTCase{otherConversation: true, transcriptAge: agWTMinutes(10)}, true},
+		{"a record that cannot be read", agWTCase{otherConversation: true, lostRecord: true, transcriptAge: agWTMinutes(10)}, false},
 		// AC4: no session from the server, no session in the run.
 		{"no prior session id", agWTCase{noPriorSession: true, transcriptAge: agWTMinutes(10)}, false},
 	} {
