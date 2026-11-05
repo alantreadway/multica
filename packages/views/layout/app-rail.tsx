@@ -7,6 +7,7 @@ import { useChatStore } from "@multica/core/chat";
 import { chatSessionsOptions } from "@multica/core/chat/queries";
 import { countUnreadChatMessages } from "@multica/core/chat/unread";
 import { useInboxUnreadCount } from "@multica/core/inbox/queries";
+import { useAGDecisionCount } from "../decisions/use-ag-decision-count"; // AG patch: Decision Desk
 import {
   RAIL_SPACES,
   useCurrentWorkspace,
@@ -44,6 +45,7 @@ function useRailBadges(): Partial<Record<RailSpaceId, RailBadge>> {
   const p = useWorkspacePaths();
   const { pathname } = useNavigation();
   const inboxUnread = useInboxUnreadCount(wsId);
+  const decisionCount = useAGDecisionCount(wsId); // AG patch: Decision Desk
 
   const { data: chatSessions = [] } = useQuery({
     ...chatSessionsOptions(wsId ?? ""),
@@ -71,6 +73,7 @@ function useRailBadges(): Partial<Record<RailSpaceId, RailBadge>> {
 
   const badges: Partial<Record<RailSpaceId, RailBadge>> = {};
   if (inboxUnread > 0) badges.inbox = { kind: "count", value: inboxUnread, tone: "brand" };
+  if (decisionCount > 0) badges.decisions = { kind: "count", value: decisionCount, tone: "neutral" }; // AG patch: Decision Desk
   if (chatUnread > 0) badges.chat = { kind: "count", value: chatUnread, tone: "neutral" };
   if (stuck.length > 0) badges.team = { kind: "dot" };
   return badges;
@@ -184,6 +187,13 @@ export function AppRail({
       icon: routeIconForPath(p.inbox()),
       label: t(($) => $.rail.inbox),
       fullLabel: t(($) => $.nav.inbox),
+    },
+    // AG patch: Decision Desk
+    decisions: {
+      href: p.decisions(),
+      icon: routeIconForPath(p.decisions()),
+      label: t(($) => $.rail.decisions),
+      fullLabel: t(($) => $.nav.decisions),
     },
     work: {
       href: p.issues(),

@@ -80,6 +80,8 @@
     "./chat/use-quick-actions-pending-timeout": "./chat/use-quick-actions-pending-timeout.ts",
     "./chat/unread": "./chat/unread.ts",
     "./runtimes": "./runtimes/index.ts",
+    "./decisions/ag-decisions": "./decisions/ag-decisions.ts",
+    "./decisions/ag-decisions-queries": "./decisions/ag-decisions-queries.ts",
     "./runtimes/ag-drain": "./runtimes/ag-drain.ts",
     "./runtimes/ag-quota": "./runtimes/ag-quota.ts",
     "./runtimes/ag-token-rate": "./runtimes/ag-token-rate.ts",

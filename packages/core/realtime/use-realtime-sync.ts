@@ -74,6 +74,7 @@ import {
 import { useChatStore } from "../chat";
 import { upsertChatMessageToCaches } from "../chat/message-cache";
 import { subscribeAGTokenRates } from "../runtimes/ag-token-rate-queries"; // AG patch: token rate
+import { subscribeAGDecisions } from "../decisions/ag-decisions-queries"; // AG patch: Decision Desk
 import {
   promotePendingChatTask,
   removePendingChatTask,
@@ -1881,10 +1882,12 @@ export function useRealtimeSync(
     });
 
     const unsubAGTokenRates = subscribeAGTokenRates(ws, qc); // AG patch: token rate
+    const unsubAGDecisions = subscribeAGDecisions(ws, qc); // AG patch: Decision Desk
 
     return () => {
       unsubAny();
       unsubAGTokenRates(); // AG patch: token rate
+      unsubAGDecisions(); // AG patch: Decision Desk
       unsubIssueUpdated();
       unsubIssueCreated();
       unsubIssueDeleted();

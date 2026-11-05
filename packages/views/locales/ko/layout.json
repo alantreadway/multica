@@ -1,6 +1,7 @@
 {
   "nav": {
     "inbox": "인박스",
+    "decisions": "의사결정",
     "chat": "채팅",
     "my_issues": "내 태스크",
     "issues": "태스크",
@@ -86,6 +87,7 @@
     "label": "앱 탐색",
     "sheet_description": "스페이스와 워크스페이스를 전환합니다.",
     "inbox": "인박스",
+    "decisions": "의사결정",
     "work": "작업",
     "team": "팀",
     "chat": "채팅",

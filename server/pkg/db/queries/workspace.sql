@@ -238,6 +238,18 @@ cleared_vcs_connections AS (
 ),
 cleared_client_usage_workspace AS (
     UPDATE client_usage_daily SET workspace_id = NULL WHERE workspace_id = $1
+),
+cleared_ag_decision_cards AS (
+    DELETE FROM ag_decision_card WHERE workspace_id = $1
+),
+cleared_ag_decision_records AS (
+    DELETE FROM ag_decision_record WHERE workspace_id = $1
+),
+cleared_ag_decision_engine AS (
+    DELETE FROM ag_decision_engine WHERE workspace_id = $1
+),
+cleared_ag_decision_intents AS (
+    DELETE FROM ag_decision_intent WHERE workspace_id = $1
 )
 DELETE FROM workspace WHERE workspace.id = $1;
 

@@ -148,5 +148,54 @@
       "kpi_rate_label": "Tasa de fallos · {{period}}",
       "kpi_agents_label": "Agentes afectados · {{period}}"
     }
+  },
+  "decisions": {
+    "waiting_on": {
+      "alan": "Tú",
+      "author": "Autor",
+      "colleague": "Compañero",
+      "agent": "Agente",
+      "nobody": "Nadie"
+    },
+    "updated": "Actualizado {{time}}",
+    "stale": "Última actualización {{time}}. Estas tarjetas pueden estar desactualizadas.",
+    "never_synced": "Aún no se ha sincronizado.",
+    "empty": "No hay nada esperándote.",
+    "nothing_here": "No hay nada aquí.",
+    "recommended": "Recomendado: {{action}}",
+    "blocked": "No automático: {{reason}}",
+    "load_error": "No se han podido cargar las decisiones.",
+    "waiting": "Esperando desde {{time}}",
+    "actions": {
+      "queued": "En cola: {{action}}",
+      "working": "En curso: {{action}}",
+      "cancel": "Cancelar",
+      "back": "Atrás",
+      "confirm": "Confirmar",
+      "expired": "Caducó antes de que el worker lo recogiera.",
+      "failed": "Error: {{message}}",
+      "not_done": "No hecho: {{message}}",
+      "queue_error": "No se ha podido poner en cola: {{message}}",
+      "override_reason": "¿Por qué no la recomendación?",
+      "batch_title": "{{action}}: {{total}} tarjetas",
+      "batch_partial": "No se han podido poner en cola {{failed}} de {{total}}.",
+      "worker_offline": "El worker no está en marcha. Las acciones lo esperan y caducan a los 15 minutos.",
+      "undo": "Deshacer",
+      "queued_toast": "{{action}} en cola para {{ref}}",
+      "too_late": "Demasiado tarde para deshacer: el worker ya ha empezado."
+    },
+    "needs_retry": "Necesita otra revisión",
+    "activity": "Actividad",
+    "keys": {
+      "move": "mover",
+      "act": "actuar",
+      "undo": "deshacer"
+    },
+    "status": {
+      "queued": "En cola",
+      "not_done": "No hecho",
+      "failed": "Error",
+      "expired": "Caducado"
+    }
   }
 }

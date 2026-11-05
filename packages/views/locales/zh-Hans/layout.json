@@ -1,6 +1,7 @@
 {
   "nav": {
     "inbox": "收件箱",
+    "decisions": "决策",
     "chat": "聊天",
     "my_issues": "我的任务",
     "issues": "任务",
@@ -86,6 +87,7 @@
     "label": "应用导航",
     "sheet_description": "切换空间和工作区。",
     "inbox": "收件箱",
+    "decisions": "决策",
     "work": "工作",
     "team": "团队",
     "chat": "聊天",

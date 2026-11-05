@@ -146,5 +146,54 @@
       "kpi_rate_label": "失敗率 · {{period}}",
       "kpi_agents_label": "受影響智慧體 · {{period}}"
     }
+  },
+  "decisions": {
+    "waiting_on": {
+      "alan": "我",
+      "author": "作者",
+      "colleague": "同事",
+      "agent": "智能體",
+      "nobody": "無人"
+    },
+    "updated": "更新於 {{time}}",
+    "stale": "最後更新於 {{time}}，這些卡片可能已過期。",
+    "never_synced": "尚未同步。",
+    "empty": "沒有等待你處理的事項。",
+    "nothing_here": "這裡沒有內容。",
+    "recommended": "建議：{{action}}",
+    "blocked": "不會自動執行：{{reason}}",
+    "load_error": "無法載入決策。",
+    "waiting": "等待始於 {{time}}",
+    "actions": {
+      "queued": "排隊中:{{action}}",
+      "working": "執行中:{{action}}",
+      "cancel": "取消",
+      "back": "返回",
+      "confirm": "確認",
+      "expired": "在 worker 處理前已過期。",
+      "failed": "失敗:{{message}}",
+      "not_done": "未執行:{{message}}",
+      "queue_error": "無法加入佇列:{{message}}",
+      "override_reason": "為什麼不採用建議操作?",
+      "batch_title": "{{action}}:{{total}} 張卡片",
+      "batch_partial": "{{total}} 項中有 {{failed}} 項無法加入佇列。",
+      "worker_offline": "worker 未執行。操作會等待它,並在 15 分鐘後過期。",
+      "undo": "復原",
+      "queued_toast": "{{ref}}:{{action}} 已加入佇列",
+      "too_late": "來不及復原:worker 已開始執行。"
+    },
+    "needs_retry": "需要再確認",
+    "activity": "動態",
+    "keys": {
+      "move": "移動",
+      "act": "操作",
+      "undo": "復原"
+    },
+    "status": {
+      "queued": "排隊中",
+      "not_done": "未執行",
+      "failed": "失敗",
+      "expired": "已過期"
+    }
   }
 }

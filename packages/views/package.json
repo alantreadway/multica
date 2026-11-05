@@ -36,6 +36,7 @@
     "./agents/manual-create-agent-page": "./agents/create/manual-create-agent-page.tsx",
     "./members": "./members/index.ts",
     "./inbox": "./inbox/index.ts",
+    "./decisions": "./decisions/index.ts",
     "./runtimes": "./runtimes/index.ts",
     "./billing": "./billing/index.ts",
     "./dashboard": "./dashboard/index.ts",

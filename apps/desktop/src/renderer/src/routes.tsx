@@ -30,6 +30,7 @@ import { AgentCreatedPage } from "./pages/agent-created-page";
 import { SquadsPage, SquadDetailPage as SquadDetailPageView } from "@multica/views/squads/components";
 import { AllViewsPage } from "@multica/views/issue-views";
 import { InboxPage } from "@multica/views/inbox";
+import { DecisionsPage } from "@multica/views/decisions"; // AG patch: Decision Desk
 import { ChatPage } from "@multica/views/chat";
 import { SettingsPage } from "@multica/views/settings";
 import { useT } from "@multica/views/i18n";
@@ -256,6 +257,7 @@ export const appRoutes: RouteObject[] = [
             handle: { title: "Squad" },
           },
           { path: "inbox", element: <InboxPage />, handle: { title: "Inbox" } },
+          { path: "decisions", element: <DecisionsPage />, handle: { title: "Decisions" } }, // AG patch: Decision Desk
           { path: "chat", element: <ChatPage />, handle: { title: "Chat" } },
           {
             path: "attachments/:id/preview",

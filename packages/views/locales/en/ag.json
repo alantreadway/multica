@@ -148,5 +148,54 @@
       "kpi_rate_label": "Failure rate · {{period}}",
       "kpi_agents_label": "Agents affected · {{period}}"
     }
+  },
+  "decisions": {
+    "waiting_on": {
+      "alan": "You",
+      "author": "Author",
+      "colleague": "Colleague",
+      "agent": "Agent",
+      "nobody": "Nobody"
+    },
+    "updated": "Updated {{time}}",
+    "stale": "Last updated {{time}}. These cards may be out of date.",
+    "never_synced": "No sync yet.",
+    "empty": "Nothing is waiting on you.",
+    "nothing_here": "Nothing here.",
+    "recommended": "Recommended: {{action}}",
+    "blocked": "Not automatic: {{reason}}",
+    "load_error": "Could not load decisions.",
+    "waiting": "Waiting since {{time}}",
+    "actions": {
+      "queued": "Queued: {{action}}",
+      "working": "Working: {{action}}",
+      "cancel": "Cancel",
+      "back": "Back",
+      "confirm": "Confirm",
+      "expired": "Expired before the worker picked it up.",
+      "failed": "Failed: {{message}}",
+      "not_done": "Not done: {{message}}",
+      "queue_error": "Could not queue that: {{message}}",
+      "override_reason": "Why not the recommendation?",
+      "batch_title": "{{action}}: {{total}} cards",
+      "batch_partial": "{{failed}} of {{total}} could not be queued.",
+      "worker_offline": "The worker is not running. Actions wait for it, and expire after 15 minutes.",
+      "undo": "Undo",
+      "queued_toast": "{{action}} queued for {{ref}}",
+      "too_late": "Too late to undo: the worker has started."
+    },
+    "needs_retry": "Needs another look",
+    "activity": "Activity",
+    "keys": {
+      "move": "move",
+      "act": "act",
+      "undo": "undo"
+    },
+    "status": {
+      "queued": "Queued",
+      "not_done": "Not done",
+      "failed": "Failed",
+      "expired": "Expired"
+    }
   }
 }

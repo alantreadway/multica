@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS ag_decision_record_workspace_at_idx;

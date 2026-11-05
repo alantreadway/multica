@@ -22,6 +22,53 @@ type ActivityLog struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
+type AgDecisionCard struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	DedupeKey   string             `json:"dedupe_key"`
+	IssueID     pgtype.UUID        `json:"issue_id"`
+	WaitingOn   string             `json:"waiting_on"`
+	CardType    string             `json:"card_type"`
+	Revision    int32              `json:"revision"`
+	HeadSha     pgtype.Text        `json:"head_sha"`
+	Content     []byte             `json:"content"`
+	FirstSeenAt pgtype.Timestamptz `json:"first_seen_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	ResolvedAt  pgtype.Timestamptz `json:"resolved_at"`
+}
+
+type AgDecisionEngine struct {
+	WorkspaceID  pgtype.UUID        `json:"workspace_id"`
+	LastSyncAt   pgtype.Timestamptz `json:"last_sync_at"`
+	WorkerSeenAt pgtype.Timestamptz `json:"worker_seen_at"`
+}
+
+type AgDecisionIntent struct {
+	ID             pgtype.UUID        `json:"id"`
+	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
+	CardID         pgtype.UUID        `json:"card_id"`
+	CardRevision   int32              `json:"card_revision"`
+	ActionID       string             `json:"action_id"`
+	Note           string             `json:"note"`
+	OverrideReason string             `json:"override_reason"`
+	ActorUserID    pgtype.UUID        `json:"actor_user_id"`
+	Status         string             `json:"status"`
+	Message        string             `json:"message"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
+	FinishedAt     pgtype.Timestamptz `json:"finished_at"`
+}
+
+type AgDecisionRecord struct {
+	ID          string             `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	At          pgtype.Timestamptz `json:"at"`
+	Actor       string             `json:"actor"`
+	Action      string             `json:"action"`
+	Record      []byte             `json:"record"`
+}
+
 type Agent struct {
 	ID                 pgtype.UUID        `json:"id"`
 	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
