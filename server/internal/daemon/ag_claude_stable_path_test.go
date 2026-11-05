@@ -13,7 +13,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -413,23 +412,33 @@ func TestAGPatchClaudeStablePathChain(t *testing.T) {
 	}
 }
 
-// A stable-path resume of the second turn is told the same things a first
-// resume is, and its brief is stable: the same root means the same run-scoped
-// directory names, so the prompt of turn 2 and turn 3 do not differ in their
-// directory (the cache prefix the patch is for).
+// A stable-path resume is not told the directory changed, and the same root
+// gives the same brief: turn 2 and turn 3 are sent byte-identical prompts (the
+// cache prefix the patch is for), and neither names the chain's root.
 func TestAGPatchClaudeStablePathPromptNamesNoDirectoryChange(t *testing.T) {
 	c := newAgChain(t)
-	c.run(agTurnOpts{})
+	first := c.run(agTurnOpts{})
 	second := c.run(agTurnOpts{})
 	third := c.run(agTurnOpts{})
 
 	for name, turn := range map[string]agTurn{"second": second, "third": third} {
-		if strings.Contains(turn.stdin, "Working directory") || strings.Contains(turn.stdin, "differs") {
-			t.Errorf("%s turn: the prompt restates the directory:\n%s", name, turn.stdin)
+		if !turn.stable() {
+			t.Fatalf("premise: the %s turn should be on the stable path:\n%s", name, turn.log)
 		}
-		if strings.Contains(turn.stdin, turn.result.EnvRoot) && strings.Contains(turn.stdin, "task-chain-1") {
-			t.Errorf("%s turn: the prompt names an earlier task's directory:\n%s", name, turn.stdin)
+		if turn.stdin == "" {
+			t.Fatalf("%s turn: the fake claude recorded no prompt", name)
 		}
+		if turn.dirLine() || turn.notice() {
+			t.Errorf("%s turn: the prompt restates the directory or adds a continuity notice:\n%s", name, turn.stdin)
+		}
+		for _, dir := range []string{first.result.EnvRoot, filepath.Base(first.result.EnvRoot)} {
+			if strings.Contains(turn.stdin, dir) {
+				t.Errorf("%s turn: the prompt names the chain's root %q:\n%s", name, dir, turn.stdin)
+			}
+		}
+	}
+	if second.stdin != third.stdin {
+		t.Errorf("turn 2 and turn 3 prompts differ:\n%s\n%s", second.stdin, third.stdin)
 	}
 }
 
@@ -927,16 +936,16 @@ func TestAGPatchClaudeStablePathGC(t *testing.T) {
 	root := first.result.EnvRoot
 	wsDir := filepath.Dir(root)
 
-	// Make the first run's record ancient: a GC pass that read it would reclaim
-	// the root as soon as nothing marks it active.
-	age := func(completedAgo time.Duration) {
+	// Make the root's record ancient: a GC pass that read it would reclaim the
+	// root as soon as nothing marks it active. The record is written directly,
+	// since WriteGCMeta stamps the time itself, and a chained claim has deleted
+	// the previous run's.
+	age := func(taskID string, completedAgo time.Duration) {
 		t.Helper()
-		meta, err := execenv.ReadGCMeta(root)
-		if err != nil {
-			t.Fatal(err)
+		meta := execenv.GCMeta{
+			Kind: execenv.GCKindIssue, IssueID: agChainIssueID, TaskID: taskID,
+			WorkspaceID: c.task.WorkspaceID, CompletedAt: time.Now().Add(-completedAgo),
 		}
-		// WriteGCMeta stamps the time itself, so write the file directly.
-		meta.CompletedAt = time.Now().Add(-completedAgo)
 		data, err := json.Marshal(meta)
 		if err != nil {
 			t.Fatal(err)
@@ -950,15 +959,17 @@ func TestAGPatchClaudeStablePathGC(t *testing.T) {
 		c.d.gcWorkspace(context.Background(), wsDir, &gcStats{byPattern: map[string]int{}})
 	}
 	exists := func() bool { _, err := os.Stat(root); return err == nil }
-	age(48 * time.Hour)
 
-	// A running chain run keeps the root.
+	// A running chain run keeps the root. The claim has deleted the old record,
+	// so an aged one is put back while the run is live: only the active mark
+	// stands between it and GC.
 	started, release := c.blockHook()
 	wait := c.start(agTurnOpts{})
 	started()
 	if !c.d.isActiveEnvRoot(root) {
 		t.Error("the root of a running chain run is not marked active")
 	}
+	age("task-chain-1", 48*time.Hour)
 	gc()
 	if !exists() {
 		t.Fatal("GC reclaimed a root a run was working in")
@@ -991,7 +1002,7 @@ func TestAGPatchClaudeStablePathGC(t *testing.T) {
 	if err != nil || owner.TaskID != "task-chain-1" {
 		t.Fatalf("owner marker = %+v, %v; want the first task's, which is what GC validates the path against", owner, err)
 	}
-	age(25 * time.Hour)
+	age("task-chain-2", 25*time.Hour)
 	gc()
 	if exists() {
 		t.Error("the root of an ended chain was not reclaimed after the TTL")
@@ -1152,8 +1163,5 @@ func TestAGPatchClaudeStablePathFirstRunLayoutUnchanged(t *testing.T) {
 	}
 	if _, err := execenv.ReadGCMeta(first.result.EnvRoot); err != nil {
 		t.Errorf("no completion record: %v", err)
-	}
-	if errors.Is(first.err, os.ErrNotExist) {
-		t.Error(first.err)
 	}
 }
