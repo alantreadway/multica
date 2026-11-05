@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/multica-ai/multica/server/internal/daemon/execenv"
+	"github.com/multica-ai/multica/server/pkg/agent"
 )
 
 var agResumeNow = time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
@@ -585,6 +586,47 @@ func TestAGPatchClaudeResumeWindowRunTaskMissingTranscript(t *testing.T) {
 			if len(got.invocations) != 2 || !got.resumed(0) {
 				t.Fatalf("want a refused --resume then one fresh retry, got %d runs, first resumed = %v\n%s",
 					len(got.invocations), got.resumed(0), got.log)
+			}
+		})
+	}
+}
+
+type agResumeParkedProc struct{ closed bool }
+
+func (p *agResumeParkedProc) Fingerprint() string { return "fp" }
+func (p *agResumeParkedProc) Alive() bool         { return !p.closed }
+func (p *agResumeParkedProc) Close() bool         { p.closed = true; return true }
+
+// A process parked for the prior session would keep continuing it; the fresh
+// start must retire it, and a session inside the window must leave it parked.
+func TestAGPatchClaudeResumeWindowEvictsParkedWarmProcess(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		age       time.Duration
+		wantEvict bool
+	}{
+		{"past the window", 61 * time.Minute, true},
+		{"inside the window", 10 * time.Minute, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := agResumeEnv(t)
+			agResumeTranscript(t, dir, tc.age)
+			pool := agent.NewWarmSessionPool(agent.WarmSessionPoolConfig{IdleTTL: time.Minute, MaxIdle: 2, Logger: slog.New(slog.DiscardHandler)})
+			defer pool.Close()
+			proc := &agResumeParkedProc{}
+			if !pool.Park("claude", agResumeSession, proc) {
+				t.Fatal("pool refused the parked process")
+			}
+			d := &Daemon{warmPool: pool}
+			task, taskCtx := agResumeTask()
+
+			d.agApplyResumeWindow(&task, &taskCtx, "claude", agReadClaudeSessionAge(&task, "claude", t.TempDir()), slog.New(slog.DiscardHandler))
+
+			if got := proc.closed; got != tc.wantEvict {
+				t.Fatalf("parked process closed = %v, want %v", got, tc.wantEvict)
+			}
+			if got := pool.Acquire("claude", agResumeSession, "fp") != nil; got == tc.wantEvict {
+				t.Fatalf("session still acquirable = %v after a run with age %v", got, tc.age)
 			}
 		})
 	}
