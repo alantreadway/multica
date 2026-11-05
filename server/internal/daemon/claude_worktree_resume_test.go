@@ -23,7 +23,7 @@ func TestMigrateClaudeWorktreeTranscriptConfiguredDir(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
-	priorDir, workDir := t.TempDir(), t.TempDir()
+	priorDir, workDir := filepath.Join(t.TempDir(), "worktree"), t.TempDir()
 	const sessionID = "session-configured-dir"
 	src := filepath.Join(configDir, "projects", encodeClaudeCwd(priorDir), sessionID+".jsonl")
 	if err := os.MkdirAll(filepath.Dir(src), 0o700); err != nil {
@@ -33,7 +33,7 @@ func TestMigrateClaudeWorktreeTranscriptConfiguredDir(t *testing.T) {
 	if err := os.WriteFile(src, []byte(transcript), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env := &execenv.Environment{WorkDir: workDir, LocalWorktree: &execenv.LocalWorktree{Continued: true}}
+	env := &execenv.Environment{WorkDir: workDir, LocalWorktree: &execenv.LocalWorktree{Continued: true, OwnBranchResumable: true}}
 	if !migrateClaudeWorktreeTranscript(env, sessionID, workDir, priorDir, nil, slog.Default()) {
 		t.Fatal("continued worktree did not migrate the transcript from CLAUDE_CONFIG_DIR")
 	}
@@ -57,7 +57,7 @@ func TestMigrateClaudeWorktreeTranscriptRelativeConfigDir(t *testing.T) {
 	if err := os.WriteFile(src, []byte("prior history"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env := &execenv.Environment{WorkDir: workDir, LocalWorktree: &execenv.LocalWorktree{Continued: true}}
+	env := &execenv.Environment{WorkDir: workDir, LocalWorktree: &execenv.LocalWorktree{Continued: true, OwnBranchResumable: true}}
 	if !migrateClaudeWorktreeTranscript(env, sessionID, workDir, priorDir, map[string]string{"CLAUDE_CONFIG_DIR": "../config"}, slog.Default()) {
 		t.Fatal("relative config directory was not resolved separately for each worktree")
 	}
@@ -72,7 +72,7 @@ func TestMigrateClaudeWorktreeTranscriptFailureLogs(t *testing.T) {
 	for _, blockedDestination := range []bool{false, true} {
 		t.Run(map[bool]string{false: "missing source", true: "unwritable destination"}[blockedDestination], func(t *testing.T) {
 			t.Parallel()
-			configDir, priorDir, workDir := t.TempDir(), t.TempDir(), t.TempDir()
+			configDir, priorDir, workDir := t.TempDir(), filepath.Join(t.TempDir(), "worktree"), t.TempDir()
 			src := filepath.Join(configDir, "projects", encodeClaudeCwd(priorDir), "session-1.jsonl")
 			wantMessage, wantPath := "claude: cannot read prior session transcript", src
 			if blockedDestination {
@@ -90,7 +90,7 @@ func TestMigrateClaudeWorktreeTranscriptFailureLogs(t *testing.T) {
 			}
 			var logs bytes.Buffer
 			logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-			env := &execenv.Environment{WorkDir: workDir, LocalWorktree: &execenv.LocalWorktree{Continued: true}}
+			env := &execenv.Environment{WorkDir: workDir, LocalWorktree: &execenv.LocalWorktree{Continued: true, OwnBranchResumable: true}}
 			if migrateClaudeWorktreeTranscript(env, "session-1", workDir, priorDir, map[string]string{"CLAUDE_CONFIG_DIR": configDir}, logger) {
 				t.Fatal("migration failure was treated as resumable")
 			}
@@ -107,7 +107,7 @@ func TestMigrateClaudeWorktreeTranscriptFailureLogs(t *testing.T) {
 
 func TestMigrateClaudeWorktreeTranscriptRejectsUnsafeSessionID(t *testing.T) {
 	t.Parallel()
-	configDir, priorDir, workDir := t.TempDir(), t.TempDir(), t.TempDir()
+	configDir, priorDir, workDir := t.TempDir(), filepath.Join(t.TempDir(), "worktree"), t.TempDir()
 	projectsDir := filepath.Join(configDir, "projects")
 	if err := os.MkdirAll(projectsDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestMigrateClaudeWorktreeTranscriptRejectsUnsafeSessionID(t *testing.T) {
 	if err := os.WriteFile(victim, []byte("unrelated history"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env := &execenv.Environment{WorkDir: workDir, LocalWorktree: &execenv.LocalWorktree{Continued: true}}
+	env := &execenv.Environment{WorkDir: workDir, LocalWorktree: &execenv.LocalWorktree{Continued: true, OwnBranchResumable: true}}
 	for _, sessionID := range []string{".", "..", "../victim", `..\victim`, "C:session", "session\x00"} {
 		if migrateClaudeWorktreeTranscript(env, sessionID, workDir, priorDir, map[string]string{"CLAUDE_CONFIG_DIR": configDir}, slog.Default()) {
 			t.Fatalf("unsafe session id %q was accepted", sessionID)
