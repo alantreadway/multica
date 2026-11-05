@@ -137,5 +137,23 @@
       "kpi_rate_label": "失敗率 · {{period}}",
       "kpi_agents_label": "影響を受けたエージェント · {{period}}"
     }
+  },
+  "decisions": {
+    "waiting_on": {
+      "alan": "自分",
+      "author": "作成者",
+      "colleague": "同僚",
+      "agent": "エージェント",
+      "nobody": "なし"
+    },
+    "updated": "{{time}}に更新",
+    "stale": "最終更新は{{time}}です。カードが古くなっている可能性があります。",
+    "never_synced": "まだ同期されていません。",
+    "empty": "対応待ちの項目はありません。",
+    "nothing_here": "項目はありません。",
+    "recommended": "推奨: {{action}}",
+    "blocked": "自動実行しない理由: {{reason}}",
+    "load_error": "意思決定を読み込めませんでした。",
+    "waiting": "待機開始: {{time}}"
   }
 }

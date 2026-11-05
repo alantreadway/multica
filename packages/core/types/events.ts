@@ -47,6 +47,7 @@ export type WSEventType =
   | "daemon:heartbeat"
   | "daemon:register"
   | "ag:runtime_token_rate" // AG patch: token rate
+  | "ag:decision_changed" // AG patch: Decision Desk
   | "skill:created"
   | "skill:updated"
   | "skill:deleted"
@@ -642,6 +643,7 @@ export interface WSEventPayloadMap {
   "daemon:heartbeat": unknown;
   "daemon:register": unknown;
   "ag:runtime_token_rate": unknown; // AG patch: parsed by runtimes/ag-token-rate.ts
+  "ag:decision_changed": unknown; // AG patch: Decision Desk, carries no data
   "skill:created": unknown;
   "skill:updated": unknown;
   "skill:deleted": unknown;

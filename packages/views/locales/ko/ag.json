@@ -137,5 +137,23 @@
       "kpi_rate_label": "실패율 · {{period}}",
       "kpi_agents_label": "영향받은 에이전트 · {{period}}"
     }
+  },
+  "decisions": {
+    "waiting_on": {
+      "alan": "나",
+      "author": "작성자",
+      "colleague": "동료",
+      "agent": "에이전트",
+      "nobody": "없음"
+    },
+    "updated": "{{time}} 업데이트됨",
+    "stale": "마지막 업데이트: {{time}}. 카드가 오래되었을 수 있습니다.",
+    "never_synced": "아직 동기화되지 않았습니다.",
+    "empty": "나를 기다리는 항목이 없습니다.",
+    "nothing_here": "항목이 없습니다.",
+    "recommended": "권장: {{action}}",
+    "blocked": "자동 실행 안 함: {{reason}}",
+    "load_error": "의사결정을 불러오지 못했습니다.",
+    "waiting": "대기 시작: {{time}}"
   }
 }

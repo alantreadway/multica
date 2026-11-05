@@ -137,5 +137,23 @@
       "kpi_rate_label": "失敗率 · {{period}}",
       "kpi_agents_label": "受影響智慧體 · {{period}}"
     }
+  },
+  "decisions": {
+    "waiting_on": {
+      "alan": "我",
+      "author": "作者",
+      "colleague": "同事",
+      "agent": "智能體",
+      "nobody": "無人"
+    },
+    "updated": "更新於 {{time}}",
+    "stale": "最後更新於 {{time}}，這些卡片可能已過期。",
+    "never_synced": "尚未同步。",
+    "empty": "沒有等待你處理的事項。",
+    "nothing_here": "這裡沒有內容。",
+    "recommended": "建議：{{action}}",
+    "blocked": "不會自動執行：{{reason}}",
+    "load_error": "無法載入決策。",
+    "waiting": "等待始於 {{time}}"
   }
 }

@@ -139,5 +139,23 @@
       "kpi_rate_label": "Failure rate · {{period}}",
       "kpi_agents_label": "Agents affected · {{period}}"
     }
+  },
+  "decisions": {
+    "waiting_on": {
+      "alan": "You",
+      "author": "Author",
+      "colleague": "Colleague",
+      "agent": "Agent",
+      "nobody": "Nobody"
+    },
+    "updated": "Updated {{time}}",
+    "stale": "Last updated {{time}}. These cards may be out of date.",
+    "never_synced": "No sync yet.",
+    "empty": "Nothing is waiting on you.",
+    "nothing_here": "Nothing here.",
+    "recommended": "Recommended: {{action}}",
+    "blocked": "Not automatic: {{reason}}",
+    "load_error": "Could not load decisions.",
+    "waiting": "Waiting since {{time}}"
   }
 }

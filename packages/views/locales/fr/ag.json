@@ -139,5 +139,23 @@
       "kpi_rate_label": "Taux d'échec · {{period}}",
       "kpi_agents_label": "Agents touchés · {{period}}"
     }
+  },
+  "decisions": {
+    "waiting_on": {
+      "alan": "Vous",
+      "author": "Auteur",
+      "colleague": "Collègue",
+      "agent": "Agent",
+      "nobody": "Personne"
+    },
+    "updated": "Mis à jour {{time}}",
+    "stale": "Dernière mise à jour {{time}}. Ces cartes ne sont peut-être plus à jour.",
+    "never_synced": "Aucune synchronisation pour le moment.",
+    "empty": "Rien ne vous attend.",
+    "nothing_here": "Rien ici.",
+    "recommended": "Recommandé : {{action}}",
+    "blocked": "Non automatique : {{reason}}",
+    "load_error": "Impossible de charger les décisions.",
+    "waiting": "En attente depuis {{time}}"
   }
 }

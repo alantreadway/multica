@@ -9,6 +9,7 @@ import { AppLink, useNavigation } from "../navigation";
 import { HelpLauncher } from "./help-launcher";
 import { JoinDiscordCard } from "./join-discord-card";
 import { AgentStatusIndicator } from "./agent-status-indicator";
+import { useAGDecisionCount } from "../decisions/use-ag-decision-count"; // AG patch: Decision Desk
 import {
   DndContext,
   PointerSensor,
@@ -114,6 +115,7 @@ const PINNED_PREVIEW_LIMIT = 5;
 // Only parameterless paths are valid nav destinations.
 type NavKey =
   | "inbox"
+  | "decisions"
   | "chat"
   | "myIssues"
   | "issues"
@@ -130,6 +132,7 @@ type NavKey =
 // icons derived from the destination path via routeIconForPath.
 type NavLabelKey =
   | "inbox"
+  | "decisions"
   | "chat"
   | "my_issues"
   | "issues"
@@ -147,6 +150,7 @@ type NavLabelKey =
 // always agree. See route-icon-components.tsx.
 const personalNav: { key: NavKey; labelKey: NavLabelKey }[] = [
   { key: "inbox", labelKey: "inbox" },
+  { key: "decisions", labelKey: "decisions" }, // AG patch: Decision Desk
   { key: "myIssues", labelKey: "my_issues" },
   { key: "chat", labelKey: "chat" },
 ];
@@ -462,6 +466,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   // for the switcher dot, so the count costs no request of its own — it used
   // to download the whole inbox list here just to count it (MUL-6967).
   const unreadCount = useInboxUnreadCount(wsId);
+  const decisionCount = useAGDecisionCount(wsId); // AG patch: Decision Desk
   // Chat tab unread badge: IM-style total of unread *messages* across chat
   // threads (countUnreadChatMessages is the shared definition — mobile's tab
   // badge derives from the same function, keeping the platforms in agreement).
@@ -790,6 +795,13 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                         {item.key === "inbox" && unreadCount > 0 && (
                           <CappedNumberFlow
                             value={unreadCount}
+                            animated={false}
+                            className="ml-auto text-caption"
+                          />
+                        )}
+                        {item.key === "decisions" && decisionCount > 0 && (
+                          <CappedNumberFlow
+                            value={decisionCount}
                             animated={false}
                             className="ml-auto text-caption"
                           />
