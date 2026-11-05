@@ -8017,11 +8017,12 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// *os.File cannot cross its JSON response back to us. Claiming there would
 	// leave the agent running with no protection at all — which is exactly the
 	// re-dispatch window this guards.
-	envClaim, stableEnvRoot, err := d.agClaimEnvRoot(task, provider, sessionAge, taskLog) // AG patch: claude stable worktree path
+	envClaim, envClaimFence, stableEnvRoot, err := d.agClaimEnvRoot(task, provider, sessionAge, taskLog) // AG patch: claude stable worktree path
 	if err != nil {
 		return TaskResult{}, fmt.Errorf("claim execution environment: %w", err)
 	}
 	defer envClaim.Release()
+	defer envClaimFence.Release() // AG patch: claude stable worktree path
 
 	// Try to reuse the workdir from a previous task on the same (agent, issue) pair.
 	var env *execenv.Environment

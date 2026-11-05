@@ -998,6 +998,118 @@ func TestAGPatchClaudeStablePathGC(t *testing.T) {
 	}
 }
 
+// At most one live execution per task id, whichever root it works in. The
+// server redelivers a task whose lease lapsed under the same id, and the claim
+// on the task's own root is what fails that second execution as busy. A run on
+// the previous run's root still holds its own root's claim, and a run that fell
+// back is on its own root, so the redelivery fails in both.
+func TestAGPatchClaudeStablePathFencesARedeliveredTask(t *testing.T) {
+	redeliver := func(t *testing.T, c *agChain) {
+		t.Helper()
+		// The same row again: same id, prior session and directory. Built here,
+		// not by prepare, which would clear the files the live run is writing.
+		task := c.task
+		task.ID = fmt.Sprintf("task-chain-%d", len(c.turns)+1)
+		prev := c.turns[len(c.turns)-1].result
+		task.PriorSessionID, task.PriorWorkDir = prev.SessionID, prev.WorkDir
+		var logs bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&logs, nil))
+		res, err := c.d.runTask(context.Background(), task, "claude", 0, logger)
+		if err == nil || !strings.Contains(err.Error(), "held by a running execution") {
+			t.Fatalf("the redelivered task = %+v, %v; want it refused as busy\n%s", res, err, logs.String())
+		}
+		if strings.Contains(logs.String(), "claude resume:") {
+			t.Errorf("the redelivered task chose a path:\n%s", logs.String())
+		}
+	}
+
+	t.Run("live stable run", func(t *testing.T) {
+		c := newAgChain(t)
+		first := c.run(agTurnOpts{})
+		started, release := c.blockHook()
+		wait := c.start(agTurnOpts{})
+		started()
+		redeliver(t, c)
+		release()
+		got := wait()
+		if !got.stable() || got.result.EnvRoot != first.result.EnvRoot || !got.resumed() {
+			t.Errorf("the live run was disturbed by the redelivery:\n%s", got.log)
+		}
+	})
+
+	t.Run("live fallback run", func(t *testing.T) {
+		c := newAgChain(t)
+		first := c.run(agTurnOpts{})
+		// The previous run is still exiting: its lock is held, so the next run
+		// falls back to its own root.
+		held, err := execenv.ClaimEnvRoot(taskRootDirParams(c.d.cfg.WorkspacesRoot, Task{
+			ID: "task-chain-1", WorkspaceID: c.task.WorkspaceID, IssueIdentifier: c.task.IssueIdentifier,
+		}))
+		if err != nil || held.RootDir() != first.result.EnvRoot {
+			t.Fatalf("premise: take the first run's lock: %v", err)
+		}
+		defer held.Release()
+		started, release := c.blockHook()
+		wait := c.start(agTurnOpts{})
+		started()
+		redeliver(t, c)
+		// The lock freeing up now must not let the redelivery in either: it is
+		// the live run's own root it would have to claim first.
+		held.Release()
+		redeliver(t, c)
+		release()
+		got := wait()
+		if !got.fallback() || got.result.EnvRoot == first.result.EnvRoot {
+			t.Errorf("premise: the live run should have fallen back:\n%s", got.log)
+		}
+	})
+}
+
+// The own root a stable run holds only as a fence keeps just its owner marker
+// and lock. It is not marked as a task's work: GC reclaims it as an orphan once
+// it is past the orphan TTL, and not before.
+func TestAGPatchClaudeStablePathFenceRootIsReclaimedByGC(t *testing.T) {
+	c := newAgChain(t)
+	first := c.run(agTurnOpts{})
+	second := c.run(agTurnOpts{})
+	if !second.stable() {
+		t.Fatalf("premise: no stable path\n%s", second.log)
+	}
+	fence, err := execenv.ResolveRootDir(taskRootDirParams(c.d.cfg.WorkspacesRoot, Task{
+		ID: "task-chain-2", WorkspaceID: c.task.WorkspaceID, IssueIdentifier: c.task.IssueIdentifier,
+	}))
+	if err != nil || fence == first.result.EnvRoot {
+		t.Fatalf("premise: the successor's own root = %q, %v", fence, err)
+	}
+	entries, err := os.ReadDir(fence)
+	if err != nil {
+		t.Fatalf("the successor's own root was not claimed: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() == "worktree" || e.Name() == ".gc_meta.json" {
+			t.Errorf("the fence root holds %s", e.Name())
+		}
+	}
+	gc := func() {
+		c.d.gcWorkspace(context.Background(), filepath.Dir(fence), &gcStats{byPattern: map[string]int{}})
+	}
+	gc()
+	if _, err := os.Stat(fence); err != nil {
+		t.Fatalf("GC reclaimed the fence root inside the orphan TTL: %v", err)
+	}
+	old := time.Now().Add(-31 * 24 * time.Hour)
+	if err := os.Chtimes(fence, old, old); err != nil {
+		t.Fatal(err)
+	}
+	gc()
+	if _, err := os.Stat(fence); !os.IsNotExist(err) {
+		t.Errorf("the fence root outlived the orphan TTL: %v", err)
+	}
+	if _, err := os.Stat(first.result.EnvRoot); err != nil {
+		t.Errorf("GC reclaimed the chain's root with it: %v", err)
+	}
+}
+
 // A daemon from before the patch cannot reuse the root a chain leaves: the
 // marker names the first task, and the root a later task would get from it is
 // another directory.

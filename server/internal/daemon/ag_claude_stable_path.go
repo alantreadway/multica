@@ -58,22 +58,30 @@ func (d *Daemon) agStableEnvRoot(task Task, provider string, age agClaudeSession
 // agStableEnvRoot allows it and the claim succeeds, otherwise the task's own.
 // It never fails a run for the sake of the stable path, and never waits for a
 // busy root. stable is the root taken over, or empty.
-func (d *Daemon) agClaimEnvRoot(task Task, provider string, age agClaudeSessionAge, taskLog *slog.Logger) (claim *execenv.EnvRootClaim, stable string, err error) {
+//
+// The task's own root is claimed first on every path. That claim is what fails a
+// second execution of the same task id as busy, so it is held for the run even
+// when the run works in the previous run's root: fence is that claim then, and
+// the caller releases both. The own root it leaves behind holds only the owner
+// marker and lock, which GC reclaims as an orphan once it is past the orphan TTL.
+func (d *Daemon) agClaimEnvRoot(task Task, provider string, age agClaudeSessionAge, taskLog *slog.Logger) (claim, fence *execenv.EnvRootClaim, stable string, err error) {
+	own, err := execenv.ClaimEnvRoot(taskRootDirParams(d.cfg.WorkspacesRoot, task))
+	if err != nil {
+		return nil, nil, "", err
+	}
 	root, reason := d.agStableEnvRoot(task, provider, age)
 	if root != "" {
-		var claimErr error
-		claim, claimErr = execenv.ClaimChainedEnvRoot(d.cfg.WorkspacesRoot, task.WorkspaceID, task.ID, task.IssueID, root)
+		chained, claimErr := execenv.ClaimChainedEnvRoot(d.cfg.WorkspacesRoot, task.WorkspaceID, task.ID, task.IssueID, root)
 		if claimErr == nil {
 			taskLog.Info("claude resume: stable worktree path", "path", "stable", "env_root", root)
-			return claim, root, nil
+			return chained, own, root, nil
 		}
 		reason = strings.TrimPrefix(claimErr.Error(), "execenv: ")
 	}
 	if reason != "" {
 		taskLog.Info("claude resume: per-task worktree path", "path", "fallback", "reason", reason)
 	}
-	claim, err = execenv.ClaimEnvRoot(taskRootDirParams(d.cfg.WorkspacesRoot, task))
-	return claim, "", err
+	return own, nil, "", nil
 }
 
 // agClaudeStableResume decides the resume of a run that took over the previous

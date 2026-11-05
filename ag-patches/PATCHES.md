@@ -1991,7 +1991,19 @@ is the fallback.
   exactly 60 counts as over), and a prior workdir that is a clean path ending in
   `/worktree` two levels under the workspaces root. A first run, other
   providers, over-60 and force-fresh runs, and chat tasks get today's per-task
-  root, and nothing on disk changes until a resume happens.
+  root, and nothing on disk changes until a resume happens. A resume then also
+  leaves its own task's root behind (see the fence below).
+- Fence: at most one live execution per task id, whichever root it works in.
+  The base's claim on the task's own root is what fails a redelivered task as
+  busy (the server re-sends a task whose lease lapsed under the same id), so
+  `agClaimEnvRoot` takes it first on every path and a stable-path run holds it
+  alongside the chained root, releasing both when the run ends. A redelivery
+  therefore fails busy as it does without this patch, whether the live run took
+  the chained root or fell back. The own root a stable run leaves holds only the
+  owner marker and lock. It has no `.gc_meta.json` and is not marked after the
+  run, so GC takes the no-record orphan path and removes the empty directory once
+  its mtime is past `GCOrphanTTL` (30 days by default). A GC pass never sees it
+  as work: it is marked active while the run is.
 - Claim (`execenv.ClaimChainedEnvRoot`, `execenv/ag_chain_root.go`): the daemon
   parent takes the root's execution lock without waiting (preparation runs in a
   helper process, so a lock taken there would die with it) and refuses, with the
@@ -2021,8 +2033,9 @@ is the fallback.
   directory has not changed.
 - Fails open: busy root, unexpected marker, path gone, not under the workspaces
   root, a preserved or unfinalized worktree all give a new per-task root, never a
-  failed task. Each Claude run with a prior session logs `claude resume: stable
-  worktree path` or `claude resume: per-task worktree path` with the reason.
+  failed task. Each worktree-mode Claude run with a prior session logs `claude
+  resume: stable worktree path` or `claude resume: per-task worktree path` with
+  the reason.
 - Hooks: `runTask` reads the age once (`agReadClaudeSessionAge`) ahead of the
   claim, claims through `agClaimEnvRoot` in place of `ClaimEnvRoot`, passes the
   root as `PrepareParams.EnvRootOverride`, and hands `agClaudeStableResume`'s
