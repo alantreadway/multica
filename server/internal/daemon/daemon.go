@@ -7149,7 +7149,7 @@ func encodeClaudeCwd(cwd string) string {
 // rule. The copy left behind in the prior task's directory is orphaned until
 // the operator or a future GC pass reclaims it.
 func migrateClaudeWorktreeTranscript(env *execenv.Environment, sessionID, envWorkDir, priorWorkDir string, childEnv map[string]string, taskLog *slog.Logger) bool {
-	if env == nil || env.LocalWorktree == nil || !env.LocalWorktree.Continued {
+	if !agClaudeWorktreeResumable(env, priorWorkDir) { // AG patch: claude resume across worktrees
 		return false
 	}
 	if sessionID == "" || priorWorkDir == "" || envWorkDir == "" || priorWorkDir == envWorkDir {
@@ -9176,7 +9176,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// Claude's config lookup needs only the inherited environment plus allowed
 	// custom_env; taskMulticaEnvironment below does not override its config or
 	// home variables. Apply the same blocklist as the eventual child env.
-	claudeResumeReady := provider == "claude" && migrateClaudeWorktreeTranscript(
+	claudeResumeReady := agClaudeMayMigrate(&task, provider) && migrateClaudeWorktreeTranscript( // AG patch: claude resume across worktrees
 		env, task.PriorSessionID, env.WorkDir, task.PriorWorkDir, sanitizeAgentEnv(agentEnvOverrides), taskLog,
 	)
 	resumeReachable := gateResumeToReachableSession(
@@ -9235,6 +9235,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			promptOptions = append(promptOptions, WithWorktreeCommitsAllLeftovers())
 		}
 	}
+	promptOptions = agWithResumedWorkDir(promptOptions, claudeResumeReady && resumeReachable, env.WorkDir) // AG patch: claude resume across worktrees
 	prompt, skillInvocation := buildRuntimePrompt(task, provider, env.SkillDirectories, promptOptions...)
 
 	// Pass task-scoped auth credentials and context so the spawned agent CLI
