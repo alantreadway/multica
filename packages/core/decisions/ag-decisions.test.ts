@@ -26,6 +26,8 @@ const rawCard = (over: Record<string, unknown> = {}) => ({
     recommended: "Approve",
     chips: [{ label: "CI green", tone: "good" }],
     lines: ["One file"],
+    bullets: ["First", "Second"],
+    waiting_since: "2026-10-20T00:00:00Z",
     blockers: ["Label: Breaking"],
     links: [{ label: "PR", url: "https://github.com/ag-grid/ag-charts/pull/1" }],
   },
@@ -39,7 +41,7 @@ const card = (over: Partial<AGDecisionCard>): AGDecisionCard => ({
   cardType: "t",
   revision: 0,
   headSha: null,
-  firstSeenAt: null,
+  waitingSince: null,
   title: "",
   group: "",
   rank: 0,
@@ -47,6 +49,7 @@ const card = (over: Partial<AGDecisionCard>): AGDecisionCard => ({
   recommended: "",
   chips: [],
   lines: [],
+  bullets: [],
   blockers: [],
   links: [],
   ...over,
@@ -109,11 +112,33 @@ describe("parseAGDecisionCount", () => {
   });
 });
 
+describe("parseAGDecisionList waiting time and bullets", () => {
+  const parsedCard = (content: Record<string, unknown>) =>
+    parseAGDecisionList({ cards: [rawCard({ content })], last_sync_at: null }).cards[0];
+
+  it("prefers when the issue entered its status over the card's first sighting", () => {
+    expect(parsedCard({ waiting_since: "2026-10-20T00:00:00Z" })?.waitingSince).toBe("2026-10-20T00:00:00Z");
+  });
+
+  it.each([
+    ["missing", {}],
+    ["empty", { waiting_since: "" }],
+    ["malformed", { waiting_since: 7 }],
+  ])("falls back to the first sighting when waiting_since is %s", (_, content) => {
+    expect(parsedCard(content)?.waitingSince).toBe("2026-11-01T00:00:00Z");
+  });
+
+  it("keeps the readable bullets", () => {
+    expect(parsedCard({ bullets: ["First", 3, ""] })?.bullets).toEqual(["First"]);
+    expect(parsedCard({ bullets: "First" })?.bullets).toEqual([]);
+  });
+});
+
 describe("groupAGDecisionCards", () => {
   it("orders groups by their lowest rank and cards by rank, then longest waiting", () => {
     const groups = groupAGDecisionCards([
-      card({ id: "late", group: "B", rank: 5, firstSeenAt: "2026-11-02" }),
-      card({ id: "early", group: "B", rank: 5, firstSeenAt: "2026-11-01" }),
+      card({ id: "late", group: "B", rank: 5, waitingSince: "2026-11-02" }),
+      card({ id: "early", group: "B", rank: 5, waitingSince: "2026-11-01" }),
       card({ id: "top", group: "A", rank: 1 }),
     ]);
     expect(groups.map((g) => g.name)).toEqual(["A", "B"]);

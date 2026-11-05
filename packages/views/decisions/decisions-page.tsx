@@ -20,7 +20,7 @@ import { useTimeAgo } from "../i18n/use-time-ago";
 import { useT } from "../i18n";
 import { IssuePeekHost } from "../issues/components/issue-peek";
 import { useIssuePeekActions } from "../issues/surface/peek-context";
-import { PAGE_GUTTER, PAGE_RAIL, PAGE_TOOLBAR, PageHeader } from "../layout/page-header";
+import { PAGE_GUTTER, PAGE_TOOLBAR, PageHeader } from "../layout/page-header";
 
 const CLOCK_TICK_MS = 30_000;
 
@@ -72,9 +72,9 @@ function DecisionCardRow({ card }: { card: AGDecisionCard }) {
           </Button>
         )}
         <span className="min-w-0 flex-1 truncate font-medium">{heading}</span>
-        {card.firstSeenAt && (
+        {card.waitingSince && (
           <span className="shrink-0 text-caption text-muted-foreground">
-            {t(($) => $.decisions.waiting, { time: timeAgo(card.firstSeenAt as string) })}
+            {t(($) => $.decisions.waiting, { time: timeAgo(card.waitingSince as string) })}
           </span>
         )}
       </div>
@@ -92,6 +92,15 @@ function DecisionCardRow({ card }: { card: AGDecisionCard }) {
           {line}
         </p>
       ))}
+      {card.bullets.length > 0 && (
+        <ul className="list-disc pl-4 text-muted-foreground">
+          {card.bullets.map((bullet, n) => (
+            <li key={n} className="break-words">
+              {bullet}
+            </li>
+          ))}
+        </ul>
+      )}
       {card.recommended && (
         <p className="break-words">{t(($) => $.decisions.recommended, { action: card.recommended })}</p>
       )}
@@ -168,7 +177,7 @@ export function DecisionsPage() {
           ))}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className={cn(PAGE_RAIL, PAGE_GUTTER, "flex flex-col gap-4 pb-6")}>
+          <div className={cn(PAGE_GUTTER, "flex flex-col gap-4 pb-6")}>
             {stale && lastSyncAt && (
               <p role="status" className="text-warning">
                 {t(($) => $.decisions.stale, { time: timeAgo(lastSyncAt) })}

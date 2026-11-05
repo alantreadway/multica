@@ -29,7 +29,8 @@ export interface AGDecisionCard {
   cardType: string;
   revision: number;
   headSha: string | null;
-  firstSeenAt: string | null;
+  /** When the issue entered its current status, or the card's first sighting if the engine could not read that. */
+  waitingSince: string | null;
   title: string;
   group: string;
   rank: number;
@@ -37,6 +38,7 @@ export interface AGDecisionCard {
   recommended: string;
   chips: AGDecisionChip[];
   lines: string[];
+  bullets: string[];
   blockers: string[];
   links: AGDecisionLink[];
 }
@@ -79,6 +81,8 @@ const contentSchema = z.object({
     }),
   ),
   lines: itemsOf(z.string().min(1)),
+  bullets: itemsOf(z.string().min(1)),
+  waiting_since: z.string().catch(""),
   blockers: itemsOf(z.string().min(1)),
   links: itemsOf(z.object({ label: z.string().min(1), url: z.string().refine(isWebUrl) })),
 });
@@ -104,7 +108,7 @@ const cardSchema = z
       cardType: card.card_type,
       revision: card.revision,
       headSha: card.head_sha,
-      firstSeenAt: card.first_seen_at,
+      waitingSince: content.waiting_since || card.first_seen_at,
       title: content.title,
       group: content.group,
       rank: content.rank,
@@ -112,6 +116,7 @@ const cardSchema = z
       recommended: content.recommended,
       chips: content.chips,
       lines: content.lines,
+      bullets: content.bullets,
       blockers: content.blockers,
       links: content.links,
     };
@@ -146,7 +151,7 @@ export function parseAGDecisionCount(raw: unknown): number {
 /** Groups in engine order (the lowest rank inside each), cards by rank, then longest waiting. */
 export function groupAGDecisionCards(cards: readonly AGDecisionCard[]): AGDecisionGroup[] {
   const sorted = [...cards].sort(
-    (a, b) => a.rank - b.rank || (a.firstSeenAt ?? "").localeCompare(b.firstSeenAt ?? ""),
+    (a, b) => a.rank - b.rank || (a.waitingSince ?? "").localeCompare(b.waitingSince ?? ""),
   );
   const groups = new Map<string, AGDecisionCard[]>();
   for (const card of sorted) {

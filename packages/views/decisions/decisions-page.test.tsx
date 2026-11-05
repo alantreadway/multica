@@ -28,7 +28,7 @@ const card = (over: Partial<AGDecisionCard>): AGDecisionCard => ({
   cardType: "pr_review",
   revision: 1,
   headSha: null,
-  firstSeenAt: "2026-11-01T00:00:00Z",
+  waitingSince: "2026-11-01T00:00:00Z",
   title: "Fix axis",
   group: "PR review",
   rank: 1,
@@ -36,6 +36,7 @@ const card = (over: Partial<AGDecisionCard>): AGDecisionCard => ({
   recommended: "Approve",
   chips: [],
   lines: [],
+  bullets: [],
   blockers: [],
   links: [],
   ...over,
@@ -70,6 +71,18 @@ describe("DecisionsPage", () => {
 
     expect(screen.getByText("Their turn")).toBeTruthy();
     expect(screen.queryByText("Fix axis")).toBeNull();
+  });
+
+  it("lists a card's summary as separate bullets", async () => {
+    renderPage({
+      lastSyncAt: recent(),
+      cards: [card({ bullets: ["Ships per-module files", "Raises the target"] })],
+    });
+
+    const items = await screen.findAllByRole("listitem");
+    expect(items.map((item) => item.textContent)).toEqual(
+      expect.arrayContaining(["Ships per-module files", "Raises the target"]),
+    );
   });
 
   it("opens the issue peek from the card's reference", async () => {
