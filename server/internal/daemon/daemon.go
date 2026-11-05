@@ -7986,6 +7986,10 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		}
 	}
 
+	// Read the prior Claude session's age once, ahead of the claim below, which
+	// needs it, and of the resume window, which acts on it after preparation.
+	sessionAge := agReadClaudeSessionAge(&task, provider, task.PriorWorkDir) // AG patch: claude stable worktree path
+
 	// Mark candidate env roots as active before any env work so the GC loop
 	// can't reclaim artifacts inside them mid-execution. We mark both the
 	// stable root for a fresh Prepare and the prior root for Reuse — they
@@ -8013,7 +8017,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// *os.File cannot cross its JSON response back to us. Claiming there would
 	// leave the agent running with no protection at all — which is exactly the
 	// re-dispatch window this guards.
-	envClaim, err := execenv.ClaimEnvRoot(taskRootDirParams(d.cfg.WorkspacesRoot, task))
+	envClaim, stableEnvRoot, err := d.agClaimEnvRoot(task, provider, sessionAge, taskLog) // AG patch: claude stable worktree path
 	if err != nil {
 		return TaskResult{}, fmt.Errorf("claim execution environment: %w", err)
 	}
@@ -8308,6 +8312,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			// This run already holds the claim (envClaim above) and the reset
 			// it implies; preparation must not try to take it again.
 			EnvRootPreclaimed:     true,
+			EnvRootOverride:       stableEnvRoot, // AG patch: claude stable worktree path
 			Provider:              provider,
 			CodexVersion:          codexVersion,
 			OpenclawBin:           openclawBin,
@@ -8598,7 +8603,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	cancelPrepare()
 	_ = d.client.ReportProgress(ctx, task.ID, fmt.Sprintf("Launching %s", provider), 1, 2)
 
-	agClaudeFreshAfterWindow(&task, &taskCtx, provider, env.WorkDir, taskLog) // AG patch: claude resume window
+	agClaudeApplyWindow(&task, &taskCtx, provider, sessionAge, taskLog) // AG patch: claude resume window
 	// usesCustomProfileCommand is the same provenance the backend receives as
 	// agent.Config.BuiltinRuntime: it separates the provider's own discovered
 	// binary from an arbitrary command speaking its protocol. Reused here so
@@ -8609,12 +8614,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	claudeResumeReady := agClaudeMayMigrate(&task, provider) && migrateClaudeWorktreeTranscript( // AG patch: claude resume across worktrees
 		env, task.PriorSessionID, env.WorkDir, task.PriorWorkDir, sanitizeAgentEnv(agentEnvOverrides), taskLog,
 	)
+	stableResume, stableRefused := agClaudeStableResume(stableEnvRoot != "", env, task.PriorWorkDir) // AG patch: claude stable worktree path
 	resumeReachable := gateResumeToReachableSession(
 		&task, &taskCtx, provider, env.WorkDir,
-		sessionHomeReachable(provider, env, envReused),
+		sessionHomeReachable(provider, env, envReused) && !stableRefused,
 		providerRefusesMissingSessionCwd(provider, !usesCustomProfileCommand),
 		provider == "codex" && codexWorktreeResumeEligible(env, execenv.CodexSessionStorePath(d.cfg.Profile, taskCtx)),
-		claudeResumeReady,
+		claudeResumeReady || stableResume,
 		taskLog,
 	)
 	// A reachable workdir or continued local worktree is not sufficient for a
