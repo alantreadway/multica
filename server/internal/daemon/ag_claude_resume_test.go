@@ -9,8 +9,10 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -83,41 +85,33 @@ func TestAGPatchClaudeResumeWindowByAge(t *testing.T) {
 		{"one second over", 60*time.Minute + time.Second, true},
 		{"a day old", 24 * time.Hour, true},
 	}
-	// The hook only sees the work dir to resolve a relative CLAUDE_CONFIG_DIR, so
-	// the two modes differ in path alone; both must give the same answer.
-	for _, mode := range []string{"worktree", "non-worktree"} {
-		for _, tc := range cases {
-			t.Run(mode+"/"+tc.name, func(t *testing.T) {
-				dir := agResumeEnv(t)
-				agResumeTranscript(t, dir, tc.age)
-				workDir := filepath.Join(t.TempDir(), "task", "workdir")
-				if mode == "worktree" {
-					workDir = filepath.Join(t.TempDir(), "task", "worktree")
-				}
-				task, taskCtx := agResumeTask()
-				log, buf := agResumeLogger()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := agResumeEnv(t)
+			agResumeTranscript(t, dir, tc.age)
+			task, taskCtx := agResumeTask()
+			log, buf := agResumeLogger()
 
-				agClaudeFreshAfterWindow(&task, &taskCtx, "claude", workDir, log)
+			agClaudeFreshAfterWindow(&task, &taskCtx, "claude", t.TempDir(), log)
 
-				if got := task.PriorSessionID == ""; got != tc.wantFresh {
-					t.Fatalf("PriorSessionID cleared = %v, want %v (age %v)", got, tc.wantFresh, tc.age)
-				}
-				if got := !taskCtx.PriorSessionResumed; got != tc.wantFresh {
-					t.Fatalf("PriorSessionResumed cleared = %v, want %v", got, tc.wantFresh)
-				}
-				// A deliberate fresh start is never reported as a lost session.
-				if task.PriorSessionResumeUnavailable || taskCtx.PriorSessionResumeUnavailable {
-					t.Fatal("PriorSessionResumeUnavailable set: the notice would show for a deliberate fresh start")
-				}
-				logged := strings.Contains(buf.String(), "starting fresh Claude session")
-				if logged != tc.wantFresh {
-					t.Fatalf("fresh-start log line present = %v, want %v\n%s", logged, tc.wantFresh, buf.String())
-				}
-				if strings.Contains(buf.String(), "dropping prior session") {
-					t.Fatalf("log must be distinct from the unreachable-session drop:\n%s", buf.String())
-				}
-			})
-		}
+			if got := task.PriorSessionID == ""; got != tc.wantFresh {
+				t.Fatalf("PriorSessionID cleared = %v, want %v (age %v)", got, tc.wantFresh, tc.age)
+			}
+			if got := !taskCtx.PriorSessionResumed; got != tc.wantFresh {
+				t.Fatalf("PriorSessionResumed cleared = %v, want %v", got, tc.wantFresh)
+			}
+			// A deliberate fresh start is never reported as a lost session.
+			if task.PriorSessionResumeUnavailable || taskCtx.PriorSessionResumeUnavailable {
+				t.Fatal("PriorSessionResumeUnavailable set: the notice would show for a deliberate fresh start")
+			}
+			logged := strings.Contains(buf.String(), "starting fresh Claude session")
+			if logged != tc.wantFresh {
+				t.Fatalf("fresh-start log line present = %v, want %v\n%s", logged, tc.wantFresh, buf.String())
+			}
+			if strings.Contains(buf.String(), "dropping prior session") {
+				t.Fatalf("log must be distinct from the unreachable-session drop:\n%s", buf.String())
+			}
+		})
 	}
 }
 
@@ -337,89 +331,260 @@ func TestAGPatchClaudeResumeWindowMissingTranscriptStillGetsGateNotice(t *testin
 	}
 }
 
-// Through the real caller: the hook runs before the gate and the brief, so a
-// stale session is dropped without the notice even though the gate would have
-// dropped it with one (the prior workdir differs here), and claude is started
-// without --resume.
-func TestAGPatchClaudeResumeWindowRunTask(t *testing.T) {
+// A relative CLAUDE_CONFIG_DIR resolves against the run's work dir, so the
+// hook has to be handed the work dir the run uses: the same transcript is
+// found from one directory and absent from another.
+func TestAGPatchClaudeResumeWindowResolvesRelativeConfigDirAgainstWorkDir(t *testing.T) {
+	agResumeEnv(t)
+	workDir := t.TempDir()
+	agResumeTranscript(t, filepath.Join(workDir, ".claude-account"), 3*time.Hour)
+	t.Setenv("CLAUDE_CONFIG_DIR", ".claude-account")
+
+	t.Run("work dir holding the config dir", func(t *testing.T) {
+		task, taskCtx := agResumeTask()
+		agClaudeFreshAfterWindow(&task, &taskCtx, "claude", workDir, slog.New(slog.DiscardHandler))
+		if task.PriorSessionID != "" || taskCtx.PriorSessionResumed {
+			t.Fatalf("want a fresh start: the stale transcript is under the work dir: id=%q", task.PriorSessionID)
+		}
+	})
+	t.Run("another work dir", func(t *testing.T) {
+		task, taskCtx := agResumeTask()
+		agClaudeFreshAfterWindow(&task, &taskCtx, "claude", t.TempDir(), slog.New(slog.DiscardHandler))
+		if task.PriorSessionID != agResumeSession || !taskCtx.PriorSessionResumed {
+			t.Fatalf("want the session kept: no transcript is reachable from this work dir: id=%q", task.PriorSessionID)
+		}
+	})
+}
+
+// agResumeMode is the kind of working directory a run gets.
+type agResumeMode string
+
+const (
+	// agResumeManaged is a daemon-managed work dir, reused by the follow-up.
+	agResumeManaged agResumeMode = "non-worktree (managed workdir)"
+	// agResumeInPlace is a local_directory resource run in the user's own tree.
+	agResumeInPlace agResumeMode = "non-worktree (local directory, in place)"
+	// agResumeWorktree is a local_directory resource in worktree mode: every run
+	// gets a new worktree, so the prior one is gone.
+	agResumeWorktree agResumeMode = "worktree (local directory)"
+)
+
+type agResumeOutcome struct {
+	invocations []agResumeInvocation // claude runs of the run under test, in order
+	log         string
+}
+
+type agResumeInvocation struct {
+	args  string // one argument per line
+	stdin string // the prompt line
+}
+
+func (o agResumeOutcome) resumed(i int) bool {
+	return strings.Contains(o.invocations[i].args, "\n--resume\n"+agResumeSession+"\n") ||
+		strings.HasPrefix(o.invocations[i].args, "--resume\n"+agResumeSession+"\n")
+}
+
+func (o agResumeOutcome) notice(i int) bool {
+	return strings.Contains(o.invocations[i].stdin, "could not be restored")
+}
+
+func (o agResumeOutcome) freshStartLogged() bool {
+	return strings.Contains(o.log, "starting fresh Claude session")
+}
+
+// agResumeRunTask drives real runTask calls on the claude provider: a first run
+// to create the work dir (or, in the local-directory modes, the resource), then
+// the follow-up under test carrying the prior session. The prior transcript is
+// written transcriptAge before the frozen clock; nil leaves it missing. When
+// rejectMissingResume is set the fake claude refuses a --resume the way the real
+// one does for a session it can't find.
+func agResumeRunTask(t *testing.T, mode agResumeMode, transcriptAge *time.Duration, rejectMissingResume bool) agResumeOutcome {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("shell-script agent fixture is POSIX-only")
 	}
+	configDir := agResumeEnv(t)
+	t.Setenv("IS_SANDBOX", "1")
+	if transcriptAge != nil {
+		agResumeTranscript(t, configDir, *transcriptAge)
+	}
+
+	d, _, cleanup := newLeaderReuseTestDaemon(t)
+	t.Cleanup(cleanup)
+	const daemonID = "d-resume"
+	d.cfg.DaemonID = daemonID
+	d.localPathLocks = NewLocalPathLocker()
+	out := t.TempDir()
+	argsFile, stdinFile := filepath.Join(out, "args"), filepath.Join(out, "stdin")
+	resumeReply := `printf '%s\n' '{"type":"system","session_id":"session-leader-reuse"}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id":"session-leader-reuse","result":"done"}'`
+	if rejectMissingResume {
+		resumeReply = `case "$*" in *--resume*)
+printf '%s\n' '{"type":"system","session_id":"fresh-new"}'
+printf '%s\n' '{"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"fresh-new","result":"No conversation found with session ID: ` + agResumeSession + `"}'
+exit 1;;
+esac
+` + resumeReply
+	}
+	writeTestExecutable(t, d.cfg.Agents["claude"].Path, []byte(`#!/bin/sh
+case "$*" in *--version*) echo '2.1.299'; exit 0;; esac
+printf '%s\n' "$@" >> '`+argsFile+`'
+printf '%s\n' '--invocation-end--' >> '`+argsFile+`'
+IFS= read -r line
+printf '%s\n--prompt-end--\n' "$line" >> '`+stdinFile+`'
+`+resumeReply+"\n"))
+
+	task := leaderReuseTestTask("resume-window-task")
+	task.IsLeaderTask = false
+	task.PriorSessionID = agResumeSession
+	task.TriggerCommentID, task.TriggerCommentContent = "comment-1", "please continue"
+	log, buf := agResumeLogger()
+
+	switch mode {
+	case agResumeManaged:
+		first, err := d.runTask(context.Background(), leaderReuseTestTask("resume-window-first"), "claude", 0, d.logger)
+		if err != nil {
+			t.Fatalf("first runTask: %v", err)
+		}
+		task.PriorWorkDir = first.WorkDir
+	case agResumeInPlace, agResumeWorktree:
+		dir, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		ref := localDirectoryRef{LocalPath: dir, DaemonID: daemonID, ExecutionMode: localDirectoryModeInPlace}
+		task.PriorWorkDir = dir
+		if mode == agResumeWorktree {
+			agResumeGitRepo(t, dir)
+			ref.ExecutionMode = localDirectoryModeWorktree
+			// A worktree is disposable: the prior run's no longer exists.
+			task.PriorWorkDir = filepath.Join(t.TempDir(), "gone", "worktree")
+		}
+		raw, err := json.Marshal(ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		task.ProjectResources = []ProjectResourceData{{ID: "r1", ResourceType: localDirectoryResourceType, ResourceRef: raw}}
+	}
+
+	before := agResumeInvocations(t, argsFile, stdinFile)
+	if _, err := d.runTask(context.Background(), task, "claude", 0, log); err != nil {
+		t.Fatalf("runTask: %v", err)
+	}
+	all := agResumeInvocations(t, argsFile, stdinFile)
+	if len(all) <= len(before) {
+		t.Fatalf("fake claude was not run for the follow-up\n%s", buf.String())
+	}
+	return agResumeOutcome{invocations: all[len(before):], log: buf.String()}
+}
+
+func agResumeInvocations(t *testing.T, argsFile, stdinFile string) []agResumeInvocation {
+	t.Helper()
+	args, _ := os.ReadFile(argsFile)
+	stdin, _ := os.ReadFile(stdinFile)
+	argRuns := strings.Split(strings.TrimSuffix(string(args), "--invocation-end--\n"), "--invocation-end--\n")
+	stdinRuns := strings.Split(strings.TrimSuffix(string(stdin), "\n--prompt-end--\n"), "\n--prompt-end--\n")
+	if len(args) == 0 {
+		return nil
+	}
+	if len(argRuns) != len(stdinRuns) {
+		t.Fatalf("fake claude recorded %d arg sets and %d prompts", len(argRuns), len(stdinRuns))
+	}
+	runs := make([]agResumeInvocation, len(argRuns))
+	for i := range argRuns {
+		runs[i] = agResumeInvocation{args: argRuns[i], stdin: stdinRuns[i]}
+	}
+	return runs
+}
+
+func agResumeGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "init"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+}
+
+// Through the real caller, in every mode the daemon runs a task in: the hook
+// runs before the gate and the brief, so a stale session starts fresh with no
+// "prior session unavailable" notice, and claude is started without --resume.
+// A session under the window is left to the existing gate: in a reused work dir
+// it is resumed; in worktree mode the prior worktree is gone, so the gate drops
+// it with its notice, as it did before this patch.
+func TestAGPatchClaudeResumeWindowRunTask(t *testing.T) {
+	minutes := func(m int) *time.Duration { d := time.Duration(m) * time.Minute; return &d }
 	cases := []struct {
 		name       string
-		age        time.Duration
-		wantFresh  bool
-		wantNotice bool // the existing gate drops an unreachable prior workdir with a notice
+		age        *time.Duration
+		wantFresh  bool // a deliberate fresh start by the hook
+		wantResume bool
+		wantNotice bool
 	}{
-		{"over the window", 3 * time.Hour, true, false},
-		{"under the window", 5 * time.Minute, false, true},
+		{"3 hours", minutes(180), true, false, false},
+		{"exactly 60 minutes", minutes(60), true, false, false},
+		{"under the window", minutes(59), false, true, false},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			configDir := agQuotaEnv(t)
-			t.Setenv("IS_SANDBOX", "1")
-			// Real clock here: runTask is driven end to end, so age the transcript
-			// against time.Now.
-			path := filepath.Join(configDir, "projects", "-prior-workdir")
-			if err := os.MkdirAll(path, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			file := filepath.Join(path, agResumeSession+".jsonl")
-			if err := os.WriteFile(file, []byte("{}\n"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			mtime := time.Now().Add(-tc.age)
-			if err := os.Chtimes(file, mtime, mtime); err != nil {
-				t.Fatal(err)
-			}
+	for _, mode := range []agResumeMode{agResumeManaged, agResumeInPlace, agResumeWorktree} {
+		for _, tc := range cases {
+			t.Run(string(mode)+"/"+tc.name, func(t *testing.T) {
+				wantResume, wantNotice := tc.wantResume, tc.wantNotice
+				if mode == agResumeWorktree && !tc.wantFresh {
+					wantResume, wantNotice = false, true
+				}
 
-			fixture, err := filepath.Abs(filepath.Join("..", "..", "pkg", "agent", "testdata", "claude-code-rate-limit-rejected.jsonl"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			out := t.TempDir()
-			argsFile, stdinFile := filepath.Join(out, "args"), filepath.Join(out, "stdin")
-			fake := filepath.Join(t.TempDir(), "claude")
-			writeTestExecutable(t, fake, []byte("#!/bin/sh\ncase \"$*\" in *--version*) echo '2.1.299'; exit 0;; esac\n"+
-				"echo \"$*\" > '"+argsFile+"'\nread -r line\nprintf '%s' \"$line\" > '"+stdinFile+"'\ncat '"+fixture+"'\n"))
+				got := agResumeRunTask(t, mode, tc.age, false)
 
-			s := newAGQuotaClaimServer(t)
-			d := newAGQuotaDaemon(t, s.URL, filepath.Join(t.TempDir(), "ag_quota.json"), &agQuotaClock{t: agQuotaResets.Add(-time.Hour)})
-			d.executionEnvironmentCommand = nil
-			d.workspaces = make(map[string]*workspaceState)
-			d.activeEnvRoots = make(map[string]int)
-			d.runtimeIndex["test-rt"] = Runtime{ID: "test-rt", Provider: "claude"}
-			d.cfg.WorkspacesRoot = t.TempDir()
-			d.cfg.AgentTimeout = 10 * time.Second
-			agents := map[string]AgentEntry{"claude": {Path: fake}}
-			d.cfg.Agents = agents
-			d.agentsAvailable.Store(&agents)
+				if len(got.invocations) != 1 {
+					t.Fatalf("want one claude run, got %d\n%s", len(got.invocations), got.log)
+				}
+				if got.resumed(0) != wantResume {
+					t.Errorf("claude --resume passed = %v, want %v\nargs:\n%s", got.resumed(0), wantResume, got.invocations[0].args)
+				}
+				if got.notice(0) != wantNotice {
+					t.Errorf("continuity notice in prompt = %v, want %v\n%s", got.notice(0), wantNotice, got.invocations[0].stdin)
+				}
+				if got.freshStartLogged() != tc.wantFresh {
+					t.Errorf("fresh-start log = %v, want %v\n%s", got.freshStartLogged(), tc.wantFresh, got.log)
+				}
+			})
+		}
+	}
+}
 
-			task := Task{
-				ID: "resume-window-task", WorkspaceID: "test-ws", RuntimeID: "test-rt", IssueID: "test-issue",
-				AgentID: "test-agent", AuthToken: "mat_test_resume",
-				Agent:          &AgentData{ID: "test-agent", Name: "test"},
-				PriorSessionID: agResumeSession, PriorWorkDir: filepath.Join(t.TempDir(), "elsewhere"),
-				TriggerCommentID: "comment-1", TriggerCommentContent: "please continue",
-			}
-			log, buf := agResumeLogger()
-			if _, err := d.runTask(context.Background(), task, "claude", 0, log); err != nil {
-				t.Fatalf("runTask: %v", err)
-			}
+// A transcript that can't be found leaves the age unknown, so the hook keeps
+// the session: where the work dir is reused claude is asked to resume it, the
+// resume is refused, and the existing retry starts fresh with its notice. In
+// worktree mode the gate drops it first. Neither logs a deliberate fresh start.
+func TestAGPatchClaudeResumeWindowRunTaskMissingTranscript(t *testing.T) {
+	for _, mode := range []agResumeMode{agResumeManaged, agResumeInPlace, agResumeWorktree} {
+		t.Run(string(mode), func(t *testing.T) {
+			got := agResumeRunTask(t, mode, nil, true)
 
-			args, _ := os.ReadFile(argsFile)
-			stdin, _ := os.ReadFile(stdinFile)
-			if len(args) == 0 || len(stdin) == 0 {
-				t.Fatalf("fake claude was not run: args=%q stdin=%q", args, stdin)
+			if got.freshStartLogged() {
+				t.Errorf("the hook started fresh without knowing the age\n%s", got.log)
 			}
-			if got := strings.Contains(buf.String(), "starting fresh Claude session"); got != tc.wantFresh {
-				t.Errorf("fresh-start log = %v, want %v\n%s", got, tc.wantFresh, buf.String())
+			last := len(got.invocations) - 1
+			if got.resumed(last) {
+				t.Errorf("the final run still passes --resume\n%s", got.invocations[last].args)
 			}
-			if strings.Contains(string(args), "--resume") {
-				t.Errorf("claude was started with --resume: %s", args)
+			if !got.notice(last) {
+				t.Errorf("a lost session should carry the notice\n%s", got.invocations[last].stdin)
 			}
-			if got := strings.Contains(string(stdin), "could not be restored"); got != tc.wantNotice {
-				t.Errorf("continuity notice in prompt = %v, want %v\n%s", got, tc.wantNotice, stdin)
+			if mode == agResumeWorktree {
+				if len(got.invocations) != 1 {
+					t.Fatalf("worktree mode: the gate drops the session before launch, want 1 run, got %d", len(got.invocations))
+				}
+				return
+			}
+			if len(got.invocations) != 2 || !got.resumed(0) {
+				t.Fatalf("want a refused --resume then one fresh retry, got %d runs, first resumed = %v\n%s",
+					len(got.invocations), got.resumed(0), got.log)
 			}
 		})
 	}
