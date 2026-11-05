@@ -11,6 +11,60 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelAGDecisionIntent = `-- name: CancelAGDecisionIntent :execrows
+UPDATE ag_decision_intent
+SET status = 'cancelled', finished_at = now()
+WHERE id = $1 AND workspace_id = $2 AND status = 'pending'
+`
+
+type CancelAGDecisionIntentParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) CancelAGDecisionIntent(ctx context.Context, arg CancelAGDecisionIntentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelAGDecisionIntent, arg.ID, arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const claimAGDecisionIntent = `-- name: ClaimAGDecisionIntent :one
+UPDATE ag_decision_intent
+SET status = 'running', claimed_at = now()
+WHERE id = (
+    SELECT candidate.id FROM ag_decision_intent candidate
+    WHERE candidate.workspace_id = $1 AND candidate.status = 'pending' AND candidate.expires_at > now()
+    ORDER BY candidate.created_at, candidate.id
+    LIMIT 1
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING id, workspace_id, card_id, card_revision, action_id, note, override_reason, actor_user_id, status, message, created_at, expires_at, claimed_at, finished_at
+`
+
+func (q *Queries) ClaimAGDecisionIntent(ctx context.Context, workspaceID pgtype.UUID) (AgDecisionIntent, error) {
+	row := q.db.QueryRow(ctx, claimAGDecisionIntent, workspaceID)
+	var i AgDecisionIntent
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.CardRevision,
+		&i.ActionID,
+		&i.Note,
+		&i.OverrideReason,
+		&i.ActorUserID,
+		&i.Status,
+		&i.Message,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.ClaimedAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
 const countAGDecisionCardsWaitingOn = `-- name: CountAGDecisionCardsWaitingOn :one
 SELECT count(*) FROM ag_decision_card
 WHERE workspace_id = $1 AND waiting_on = $2 AND resolved_at IS NULL
@@ -28,15 +82,151 @@ func (q *Queries) CountAGDecisionCardsWaitingOn(ctx context.Context, arg CountAG
 	return count, err
 }
 
-const getAGDecisionEngineLastSync = `-- name: GetAGDecisionEngineLastSync :one
-SELECT last_sync_at FROM ag_decision_engine WHERE workspace_id = $1
+const createAGDecisionIntent = `-- name: CreateAGDecisionIntent :one
+INSERT INTO ag_decision_intent (workspace_id, card_id, card_revision, action_id, note, override_reason, actor_user_id, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now() + interval '15 minutes')
+RETURNING id, workspace_id, card_id, card_revision, action_id, note, override_reason, actor_user_id, status, message, created_at, expires_at, claimed_at, finished_at
 `
 
-func (q *Queries) GetAGDecisionEngineLastSync(ctx context.Context, workspaceID pgtype.UUID) (pgtype.Timestamptz, error) {
-	row := q.db.QueryRow(ctx, getAGDecisionEngineLastSync, workspaceID)
-	var last_sync_at pgtype.Timestamptz
-	err := row.Scan(&last_sync_at)
-	return last_sync_at, err
+type CreateAGDecisionIntentParams struct {
+	WorkspaceID    pgtype.UUID `json:"workspace_id"`
+	CardID         pgtype.UUID `json:"card_id"`
+	CardRevision   int32       `json:"card_revision"`
+	ActionID       string      `json:"action_id"`
+	Note           string      `json:"note"`
+	OverrideReason string      `json:"override_reason"`
+	ActorUserID    pgtype.UUID `json:"actor_user_id"`
+}
+
+// The partial unique index refuses a second active intent on a card.
+func (q *Queries) CreateAGDecisionIntent(ctx context.Context, arg CreateAGDecisionIntentParams) (AgDecisionIntent, error) {
+	row := q.db.QueryRow(ctx, createAGDecisionIntent,
+		arg.WorkspaceID,
+		arg.CardID,
+		arg.CardRevision,
+		arg.ActionID,
+		arg.Note,
+		arg.OverrideReason,
+		arg.ActorUserID,
+	)
+	var i AgDecisionIntent
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CardID,
+		&i.CardRevision,
+		&i.ActionID,
+		&i.Note,
+		&i.OverrideReason,
+		&i.ActorUserID,
+		&i.Status,
+		&i.Message,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.ClaimedAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
+const expireAGDecisionIntents = `-- name: ExpireAGDecisionIntents :execrows
+UPDATE ag_decision_intent
+SET status = 'expired', finished_at = now(), message = 'Not picked up in time, so it did not run.'
+WHERE workspace_id = $1 AND status = 'pending' AND expires_at <= now()
+`
+
+func (q *Queries) ExpireAGDecisionIntents(ctx context.Context, workspaceID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, expireAGDecisionIntents, workspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const failLostAGDecisionIntents = `-- name: FailLostAGDecisionIntents :execrows
+UPDATE ag_decision_intent
+SET status = 'failed', finished_at = now(), message = 'The worker stopped reporting. It may have run part of this, so check before retrying.'
+WHERE workspace_id = $1 AND status = 'running' AND claimed_at <= now() - interval '10 minutes'
+`
+
+// Never retried: a worker that died part way may already have merged.
+func (q *Queries) FailLostAGDecisionIntents(ctx context.Context, workspaceID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, failLostAGDecisionIntents, workspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const finishAGDecisionIntent = `-- name: FinishAGDecisionIntent :execrows
+UPDATE ag_decision_intent
+SET status = $1, message = $2, finished_at = now()
+WHERE id = $3 AND workspace_id = $4 AND status = 'running'
+`
+
+type FinishAGDecisionIntentParams struct {
+	Status      string      `json:"status"`
+	Message     string      `json:"message"`
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) FinishAGDecisionIntent(ctx context.Context, arg FinishAGDecisionIntentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, finishAGDecisionIntent,
+		arg.Status,
+		arg.Message,
+		arg.ID,
+		arg.WorkspaceID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getAGDecisionCard = `-- name: GetAGDecisionCard :one
+SELECT id, workspace_id, dedupe_key, issue_id, waiting_on, card_type, revision, head_sha, content, first_seen_at, updated_at, resolved_at FROM ag_decision_card WHERE id = $1 AND workspace_id = $2
+`
+
+type GetAGDecisionCardParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) GetAGDecisionCard(ctx context.Context, arg GetAGDecisionCardParams) (AgDecisionCard, error) {
+	row := q.db.QueryRow(ctx, getAGDecisionCard, arg.ID, arg.WorkspaceID)
+	var i AgDecisionCard
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.DedupeKey,
+		&i.IssueID,
+		&i.WaitingOn,
+		&i.CardType,
+		&i.Revision,
+		&i.HeadSha,
+		&i.Content,
+		&i.FirstSeenAt,
+		&i.UpdatedAt,
+		&i.ResolvedAt,
+	)
+	return i, err
+}
+
+const getAGDecisionEngine = `-- name: GetAGDecisionEngine :one
+SELECT last_sync_at, worker_seen_at FROM ag_decision_engine WHERE workspace_id = $1
+`
+
+type GetAGDecisionEngineRow struct {
+	LastSyncAt   pgtype.Timestamptz `json:"last_sync_at"`
+	WorkerSeenAt pgtype.Timestamptz `json:"worker_seen_at"`
+}
+
+func (q *Queries) GetAGDecisionEngine(ctx context.Context, workspaceID pgtype.UUID) (GetAGDecisionEngineRow, error) {
+	row := q.db.QueryRow(ctx, getAGDecisionEngine, workspaceID)
+	var i GetAGDecisionEngineRow
+	err := row.Scan(&i.LastSyncAt, &i.WorkerSeenAt)
+	return i, err
 }
 
 const insertAGDecisionRecord = `-- name: InsertAGDecisionRecord :execrows
@@ -140,6 +330,50 @@ func (q *Queries) ListIssueIDsInWorkspace(ctx context.Context, arg ListIssueIDsI
 	return items, nil
 }
 
+const listLatestAGDecisionIntents = `-- name: ListLatestAGDecisionIntents :many
+SELECT DISTINCT ON (i.card_id) i.id, i.workspace_id, i.card_id, i.card_revision, i.action_id, i.note, i.override_reason, i.actor_user_id, i.status, i.message, i.created_at, i.expires_at, i.claimed_at, i.finished_at
+FROM ag_decision_intent i
+JOIN ag_decision_card c ON c.id = i.card_id
+WHERE i.workspace_id = $1 AND c.resolved_at IS NULL
+ORDER BY i.card_id, i.created_at DESC, i.id DESC
+`
+
+// The newest intent of each open card, whatever its status.
+func (q *Queries) ListLatestAGDecisionIntents(ctx context.Context, workspaceID pgtype.UUID) ([]AgDecisionIntent, error) {
+	rows, err := q.db.Query(ctx, listLatestAGDecisionIntents, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgDecisionIntent{}
+	for rows.Next() {
+		var i AgDecisionIntent
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CardID,
+			&i.CardRevision,
+			&i.ActionID,
+			&i.Note,
+			&i.OverrideReason,
+			&i.ActorUserID,
+			&i.Status,
+			&i.Message,
+			&i.CreatedAt,
+			&i.ExpiresAt,
+			&i.ClaimedAt,
+			&i.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenAGDecisionCards = `-- name: ListOpenAGDecisionCards :many
 SELECT id, workspace_id, dedupe_key, issue_id, waiting_on, card_type, revision, head_sha, content, first_seen_at, updated_at, resolved_at FROM ag_decision_card
 WHERE workspace_id = $1 AND resolved_at IS NULL
@@ -209,6 +443,16 @@ ON CONFLICT (workspace_id) DO UPDATE SET last_sync_at = now()
 
 func (q *Queries) TouchAGDecisionEngine(ctx context.Context, workspaceID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, touchAGDecisionEngine, workspaceID)
+	return err
+}
+
+const touchAGDecisionWorker = `-- name: TouchAGDecisionWorker :exec
+UPDATE ag_decision_engine SET worker_seen_at = now() WHERE workspace_id = $1
+`
+
+// Only ever follows a first sync: without one there are no cards to act on.
+func (q *Queries) TouchAGDecisionWorker(ctx context.Context, workspaceID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, touchAGDecisionWorker, workspaceID)
 	return err
 }
 

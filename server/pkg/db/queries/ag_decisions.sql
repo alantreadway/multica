@@ -63,8 +63,12 @@ INSERT INTO ag_decision_engine (workspace_id, last_sync_at)
 VALUES ($1, now())
 ON CONFLICT (workspace_id) DO UPDATE SET last_sync_at = now();
 
--- name: GetAGDecisionEngineLastSync :one
-SELECT last_sync_at FROM ag_decision_engine WHERE workspace_id = $1;
+-- name: GetAGDecisionEngine :one
+SELECT last_sync_at, worker_seen_at FROM ag_decision_engine WHERE workspace_id = $1;
+
+-- name: TouchAGDecisionWorker :exec
+-- Only ever follows a first sync: without one there are no cards to act on.
+UPDATE ag_decision_engine SET worker_seen_at = now() WHERE workspace_id = $1;
 
 -- name: InsertAGDecisionRecord :execrows
 -- A retried write hits the primary key and logs nothing new.
@@ -77,3 +81,53 @@ SELECT * FROM ag_decision_record
 WHERE workspace_id = $1
 ORDER BY at DESC, id DESC
 LIMIT $2;
+
+-- name: GetAGDecisionCard :one
+SELECT * FROM ag_decision_card WHERE id = $1 AND workspace_id = $2;
+
+-- name: CreateAGDecisionIntent :one
+-- The partial unique index refuses a second active intent on a card.
+INSERT INTO ag_decision_intent (workspace_id, card_id, card_revision, action_id, note, override_reason, actor_user_id, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now() + interval '15 minutes')
+RETURNING *;
+
+-- name: ListLatestAGDecisionIntents :many
+-- The newest intent of each open card, whatever its status.
+SELECT DISTINCT ON (i.card_id) i.*
+FROM ag_decision_intent i
+JOIN ag_decision_card c ON c.id = i.card_id
+WHERE i.workspace_id = $1 AND c.resolved_at IS NULL
+ORDER BY i.card_id, i.created_at DESC, i.id DESC;
+
+-- name: CancelAGDecisionIntent :execrows
+UPDATE ag_decision_intent
+SET status = 'cancelled', finished_at = now()
+WHERE id = $1 AND workspace_id = $2 AND status = 'pending';
+
+-- name: ExpireAGDecisionIntents :execrows
+UPDATE ag_decision_intent
+SET status = 'expired', finished_at = now(), message = 'Not picked up in time, so it did not run.'
+WHERE workspace_id = $1 AND status = 'pending' AND expires_at <= now();
+
+-- name: FailLostAGDecisionIntents :execrows
+-- Never retried: a worker that died part way may already have merged.
+UPDATE ag_decision_intent
+SET status = 'failed', finished_at = now(), message = 'The worker stopped reporting. It may have run part of this, so check before retrying.'
+WHERE workspace_id = $1 AND status = 'running' AND claimed_at <= now() - interval '10 minutes';
+
+-- name: ClaimAGDecisionIntent :one
+UPDATE ag_decision_intent
+SET status = 'running', claimed_at = now()
+WHERE id = (
+    SELECT candidate.id FROM ag_decision_intent candidate
+    WHERE candidate.workspace_id = $1 AND candidate.status = 'pending' AND candidate.expires_at > now()
+    ORDER BY candidate.created_at, candidate.id
+    LIMIT 1
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING *;
+
+-- name: FinishAGDecisionIntent :execrows
+UPDATE ag_decision_intent
+SET status = sqlc.arg('status'), message = sqlc.arg('message'), finished_at = now()
+WHERE id = sqlc.arg('id') AND workspace_id = sqlc.arg('workspace_id') AND status = 'running';

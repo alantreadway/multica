@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -30,8 +31,24 @@ var decisionsPushCmd = &cobra.Command{
 	RunE: runDecisionsPush,
 }
 
+var decisionsClaimCmd = &cobra.Command{
+	Use:   "claim",
+	Short: "Claim the oldest queued Decision Desk action, printing it as JSON",
+	Long:  "Prints {\"intent\": ..., \"card\": ..., \"card_open\": ...}, with a null intent when nothing is queued. Each call also counts as the desk worker's heartbeat.",
+	Args:  cobra.NoArgs,
+	RunE:  runDecisionsClaim,
+}
+
+var decisionsResultCmd = &cobra.Command{
+	Use:   "result <intent-id>",
+	Short: "Report what happened to a claimed Decision Desk action, from JSON on stdin",
+	Long:  "Reads {\"status\": \"succeeded|failed|refused\", \"message\": ..., \"record\": ...} from stdin.",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runDecisionsResult,
+}
+
 func init() {
-	decisionsCmd.AddCommand(decisionsPushCmd)
+	decisionsCmd.AddCommand(decisionsPushCmd, decisionsClaimCmd, decisionsResultCmd)
 	rootCmd.AddCommand(decisionsCmd)
 }
 
@@ -75,6 +92,50 @@ func pushAGDecisions(ctx context.Context, client *cli.APIClient, raw []byte) err
 	body := map[string]any{"cards": *push.Cards}
 	if err := client.PutJSON(ctx, "/api/ag/decisions/cards", body, nil); err != nil {
 		return fmt.Errorf("push cards: %w", err)
+	}
+	return nil
+}
+
+func runDecisionsClaim(cmd *cobra.Command, _ []string) error {
+	client, err := newAPIClient(cmd)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := cli.APIContext(context.Background())
+	defer cancel()
+	return claimAGDecision(ctx, client, cmd.OutOrStdout())
+}
+
+func claimAGDecision(ctx context.Context, client *cli.APIClient, out io.Writer) error {
+	var claim json.RawMessage
+	if err := client.PostJSON(ctx, "/api/ag/decisions/intents/claim", map[string]any{}, &claim); err != nil {
+		return fmt.Errorf("claim: %w", err)
+	}
+	_, err := fmt.Fprintln(out, string(claim))
+	return err
+}
+
+func runDecisionsResult(cmd *cobra.Command, args []string) error {
+	raw, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("read stdin: %w", err)
+	}
+	client, err := newAPIClient(cmd)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := cli.APIContext(context.Background())
+	defer cancel()
+	return reportAGDecision(ctx, client, args[0], raw)
+}
+
+func reportAGDecision(ctx context.Context, client *cli.APIClient, id string, raw []byte) error {
+	if !json.Valid(raw) {
+		return fmt.Errorf("parse stdin: not JSON")
+	}
+	path := "/api/ag/decisions/intents/" + url.PathEscape(id) + "/result"
+	if err := client.PostJSON(ctx, path, json.RawMessage(raw), nil); err != nil {
+		return fmt.Errorf("report result: %w", err)
 	}
 	return nil
 }

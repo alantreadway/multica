@@ -38,8 +38,26 @@ type AgDecisionCard struct {
 }
 
 type AgDecisionEngine struct {
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	LastSyncAt  pgtype.Timestamptz `json:"last_sync_at"`
+	WorkspaceID  pgtype.UUID        `json:"workspace_id"`
+	LastSyncAt   pgtype.Timestamptz `json:"last_sync_at"`
+	WorkerSeenAt pgtype.Timestamptz `json:"worker_seen_at"`
+}
+
+type AgDecisionIntent struct {
+	ID             pgtype.UUID        `json:"id"`
+	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
+	CardID         pgtype.UUID        `json:"card_id"`
+	CardRevision   int32              `json:"card_revision"`
+	ActionID       string             `json:"action_id"`
+	Note           string             `json:"note"`
+	OverrideReason string             `json:"override_reason"`
+	ActorUserID    pgtype.UUID        `json:"actor_user_id"`
+	Status         string             `json:"status"`
+	Message        string             `json:"message"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+	ClaimedAt      pgtype.Timestamptz `json:"claimed_at"`
+	FinishedAt     pgtype.Timestamptz `json:"finished_at"`
 }
 
 type AgDecisionRecord struct {

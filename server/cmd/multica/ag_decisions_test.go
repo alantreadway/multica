@@ -84,3 +84,38 @@ func TestAGPatchDecisionsPushStopsWhenRecordsFail(t *testing.T) {
 		t.Fatalf("calls = %+v", *calls)
 	}
 }
+
+func TestAGPatchDecisionsClaimPrintsTheServersAnswer(t *testing.T) {
+	client, calls := agDecisionsServer(t, "")
+	var out strings.Builder
+	if err := claimAGDecision(context.Background(), client, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 1 || (*calls)[0].method != http.MethodPost || (*calls)[0].path != "/api/ag/decisions/intents/claim" {
+		t.Fatalf("calls = %+v", *calls)
+	}
+	if !strings.HasPrefix(out.String(), "{") {
+		t.Fatalf("printed %q", out.String())
+	}
+}
+
+func TestAGPatchDecisionsResultPostsTheReport(t *testing.T) {
+	client, calls := agDecisionsServer(t, "")
+	raw := `{"status":"failed","message":"no"}`
+	if err := reportAGDecision(context.Background(), client, "i-1", []byte(raw)); err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 1 || (*calls)[0].path != "/api/ag/decisions/intents/i-1/result" || !strings.Contains((*calls)[0].body, `"failed"`) {
+		t.Fatalf("calls = %+v", *calls)
+	}
+	if err := reportAGDecision(context.Background(), client, "i-1", []byte("not json")); err == nil {
+		t.Fatal("bad stdin should fail before any request")
+	}
+}
+
+func TestAGPatchDecisionsResultSurfacesAConflict(t *testing.T) {
+	client, _ := agDecisionsServer(t, "/api/ag/decisions/intents/i-1/result")
+	if err := reportAGDecision(context.Background(), client, "i-1", []byte(`{"status":"failed"}`)); err == nil {
+		t.Fatal("a refused report should be an error")
+	}
+}

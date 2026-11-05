@@ -247,5 +247,8 @@ cleared_ag_decision_records AS (
 ),
 cleared_ag_decision_engine AS (
     DELETE FROM ag_decision_engine WHERE workspace_id = $1
+),
+cleared_ag_decision_intents AS (
+    DELETE FROM ag_decision_intent WHERE workspace_id = $1
 )
 DELETE FROM workspace WHERE workspace.id = $1;
