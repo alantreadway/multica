@@ -9168,6 +9168,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	}(ctx)
 
 	taskCtx = execenv.ApplyPreparedSkillNames(taskCtx, env.PreparedSkillNames)
+	agClaudeFreshAfterWindow(&task, &taskCtx, provider, env.WorkDir, taskLog) // AG patch: claude resume window
 	// usesCustomProfileCommand is the same provenance the backend receives as
 	// agent.Config.BuiltinRuntime: it separates the provider's own discovered
 	// binary from an arbitrary command speaking its protocol. Reused here so
