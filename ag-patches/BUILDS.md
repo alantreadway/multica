@@ -52,6 +52,7 @@ Newest first:
 | `ag/v0.7.0-ag.1` | `1e7aedc1e87f3675273b843135d5874543f34f21` | `multica-web-ag:v0.7.0-ag.1` | `multica-backend-ag:v0.7.0-ag.1` | `dist/multica-v0.7.0-ag.1-darwin-arm64` | 2026-10-23 |
 | `ag/v0.7.0-ag.2` | `14e845ac6531ca412a2d2f7b0083c832f35893c5` | `multica-web-ag:v0.7.0-ag.1` (unchanged) | `multica-backend-ag:v0.7.0-ag.2` | `dist/multica-v0.7.0-ag.1-darwin-arm64` (unchanged) | 2026-10-27 |
 | `ag/v0.7.1-ag.1` | `50892196d782143219ace0de349771b03c1b3061` | `multica-web-ag:v0.7.1-ag.1` | `multica-backend-ag:v0.7.1-ag.1` | `dist/multica-v0.7.1-ag.1-darwin-arm64` | 2026-10-28 |
+| `ag/v0.7.1-ag.2` | `616d6fd2b4e1f35b9c762a867d3641a29b9dc240` | `multica-web-ag:v0.7.1-ag.2` | `multica-backend-ag:v0.7.1-ag.2` | `dist/multica-v0.7.1-ag.2-darwin-arm64` | 2026-11-05 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
@@ -62,6 +63,13 @@ does not.
 Notes, newest first. Notes for builds before `v0.7.0` are in git history
 (`git log -p -- ag-patches/PATCHES.md`).
 
+- **`v0.7.1-ag.2`**: `v0.7.1-ag.1` plus the Decision Desk (first deploy).
+  Deployed 2026-11-05 with `--skip-daemon`, because the daemon had runs active,
+  so it stays on `v0.7.1-ag.1` until its next idle reload. Applied `9004`–`9008`.
+  The self-host's own Docker context cannot mount the checkout: run the guard and
+  builds with `DOCKER_CONTEXT=colima-agbuild`. Full Go suite: the four known
+  Cursor failures only, after fixing two real failures in this patch that the
+  guard does not catch (index cleanup registration and workspace deletion).
 - **`v0.7.1-ag.1`**, the first build on `v0.7.1`: the 23 patches, the task GC
   meta fix, the PR snapshot run fields (from `v0.7.0-ag.2`) and the live token
   rate (first deploy), rebased. One conflict: an import in
