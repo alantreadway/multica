@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -128,6 +129,19 @@ type fakeSink struct {
 	refreshed []string
 	failOn    map[int32]bool
 	panicOn   int32
+	// unchanged lists PRs the store already holds at their polled updated_at.
+	unchanged map[int32]bool
+	// checkedAfterMirror records a Changed call that came too late to mean anything.
+	checkedAfterMirror []int32
+}
+
+func (s *fakeSink) Changed(_ context.Context, _ []pgtype.UUID, pr PR) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if slices.Contains(s.mirrored, fmt.Sprintf("%s#%d", pr.Repo.key(), pr.Number)) {
+		s.checkedAfterMirror = append(s.checkedAfterMirror, pr.Number)
+	}
+	return !s.unchanged[pr.Number]
 }
 
 func (s *fakeSink) Mirror(_ context.Context, ws []pgtype.UUID, pr PR) error {
@@ -242,6 +256,46 @@ func TestAGPatchGHPollFirstPassAndCursor(t *testing.T) {
 		// #3 sits exactly on the cursor second and is re-mirrored on purpose.
 		if got := strings.Join(sink.take(), ","); got != "org/repo#3,org/repo#4" {
 			t.Fatalf("mirrored %s", got)
+		}
+	})
+}
+
+// A restart forgets the cursor, and each refresh costs several REST calls on the
+// token's hourly budget, so the re-list must not refresh PRs nothing happened to.
+func TestAGPatchGHPollRestartRefreshesOnlyOpenOrChanged(t *testing.T) {
+	withState := func(number int, updated, state string) string {
+		return fmt.Sprintf(`{"number":%d,"updated_at":%q,"state":%q,"base":{"repo":{"name":"Repo","owner":{"login":"Org"}}}}`, number, updated, state)
+	}
+	g := &fakeGitHub{pages: map[string]string{"1": "[" +
+		withState(4, "2026-10-16T11:00:00Z", "open") + "," +
+		withState(3, "2026-10-16T10:30:00Z", "open") + "," +
+		withState(2, "2026-10-16T10:00:00Z", "closed") + "," +
+		withState(1, "2026-10-16T09:30:00Z", "closed") + "]"}}
+	sink := &fakeSink{unchanged: map[int32]bool{3: true, 1: true}}
+	p, _ := newPoller(t, g, sink)
+
+	t.Run("AG patch: the first pass skips the refresh only for a closed, unchanged PR", func(t *testing.T) {
+		p.Tick(context.Background())
+		refreshed := strings.Join(sink.refreshed, ",")
+		if got := strings.Join(sink.take(), ","); got != "org/repo#1,org/repo#2,org/repo#3,org/repo#4" {
+			t.Fatalf("mirrored %s, want every listed PR", got)
+		}
+		if refreshed != "org/repo#2,org/repo#3,org/repo#4" {
+			t.Fatalf("refreshed %s, want the changed closed PR and both open PRs", refreshed)
+		}
+		if len(sink.checkedAfterMirror) != 0 {
+			t.Fatalf("Changed ran after Mirror for %v, when the row already matches", sink.checkedAfterMirror)
+		}
+	})
+
+	t.Run("AG patch: a later tick refreshes what it lists without asking", func(t *testing.T) {
+		g.pages["1"] = "[" + withState(5, "2026-10-16T11:30:00Z", "closed") + "," + withState(4, "2026-10-16T11:00:00Z", "open") + "]"
+		sink.unchanged = map[int32]bool{5: true}
+		p.Tick(context.Background())
+		refreshed := strings.Join(sink.refreshed, ",")
+		sink.take()
+		if refreshed != "org/repo#4,org/repo#5" {
+			t.Fatalf("refreshed %s, want every PR a later tick lists", refreshed)
 		}
 	})
 }

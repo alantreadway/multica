@@ -35,6 +35,8 @@ type PR struct {
 	Repo      RepoRef
 	Number    int32
 	UpdatedAt time.Time
+	// Open is true for an open or draft PR.
+	Open bool
 	// Raw is the PR object exactly as GitHub's list endpoint returned it.
 	Raw json.RawMessage
 }
@@ -46,8 +48,13 @@ type Sink interface {
 	// retries the PR on the next tick.
 	Mirror(ctx context.Context, workspaces []pgtype.UUID, pr PR) error
 	// Refresh asks for the PR's CI and mergeability snapshot. Called once per
-	// PR after a successful Mirror. Never blocks.
+	// PR after a successful Mirror, except where the first pass skips it (see
+	// pollRepo). Never blocks.
 	Refresh(repo RepoRef, number int32)
+	// Changed reports whether any listed workspace lacks pr's current state: no
+	// row, an older row, or no snapshot yet. Asked before Mirror, which would
+	// bring the row up to date. A failed lookup answers true.
+	Changed(ctx context.Context, workspaces []pgtype.UUID, pr PR) bool
 }
 
 type repoState struct {
@@ -161,6 +168,7 @@ func (e *rateLimitedError) Error() string { return "github rate limited" }
 type listItem struct {
 	Number    int32  `json:"number"`
 	UpdatedAt string `json:"updated_at"`
+	State     string `json:"state"`
 	Base      struct {
 		Repo struct {
 			Name  string `json:"name"`
@@ -222,7 +230,7 @@ func (p *Poller) pollRepo(ctx context.Context, w Watch) error {
 			if it.Base.Repo.Name != "" && it.Base.Repo.Owner.Login != "" {
 				repo = RepoRef{Owner: it.Base.Repo.Owner.Login, Name: it.Base.Repo.Name}
 			}
-			collected = append(collected, PR{Repo: repo, Number: it.Number, UpdatedAt: updated, Raw: raw})
+			collected = append(collected, PR{Repo: repo, Number: it.Number, UpdatedAt: updated, Open: it.State == "open", Raw: raw})
 		}
 		if first || len(raws) < perPage || !hasNextPage(header) {
 			break
@@ -234,6 +242,12 @@ func (p *Poller) pollRepo(ctx context.Context, w Watch) error {
 	failed := false
 	for i := len(collected) - 1; i >= 0; i-- {
 		pr := collected[i]
+		// The cursor lives in memory, so every restart re-lists a page per repo.
+		// A refresh spends several calls of the token's hourly REST budget, which
+		// it may share with the user's other tools, so the re-list skips PRs where
+		// nothing can have moved. CI moves without touching updated_at, so open
+		// PRs still refresh.
+		refresh := !first || pr.Open || p.sink.Changed(ctx, w.Workspaces, pr)
 		if err := p.sink.Mirror(ctx, w.Workspaces, pr); err != nil {
 			slog.Warn("ghpoll: mirror failed, will retry", "repo", key, "number", pr.Number, "err", err)
 			if !failed || pr.UpdatedAt.Before(failedMin) {
@@ -242,7 +256,9 @@ func (p *Poller) pollRepo(ctx context.Context, w Watch) error {
 			failed = true
 			continue
 		}
-		p.sink.Refresh(pr.Repo, pr.Number)
+		if refresh {
+			p.sink.Refresh(pr.Repo, pr.Number)
+		}
 		if pr.UpdatedAt.After(newest) {
 			newest = pr.UpdatedAt
 		}

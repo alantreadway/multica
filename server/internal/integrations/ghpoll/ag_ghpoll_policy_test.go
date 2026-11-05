@@ -406,6 +406,9 @@ func (s *workspaceSink) Mirror(_ context.Context, ws []pgtype.UUID, _ PR) error 
 	return nil
 }
 func (s *workspaceSink) Refresh(RepoRef, int32) {}
+func (s *workspaceSink) Changed(context.Context, []pgtype.UUID, PR) bool {
+	return true
+}
 
 func TestAGPatchGHPollETagAcrossPagesAndRepos(t *testing.T) {
 	full := func(from int, updated string) string {

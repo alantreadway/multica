@@ -109,6 +109,17 @@ func (s agPollSink) Refresh(repo ghpoll.RepoRef, number int32) {
 	s.h.PRRefresh.Enqueue(0, repo.Owner, repo.Name, number)
 }
 
+// Changed implements ghpoll.Sink.
+func (s agPollSink) Changed(ctx context.Context, workspaces []pgtype.UUID, pr ghpoll.PR) bool {
+	for _, ws := range workspaces {
+		row, err := s.getRow(ctx, ws, pr)
+		if err != nil || row.PrUpdatedAt.Time.Before(pr.UpdatedAt) || !row.SnapshotFetchedAt.Valid {
+			return true
+		}
+	}
+	return false
+}
+
 // agPolledPayload maps a REST list item onto the webhook payload the mirror
 // pass reads. The list endpoint has no `merged`, `mergeable_state` or diff
 // stats: merged follows merged_at, the other two stay zero, and the snapshot

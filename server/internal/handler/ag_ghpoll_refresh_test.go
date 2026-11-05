@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/integrations/ghpoll"
 	"github.com/multica-ai/multica/server/internal/integrations/ghsnapshot"
 )
@@ -82,6 +83,47 @@ func (r *recordingGitHubAPI) calls() []snapshotCall {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]snapshotCall(nil), r.got...)
+}
+
+// TestAGPatchPollSinkChanged is what stops a backend restart re-fetching closed
+// PRs: against real rows, only a PR the store is missing or behind on counts.
+func TestAGPatchPollSinkChanged(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("handler test fixture not initialized (no DB?)")
+	}
+	ctx := context.Background()
+	const repo = "poll-changed"
+	const stored = "2026-10-16T10:00:00Z"
+	sink := agPollSink{h: testHandler}
+	ws := []pgtype.UUID{parseUUID(testWorkspaceID)}
+	closedAt := func(updated string) ghpoll.PR {
+		return polledPR(repo, 41, "Closed change", "closed", "", updated)
+	}
+
+	if !sink.Changed(ctx, ws, closedAt(stored)) {
+		t.Fatal("a PR with no row should count as changed")
+	}
+	if err := sink.Mirror(ctx, ws, closedAt(stored)); err != nil {
+		t.Fatalf("mirror: %v", err)
+	}
+	if !sink.Changed(ctx, ws, closedAt(stored)) {
+		t.Fatal("a row with no snapshot yet should count as changed")
+	}
+	if _, err := testPool.Exec(ctx,
+		`UPDATE github_pull_request SET snapshot_fetched_at = now() WHERE workspace_id = $1 AND repo_owner = 'acme' AND repo_name = $2 AND pr_number = 41`,
+		testWorkspaceID, repo); err != nil {
+		t.Fatalf("set snapshot time: %v", err)
+	}
+	if sink.Changed(ctx, ws, closedAt(stored)) {
+		t.Fatal("a row with a snapshot at the polled updated_at should not count as changed")
+	}
+	if !sink.Changed(ctx, ws, closedAt("2026-10-16T10:00:01Z")) {
+		t.Fatal("a PR newer than its row should count as changed")
+	}
+	other := parseUUID("00000000-0000-0000-0000-000000000041")
+	if !sink.Changed(ctx, append([]pgtype.UUID{other}, ws...), closedAt(stored)) {
+		t.Fatal("a workspace without the row should count as changed even when another has it")
+	}
 }
 
 // TestAGPatchPollerEnqueuesSnapshotRefreshes runs the poller with a live,

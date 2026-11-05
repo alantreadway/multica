@@ -591,7 +591,10 @@ mapped onto the webhook payload and mirrored through `mirrorPullRequestForWorksp
 for every workspace that lists the repo (same link policy as a webhook), then
 handed to `PRRefresh.Enqueue` for its CI and mergeability snapshot. The first
 pass after a start scans one page (100 PRs); an already-merged PR first seen
-that way is treated as a merge. Rows the poller writes carry `installation_id = 0`.
+that way is treated as a merge. That pass enqueues a snapshot only for an open
+PR or one the store is missing or behind on, because a snapshot costs several
+REST calls and every restart would otherwise spend them on closed PRs. Rows the
+poller writes carry `installation_id = 0`.
 No schema change and no migration.
 
 The snapshot client (`ghsnapshot.Client`) takes the token too: with no App vars
