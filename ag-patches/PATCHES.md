@@ -66,6 +66,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 22 | Urgent-only claim filter (backend) | `fork-only` | [#7324](https://github.com/multica-ai/multica/pull/7324) (changes requested, pins the claim order), [#8551](https://github.com/multica-ai/multica/issues/8551) (open, priority starvation) | None: serves our quota-failover setup | Very low | None. |
 | 23 | Backup Claude account failover, urgent only (daemon) | `fork-only` | [#5282](https://github.com/multica-ai/multica/pull/5282), [#8579](https://github.com/multica-ai/multica/pull/8579) (fallback runtime, open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC) | Low: one subscriber's two-account setup | Very low | None. |
 | 24 | Live token rate in the sidebar (daemon + backend + web) | `fork-only` | none found (searched 2026-10-27) | Low: needs a second Claude output stream for one sidebar line | Low | None. |
+| 25 | Claude fresh session past the resume window (daemon) | `fork-only` | [#8070](https://github.com/multica-ai/multica/issues/8070) (open, no maintainer reply on 2026-11-05) | Low: the 60-minute threshold is our cost policy | Very low | None. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -1879,6 +1880,52 @@ shows "— tokens/s". Subagent usage is included.
   - Fit: a glanceable activity signal for an operator; the Claude half costs a
     second stream on every run, which upstream is unlikely to want for a
     sidebar line.
+
+### Claude fresh session past the resume window (daemon)
+
+A Claude Code issue run that would resume a session whose transcript was last
+written 60 minutes ago or more starts a fresh session instead, in every project
+mode. A resume past the prompt-cache window re-reads the whole history at the
+uncached rate, which costs more than a new session. Unlike a lost session, this
+is deliberate, so the run gets no "prior session unavailable" notice.
+
+- Scope: provider `claude` (not other providers, nor other members of its protocol
+  family), non-empty `PriorSessionID`, empty `ChatSessionID`. That includes issue
+  follow-ups, automatic retries and manual reruns; the daemon can't tell them
+  apart without a backend change. Chat tasks are exempt. In-place resume on the
+  backup account (`ag_quota_backup.go`) doesn't pass through this path.
+- Age: the mtime of the session's `<id>.jsonl`, found the way the usage snapshot
+  finds it (newest file with that id under `<config dir>/projects/*`), with the
+  config dir from `CLAUDE_CONFIG_DIR` or `HOME` in the daemon's environment
+  layered with the agent's custom env. "Finished" is thereby approximated by the
+  transcript's last write, normally within about 49 seconds of completion; one
+  transcript was seen written 69 minutes after its run completed.
+- Boundary: exactly 60 minutes counts as over the window.
+- Hook: one line in `runTask`, before `gateResumeToReachableSession`, so it runs
+  before the brief and prompt are built. A fresh start clears
+  `task.PriorSessionID` and `taskCtx.PriorSessionResumed` and leaves
+  `PriorSessionResumeUnavailable` alone, so the prompt takes the cold path with
+  full context and no notice. It logs `starting fresh Claude session: prior
+  session is past the resume window` with provider, session id and age,
+  distinct from `dropping prior session`.
+- Fails open: with no transcript, or a stat error, the age is unknown and the
+  session is left to the existing gate and `shouldRetryWithFreshSession`, which
+  do show the notice. A prior run on the backup account is aged like any other:
+  `claude-backup-setup.sh` symlinks `projects/` from the primary account, so the
+  lookup finds its transcript and the window applies. Only a backup config dir
+  without that link fails open.
+- Files:
+  - `server/pkg/agent/ag_claude_session.go` (new: `ClaudeSessionModTime`)
+  - `server/internal/daemon/ag_claude_resume.go` (new); `daemon.go` (`runTask`,
+    one line)
+- Test prefix: `TestAGPatch…` (`TestAGPatchClaudeResume*`).
+
+- Upstream:
+  - Status: `fork-only`. The threshold is our cost policy.
+  - Overlap: [#8070](https://github.com/multica-ai/multica/issues/8070) (open, no
+    maintainer reply on 2026-11-05).
+  - Fit: a cost trade-off for a subscriber who pays for uncached reads; upstream
+    resumes unconditionally.
 
 ## Tooling (not a patch)
 
