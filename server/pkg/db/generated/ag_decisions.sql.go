@@ -413,6 +413,31 @@ func (q *Queries) ListOpenAGDecisionCards(ctx context.Context, workspaceID pgtyp
 	return items, nil
 }
 
+const resolveAGDecisionCardOfIntent = `-- name: ResolveAGDecisionCardOfIntent :execrows
+UPDATE ag_decision_card
+SET resolved_at = now(), updated_at = now()
+WHERE ag_decision_card.workspace_id = $1
+  AND ag_decision_card.resolved_at IS NULL
+  AND ag_decision_card.id = (
+    SELECT card_id FROM ag_decision_intent
+    WHERE ag_decision_intent.id = $2 AND ag_decision_intent.workspace_id = $1
+  )
+`
+
+type ResolveAGDecisionCardOfIntentParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	IntentID    pgtype.UUID `json:"intent_id"`
+}
+
+// The next push brings the card back if it is still waiting on someone.
+func (q *Queries) ResolveAGDecisionCardOfIntent(ctx context.Context, arg ResolveAGDecisionCardOfIntentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, resolveAGDecisionCardOfIntent, arg.WorkspaceID, arg.IntentID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const resolveAGDecisionCardsNotIn = `-- name: ResolveAGDecisionCardsNotIn :execrows
 UPDATE ag_decision_card
 SET resolved_at = now(), updated_at = now()

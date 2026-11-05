@@ -492,18 +492,72 @@ func TestAGPatchDecisionIntentLifecycle(t *testing.T) {
 		t.Fatalf("records = %d, %v", records, err)
 	}
 
-	// The page sees the result on the card.
-	var listed struct {
-		Cards []struct {
-			LatestIntent *agDecisionIntentOut `json:"latest_intent"`
-		} `json:"cards"`
-		WorkerSeenAt *string `json:"worker_seen_at"`
-	}
-	req := newRequestAs(testUserID, http.MethodGet, "/api/ag/decisions/", nil)
-	testutil.Call(t, testHandler.ListAGDecisions, req).Want(http.StatusOK).JSON(&listed)
-	if len(listed.Cards) != 1 || listed.Cards[0].LatestIntent == nil || listed.Cards[0].LatestIntent.Status != "succeeded" || listed.Cards[0].LatestIntent.Message != "Parked" || listed.WorkerSeenAt == nil {
+	// A success clears the card without waiting for the next push.
+	listed := agListDecisions(t)
+	if len(listed.Cards) != 0 || listed.WorkerSeenAt == nil {
 		t.Fatalf("listed: %+v", listed)
 	}
+}
+
+type agListedDecisions struct {
+	Cards []struct {
+		ID           string               `json:"id"`
+		Revision     int64                `json:"revision"`
+		LatestIntent *agDecisionIntentOut `json:"latest_intent"`
+	} `json:"cards"`
+	WorkerSeenAt *string `json:"worker_seen_at"`
+}
+
+func agListDecisions(t *testing.T) agListedDecisions {
+	t.Helper()
+	var listed agListedDecisions
+	req := newRequestAs(testUserID, http.MethodGet, "/api/ag/decisions/", nil)
+	testutil.Call(t, testHandler.ListAGDecisions, req).Want(http.StatusOK).JSON(&listed)
+	return listed
+}
+
+func TestAGPatchDecisionResultClearsOnlyOnSuccess(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	finish := func(t *testing.T, cardID, status string) {
+		t.Helper()
+		if w := agPostIntent(t, cardID, `{"revision":1,"action_id":"park"}`); w.Code != http.StatusCreated {
+			t.Fatalf("create: %d %s", w.Code, w.Body)
+		}
+		claim := agClaim(t)
+		if claim.Intent == nil {
+			t.Fatal("nothing to claim")
+		}
+		if w := agFinish(t, claim.Intent.ID, `{"status":"`+status+`","message":"Why"}`); w.Code != http.StatusNoContent {
+			t.Fatalf("finish: %d %s", w.Code, w.Body)
+		}
+	}
+	for _, status := range []string{"refused", "failed"} {
+		t.Run("AG patch: "+status+" keeps the card and shows why", func(t *testing.T) {
+			agDecisionsCleanup(t)
+			finish(t, agSeedActionCard(t, "A"), status)
+			listed := agListDecisions(t)
+			if len(listed.Cards) != 1 || listed.Cards[0].LatestIntent == nil || listed.Cards[0].LatestIntent.Status != status || listed.Cards[0].LatestIntent.Message != "Why" {
+				t.Fatalf("listed: %+v", listed)
+			}
+		})
+	}
+	t.Run("AG patch: a card cleared by success comes back if the engine still sends it", func(t *testing.T) {
+		agDecisionsCleanup(t)
+		cardID := agSeedActionCard(t, "A")
+		finish(t, cardID, "succeeded")
+		if listed := agListDecisions(t); len(listed.Cards) != 0 {
+			t.Fatalf("listed after success: %+v", listed)
+		}
+		if again := agSeedActionCard(t, "A"); again != cardID {
+			t.Fatalf("card %s came back as %s", cardID, again)
+		}
+		listed := agListDecisions(t)
+		if len(listed.Cards) != 1 || listed.Cards[0].Revision != 2 {
+			t.Fatalf("listed after the next push: %+v", listed)
+		}
+	})
 }
 
 func TestAGPatchDecisionIntentCancelAndTimeouts(t *testing.T) {

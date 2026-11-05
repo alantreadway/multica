@@ -131,3 +131,14 @@ RETURNING *;
 UPDATE ag_decision_intent
 SET status = sqlc.arg('status'), message = sqlc.arg('message'), finished_at = now()
 WHERE id = sqlc.arg('id') AND workspace_id = sqlc.arg('workspace_id') AND status = 'running';
+
+-- name: ResolveAGDecisionCardOfIntent :execrows
+-- The next push brings the card back if it is still waiting on someone.
+UPDATE ag_decision_card
+SET resolved_at = now(), updated_at = now()
+WHERE ag_decision_card.workspace_id = sqlc.arg('workspace_id')
+  AND ag_decision_card.resolved_at IS NULL
+  AND ag_decision_card.id = (
+    SELECT card_id FROM ag_decision_intent
+    WHERE ag_decision_intent.id = sqlc.arg('intent_id') AND ag_decision_intent.workspace_id = sqlc.arg('workspace_id')
+  );

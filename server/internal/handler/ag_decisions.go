@@ -699,6 +699,18 @@ func (h *Handler) FinishAGDecisionIntent(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusConflict, "this action is not running")
 		return
 	}
+	// A pass can be minutes away, and a card that stays after its action worked
+	// reads as if the click did nothing. A refusal or failure keeps the card and
+	// its buttons.
+	if req.Status == "succeeded" {
+		if _, err := qtx.ResolveAGDecisionCardOfIntent(r.Context(), db.ResolveAGDecisionCardOfIntentParams{
+			WorkspaceID: wsUUID, IntentID: id,
+		}); err != nil {
+			slog.Warn("FinishAGDecisionIntent resolve failed", append(logger.RequestAttrs(r), "error", err)...)
+			writeError(w, http.StatusInternalServerError, "failed to save the result")
+			return
+		}
+	}
 	if rec := req.Record; rec != nil {
 		at, _ := time.Parse(time.RFC3339, rec.At) // validated above
 		if _, err := qtx.InsertAGDecisionRecord(r.Context(), db.InsertAGDecisionRecordParams{
