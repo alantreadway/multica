@@ -2071,23 +2071,32 @@ is the fallback.
 
 A `Decisions` page directly under Inbox, with a count badge, listing every open
 issue by who it waits on: you, the PR author, a colleague, an agent or nobody.
-`ag-jira-sync` job 17 writes the cards, so their text and rules change without a
-web build. Read-only for now. The design and later phases are in
+`ag-jira-sync` job 17 writes the cards, including the actions each one offers, so
+their text and rules change without a web build. A click queues an intent, and
+the sync's desk worker runs it on the Mac, since the server has no JIRA access.
+The design and later phases are in
 [`DECISION-DESK-DESIGN.md`](./DECISION-DESK-DESIGN.md).
 
-- Tables: `ag_decision_card`, `ag_decision_record` and `ag_decision_engine`
-  (migrations `9004`-`9008`, no foreign keys). One-line hooks in upstream files:
+- Tables: `ag_decision_card`, `ag_decision_record`, `ag_decision_engine` and
+  `ag_decision_intent` (migrations `9004`-`9013`, no foreign keys). One-line hooks in upstream files:
   the two index builds in `concurrentIndexCleanups` (`cmd/migrate/main.go`), and
   the tables in `DeleteWorkspace` (`queries/workspace.sql`, generated code) and
   `workspaceDeletionManifest`.
 - API: `/api/ag/decisions` (`GET /`, `GET /count`, `PUT /cards`, `GET` and `POST
   /records`), behind `RequireHumanActor`. `PUT /cards` takes the complete set: an
   open card that is not listed is resolved. `POST /records` ignores a repeated id.
+  Intents: `POST /{id}/intents` checks the card is open, at the revision on screen
+  and offers the action; one live intent per card. `POST /intents/claim` is also the
+  worker's heartbeat, expires intents unclaimed after 15 minutes and fails ones
+  running over 10, never retrying them. `DELETE /intents/{id}` cancels a queued one,
+  and `POST /intents/{id}/result` stores the outcome and its record together.
 - WebSocket: `ag:decision_changed` carries no data and invalidates the queries.
 - CLI: `multica decisions push` reads `{cards, records}` from stdin, so the sync
-  never reads the CLI's token, and refuses input with no card list.
-- Web: `packages/core/decisions/` (parser, queries), `packages/views/decisions/`
-  (page), web and desktop routes, the reserved slug `decisions`, and one-line
+  never reads the CLI's token, and refuses input with no card list. `decisions
+  claim` and `decisions result <id>` are the worker's two calls.
+- Web: `packages/core/decisions/` (parser, queries, mutations),
+  `packages/views/decisions/` (page: action buttons, second-tap and note dialogs,
+  override reasons, group batches, the intent's state, a worker-offline warning), web and desktop routes, the reserved slug `decisions`, and one-line
   hooks in the sidebar, paths, route icons, tab subjects, diagnostics buckets and
   search palette.
 - **Upstream**

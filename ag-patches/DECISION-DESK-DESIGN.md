@@ -307,7 +307,7 @@ a 403.
 | `GET /records` | Auto tab and weekly report |
 
 A new WebSocket event, `ag:decision_changed`, invalidates the Query caches. Phase 1 has the read routes, `PUT /cards`
-and `POST /records`; the intent routes come with phase 2.
+and `POST /records`; phase 2 adds the intent routes.
 
 ### Behaviour that matters
 
@@ -335,7 +335,7 @@ each. `app-sidebar.tsx`, `router.go` and `routes.tsx` are the likely conflict po
 |---|---|---|---|
 | 0. Clear noise | Done. Job 3 parks author's-turn items and titles escalations by AIW's ask. Closed CRT mirrors cancelled | Done | Measured below |
 | 1. Read-only page | Tables, read API, nav and page, engine writes cards and shadow records | About 3 days | Alan agrees the list matches what is really stuck |
-| 2. One-tap actions | Intents, desk worker, batches, override reasons | About 2 days | A week of real use |
+| 2. One-tap actions | Built. Intents, desk worker, batches, override reasons | About 2 days | A week of real use |
 | 3. Backtest | Replay `aiw-tiny` over the last 100 bot PRs, joined to reverts and regression tickets | About half a day | Lane size and miss rate look acceptable |
 | 4. Auto lane | `auto_hold` merge, Auto tab, weekly refinement report | About 1 day, then 2+ weeks of shadow data | Promotion thresholds met |
 
@@ -350,6 +350,20 @@ decision block in phase 2). `aiw-tiny` cannot yet read the AIW `Auto-proceed` si
 ticket, so each shadow record lists them under `not_checked`, and the backtest has to apply them before any promotion.
 Every bot PR also stays held until #1458 (merged to `canary`) reaches ag-charts and writes the classification line.
 Issues with a run in flight are not told apart from stuck ones beyond their status.
+
+**Phase 2 as built.** Each worker step is a fresh process, so an action never reads a cache from an earlier step, and
+`~/.ag-jira-sync/desk.pause` stops new claims. Actions by card: bot PR: `Approve and merge` (only when green with no
+conflict), `Approve only`, snooze; colleague PR: `Ask the squad`, snooze, and never an approve or merge; AIW plan:
+`Approve the plan` when its `Do next` names In Progress; AIW blocked: `Answer and resume`; no-PR review: close, snooze;
+report: close; agent question: its parsed options, a free reply; parked: unpark. Approving pins the checked head with
+`commit_id`, and merging uses `--match-head-commit` and never `--admin`, so the ruleset keeps the last word. Plan moves
+go through `jiraTransition`, so job 1's colleague-comment hold applies.
+
+What phase 2 leaves out. A click is Alan's decision, so it does not require `aiw-tiny` to pass: a PR that fails it needs
+a second tap showing why, and the click is logged with `blocked_by`. Keyboard shortcuts (`j`/`k`, number keys), per-row
+report fixes and `Wake holder` are not built. A question already replied to stays on Alan's tab until the agent answers
+or clears `needs-decision`, showing only a free reply. An agent's `(a)`/`(b)` lines are not always alternatives
+(MAG-916 uses them for two separate questions), so picking one posts that one line.
 
 Phase 1 ships through the normal path: `build-backend.sh`, `build-web.sh`, then `deploy-selfhost.sh`, which
 takes the `pg_dump` first.
