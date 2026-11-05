@@ -1,6 +1,7 @@
 # Decision Desk: design
 
-Status: proposal. Nothing is built. All numbers are from read-only checks on 2026-11-05.
+Status: phase 0 shipped (`ag-jira-sync` `df308e4`); phase 1 is next. Section 1's numbers are from read-only checks on
+2026-11-05, before phase 0.
 
 **Goal:** one screen that lists everything stuck on Alan, offers one-tap actions, lets low-risk items
 progress on their own, and logs why.
@@ -42,8 +43,9 @@ Four findings change the design:
 2. **The "no PR" items are not reviews.** They are AIW escalations. Job 3 titles them `Review AG-…`, tells
    the reader to review a PR that does not exist, and summarises the ticket instead of AIW's question. The
    real ask sits in the `jira-ai-bot` comment, with a parseable shape: `Do next:`, `Q1`, and
-   `Pipeline signals` (`Decision`, `Auto-proceed`). Checked on AG-18873 and AG-15293 only; the other four
-   still need checking.
+   `Pipeline signals` (`Decision`, `Auto-proceed`). Confirmed on all six, which are three different asks: three
+   plan approvals (AG-18666, AG-18874, AG-18374), two blocked on a question (AG-18873, AG-15293) and one
+   verification gate waiting on sub-tasks (AG-19149).
 3. **GitHub will not protect a merge here.** `latest` needs 1 approval and the `report` check, but it does
    not dismiss stale approvals on push and does not require threads to be resolved. The executor has to
    enforce both.
@@ -79,7 +81,8 @@ Each stuck issue gets `waiting_on`: `alan`, `author`, `colleague`, `agent` or `n
 
 | Card | Shown on the card | Quick actions |
 |---|---|---|
-| AIW escalation | `Do next` line, Q1 text, decision and confidence | Do the suggested close; answer Q1 (canned yes/no, or free text) and move to `In Progress`; open ticket |
+| AIW plan approval | Plan headline, `Do next` line, decision and confidence | Approve (move to `In Progress`); `Re-plan` with a note; open ticket |
+| AIW blocked | Status, Q1 text, decision and confidence | Do the suggested close; answer Q1 (canned yes/no, or free text) and move to `In Progress`; open ticket |
 | Agent question | The agent's (a)/(b)/(c) options, default marked | One button per option (posts the reply, which wakes the agent); free reply |
 | Bot PR | Size, CI, Codex at head, class labels, what stops auto | Approve and merge; approve only; ask Peer Squad; send back with a note; snooze until new head |
 | Colleague PR | Haiku summary, squad verdict, diff link | Ask squad; open diff; snooze until new head. **Never one-tap merged** |
@@ -293,11 +296,17 @@ each. `app-sidebar.tsx`, `router.go` and `routes.tsx` are the likely conflict po
 
 | Phase | Delivers | Estimate | Check before moving on |
 |---|---|---|---|
-| 0. Clear noise | `ag-jira-sync` only: job 3 parks author's-turn items and titles escalations by AIW's ask. Closed CRT mirrors are already done | About half a day | Queue drops from 18 to about 13 |
+| 0. Clear noise | Done. Job 3 parks author's-turn items and titles escalations by AIW's ask. Closed CRT mirrors cancelled | Done | Measured below |
 | 1. Read-only page | Tables, read API, nav and page, engine writes cards and shadow records | About 3 days | Alan agrees the list matches what is really stuck |
 | 2. One-tap actions | Intents, desk worker, batches, override reasons | About 2 days | A week of real use |
 | 3. Backtest | Replay `aiw-tiny` over the last 100 bot PRs, joined to reverts and regression tickets | About half a day | Lane size and miss rate look acceptable |
 | 4. Auto lane | `auto_hold` merge, Auto tab, weekly refinement report | About 1 day, then 2+ weeks of shadow data | Promotion thresholds met |
+
+**Phase 0 result.** The queue goes from 17 to 16, not the 13 estimated. Of the 4 items expected to park, 2 had gone
+green by build time and MAG-958's `PR: Feedback` label came from the PR author's own comment, so only MAG-920 (a real
+conflict) parks. The bigger gain is that 6 items now say what they need. Two lessons for the engine: read whose turn
+it is with job 3's `prTurn`, not the `PR: Feedback` label, which over-reports on colleague PRs; and removing noise
+will not shrink this queue much, so batching and one-tap plan approvals are what have to.
 
 Phase 1 ships through the normal path: `build-backend.sh`, `build-web.sh`, then `deploy-selfhost.sh`, which
 takes the `pg_dump` first.
