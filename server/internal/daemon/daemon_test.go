@@ -2179,7 +2179,7 @@ func TestGateClaudeResumeAcrossLocalWorktrees(t *testing.T) {
 			}
 			task := Task{PriorSessionID: "session-1", PriorWorkDir: prior}
 			taskCtx := execenv.TaskContextForEnv{AgentID: "agent-1", PriorSessionResumed: true}
-			env := &execenv.Environment{WorkDir: work, LocalWorktree: &execenv.LocalWorktree{Continued: tt.continued}}
+			env := &execenv.Environment{WorkDir: work, LocalWorktree: &execenv.LocalWorktree{Continued: tt.continued, OwnBranchResumable: tt.continued}}
 
 			ready := migrateClaudeWorktreeTranscript(env, task.PriorSessionID, env.WorkDir, task.PriorWorkDir, map[string]string{"CLAUDE_CONFIG_DIR": configDir}, slog.Default())
 			reachable := gateResumeToReachableSession(&task, &taskCtx, "claude", env.WorkDir, true, false, false, ready, slog.Default())

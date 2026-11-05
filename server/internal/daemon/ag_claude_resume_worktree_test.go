@@ -36,9 +36,10 @@ func TestAGPatchClaudeWorktreeResumable(t *testing.T) {
 		prior string
 		want  bool
 	}{
-		{"continued branch", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true}}, prior, true},
-		{"continued branch, prior run in a managed workdir", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true}}, managed, false},
-		{"continued branch, prior dir unknown", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true}}, "", false},
+		{"continued branch on its own branch", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true, OwnBranchResumable: true}}, prior, true},
+		{"continued branch forked off a held branch", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true}}, prior, false},
+		{"continued branch, prior run in a managed workdir", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true, OwnBranchResumable: true}}, managed, false},
+		{"continued branch, prior dir unknown", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{Continued: true, OwnBranchResumable: true}}, "", false},
 		{"own branch created or reset, prior run in a worktree", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{OwnBranchResumable: true}}, prior, true},
 		{"own branch created or reset, prior run in a worktree root", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{OwnBranchResumable: true}}, filepath.Join("/data", "task-1", "worktree"), true},
 		{"own branch created or reset, prior run in a workdir", &execenv.Environment{LocalWorktree: &execenv.LocalWorktree{OwnBranchResumable: true}}, managed, false},
@@ -107,13 +108,13 @@ func TestAGPatchMigrateClaudeWorktreeTranscript(t *testing.T) {
 		transcript bool
 		want       bool
 	}{
-		{"continued branch", execenv.LocalWorktree{Continued: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, true, true},
+		{"continued branch", execenv.LocalWorktree{Continued: true, OwnBranchResumable: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, true, true},
 		{"own branch created or reset, prior run in a worktree", execenv.LocalWorktree{OwnBranchResumable: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, true, true},
 		{"own branch created or reset, prior run in a workdir", execenv.LocalWorktree{OwnBranchResumable: true}, func(r string) string { return filepath.Join(r, "a", "workdir") }, true, false},
-		{"continued branch, prior run in a workdir", execenv.LocalWorktree{Continued: true}, func(r string) string { return filepath.Join(r, "a", "workdir") }, true, false},
+		{"continued branch, prior run in a workdir", execenv.LocalWorktree{Continued: true, OwnBranchResumable: true}, func(r string) string { return filepath.Join(r, "a", "workdir") }, true, false},
 		{"neither flag", execenv.LocalWorktree{}, func(r string) string { return filepath.Join(r, "a", "worktree") }, true, false},
 		{"own branch, missing transcript", execenv.LocalWorktree{OwnBranchResumable: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, false, false},
-		{"continued branch, missing transcript", execenv.LocalWorktree{Continued: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, false, false},
+		{"continued branch, missing transcript", execenv.LocalWorktree{Continued: true, OwnBranchResumable: true}, func(r string) string { return filepath.Join(r, "a", "worktree") }, false, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()

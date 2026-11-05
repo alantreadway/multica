@@ -68,15 +68,17 @@ func agClaudeMayMigrate(task *Task, provider string) bool {
 }
 
 // agClaudeWorktreeResumable reports whether a Claude session from priorWorkDir
-// may follow this run into its worktree: the new tree holds the prior run's
-// work (a continued branch) or the prior run left none (a created or reset own
-// branch), and the prior run was also in a worktree. A prior run in a managed
-// workdir, or anywhere unknown, may have left work this tree does not hold.
+// may follow this run into its worktree: the worktree stands on the
+// conversation's own branch and holds the prior run's work or the prior run
+// left none (see agOwnBranchResumable), and the prior run was also in a
+// worktree. A prior run in a managed workdir, or anywhere unknown, may have
+// left work this tree does not hold. LocalWorktree.Continued is not read: it
+// stays set when the branch was forked, which Codex accepts and this does not.
 func agClaudeWorktreeResumable(env *execenv.Environment, priorWorkDir string) bool {
 	if env == nil || env.LocalWorktree == nil {
 		return false
 	}
-	return (env.LocalWorktree.Continued || env.LocalWorktree.OwnBranchResumable) && agIsWorktreePath(priorWorkDir)
+	return env.LocalWorktree.OwnBranchResumable && agIsWorktreePath(priorWorkDir)
 }
 
 // agIsWorktreePath reports whether dir is, or is inside, the "worktree"

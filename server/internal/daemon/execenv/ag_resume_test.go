@@ -73,9 +73,9 @@ func TestAGPatchOwnBranchResumableWhenBranchWasMerged(t *testing.T) {
 	}
 }
 
-// Prior work sits on the branch and is not in HEAD. Continued carries it, and
-// that case stays resumable through Continued, not the new flag.
-func TestAGPatchOwnBranchResumableIsNotSetWhenContinued(t *testing.T) {
+// Prior work sits on the branch and is not in HEAD. The worktree stands on that
+// branch, so the work is in the tree and the run resumes.
+func TestAGPatchOwnBranchResumableIsSetWhenContinued(t *testing.T) {
 	t.Parallel()
 	repo := newTestRepo(t)
 
@@ -87,8 +87,8 @@ func TestAGPatchOwnBranchResumableIsNotSetWhenContinued(t *testing.T) {
 	if !second.Continued {
 		t.Fatal("premise: the second turn should continue the branch")
 	}
-	if second.OwnBranchResumable {
-		t.Error("a continued branch is resumable through Continued; the new flag must not also be set")
+	if !second.OwnBranchResumable {
+		t.Error("a continued run on its own branch has its work in the tree and should be resumable")
 	}
 }
 

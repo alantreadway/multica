@@ -1876,21 +1876,25 @@ minutes costs more than a new session.
   accepts the resume only when that copy is present. Upstream does this only
   when `LocalWorktree.Continued` is true.
 - Wider rule (ours): `LocalWorktree.OwnBranchResumable`, set by
-  `agOwnBranchResumable` in `execenv/ag_resume.go`, is true when the worktree is
-  on the conversation's own branch, reached without the preferred name having
-  been refused, that branch was created or reset onto HEAD this run, and no
-  other branch in the repo is recorded (`refs/multica/local-state/`) as this
-  conversation's with its tip outside HEAD. A record that names another owner
-  is ignored; a merged branch doesn't refuse. A failed ref listing, record read
-  or ancestor test also refuses. `Continued` is unchanged, because the Codex
-  rule reads it.
+  `agOwnBranchResumable` in `execenv/ag_resume.go`, is true when the worktree
+  stands on the conversation's own branch (not a fork off a held branch or a
+  task-scoped fallback) and either the branch is continued, or it was created or
+  reset onto HEAD this run, reached without the preferred name having been
+  refused, with no other branch in the repo recorded
+  (`refs/multica/local-state/`) as this conversation's with its tip outside
+  HEAD. The record check applies to the created and reset cases only. A record
+  that names another owner is ignored; a merged branch doesn't refuse. A failed
+  ref listing, record read or ancestor test also refuses. `Continued` is
+  unchanged, because the Codex rule reads it; the Claude gate reads
+  `OwnBranchResumable` alone, so it is narrower than upstream's rule: a fork
+  keeps `Continued` set and Codex still resumes it, Claude starts fresh.
 
 | New worktree state | Prior work in the tree? | Action |
 |---|---|---|
-| `Continued` | Yes | Resume |
+| `Continued`, on the conversation's own branch (the `<preferred>-<fingerprint>` branch included) | Yes | Resume |
 | Own branch newly created | Prior run made no commits | Resume |
 | Own branch reset (merged into HEAD) | Yes, through HEAD | Resume |
-| Forked, a sibling holds the branch | No | Fresh, with the notice |
+| Forked because a sibling or another worktree holds the branch, merged or not, `Continued` or not | No | Fresh, with the notice |
 | Fingerprint fallback branch (preferred name refused) | Unknown | Fresh, with the notice |
 | Task-scoped fallback | Unknown | Fresh, with the notice |
 | Prior run not in a worktree (`workdir`), whatever the new state | Unknown | Fresh, with the notice |
@@ -1898,8 +1902,11 @@ minutes costs more than a new session.
 
   Every resume row also needs the prior working directory to be inside a
   `worktree` directory (`agIsWorktreePath`), `Continued` included. A fork off a
-  busy branch that still carries unmerged work starts from that branch's tip,
-  so it has `Continued` set and resumes through the cherry-picked rule. On our logs #9734
+  held branch starts fresh even when `Continued` is set, because the holder (a
+  preserved worktree after a failed Finalize, a crash, or the user's own
+  checkout) may have work this tree lacks. A clean Finalize removes the worktree,
+  so the normal next run finds the branch free and is not forked. A fork because
+  the user's checkout holds the branch costs a cache miss. On our logs #9734
   alone would have resumed 13 of 143 recent dropped worktree runs; none of the
   Lead or Reviewer drops with a known outcome had `Continued` set, because a run
   with no commits has its created branch deleted at Finalize.
@@ -1930,15 +1937,17 @@ minutes costs more than a new session.
   branch and record deleted at Finalize, so it still resumes, renamed or not.
 - Known limits, not closed by the record check: a branch someone deleted
   without merging looks like "no commits" and leaves no record, so that run
-  resumes onto a tree without that work. Likewise, run 2 forks because a
-  sibling holds the merged own branch and commits on the fork; once the branch
-  is released, run 3 resets or creates it and resumes without run 2's commits
-  (a fork records nothing). An issue moved to a project on
+  resumes onto a tree without that work. Likewise, run 2 forks because the own
+  branch is held (merged or unmerged) and commits on the fork; once the branch
+  is released, run 3 continues, resets or creates it and resumes without run 2's
+  commits (a fork records nothing). The fork rule narrows this but doesn't close
+  it. An issue moved to a project on
   another repo keeps its commits in the first repo, which this repo's records
   can't show (read in code only).
 - Rebase note: the cherry-picked `TestGateClaudeResumeAcrossLocalWorktrees` and
   the `claude_worktree_resume_test.go` migration tests use a prior directory
-  named `worktree`, because the wider rule requires it of `Continued` too.
+  named `worktree`, and set `OwnBranchResumable` beside `Continued`, because the
+  wider rule requires both.
 - Checked on Claude Code 2.1.317 with Opus: a session created in one scratch
   worktree and copied to two others resumed in each, and the edit and commit of
   each hop landed in that hop's worktree.
@@ -1952,7 +1961,10 @@ minutes costs more than a new session.
 
 - Upstream:
   - Status: `candidate` for the wider rule; the cherry-pick drops out at the
-    next rebase onto v0.8.0 or later, and the wider rule stays.
+    next rebase onto v0.8.0 or later, and the wider rule stays. The rule is
+    narrower than #9734 for a fork off a held branch with `Continued` set
+    (upstream resumes, this starts fresh), so it must stay when the cherry-pick
+    drops out at a rebase.
   - Overlap: [#9731](https://github.com/multica-ai/multica/issues/9731) fixed by
     [#9734](https://github.com/multica-ai/multica/pull/9734) for `Continued`
     only.
