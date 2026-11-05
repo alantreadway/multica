@@ -154,6 +154,21 @@
     "recommended": "建议：{{action}}",
     "blocked": "不会自动执行：{{reason}}",
     "load_error": "无法加载决策。",
-    "waiting": "等待始于 {{time}}"
+    "waiting": "等待始于 {{time}}",
+    "actions": {
+      "queued": "排队中:{{action}}",
+      "working": "执行中:{{action}}",
+      "cancel": "取消",
+      "back": "返回",
+      "confirm": "确认",
+      "expired": "在 worker 处理前已过期。",
+      "failed": "失败:{{message}}",
+      "not_done": "未执行:{{message}}",
+      "queue_error": "无法加入队列:{{message}}",
+      "override_reason": "为什么不采用推荐操作?",
+      "batch_title": "{{action}}:{{total}} 张卡片",
+      "batch_partial": "{{total}} 项中有 {{failed}} 项无法加入队列。",
+      "worker_offline": "worker 未运行。操作会等待它,并在 15 分钟后过期。"
+    }
   }
 }

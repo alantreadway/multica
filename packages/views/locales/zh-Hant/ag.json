@@ -154,6 +154,21 @@
     "recommended": "建議：{{action}}",
     "blocked": "不會自動執行：{{reason}}",
     "load_error": "無法載入決策。",
-    "waiting": "等待始於 {{time}}"
+    "waiting": "等待始於 {{time}}",
+    "actions": {
+      "queued": "排隊中:{{action}}",
+      "working": "執行中:{{action}}",
+      "cancel": "取消",
+      "back": "返回",
+      "confirm": "確認",
+      "expired": "在 worker 處理前已過期。",
+      "failed": "失敗:{{message}}",
+      "not_done": "未執行:{{message}}",
+      "queue_error": "無法加入佇列:{{message}}",
+      "override_reason": "為什麼不採用建議操作?",
+      "batch_title": "{{action}}:{{total}} 張卡片",
+      "batch_partial": "{{total}} 項中有 {{failed}} 項無法加入佇列。",
+      "worker_offline": "worker 未執行。操作會等待它,並在 15 分鐘後過期。"
+    }
   }
 }

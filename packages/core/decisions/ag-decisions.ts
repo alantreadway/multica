@@ -8,6 +8,9 @@ import { parseWithFallback } from "../api/schema";
 /** The page warns once the engine has been silent this long. */
 export const ENGINE_STALE_AFTER_MS = 10 * 60 * 1000;
 
+/** The worker checks in every few seconds, so this long without one means it is not running. */
+export const WORKER_OFFLINE_AFTER_MS = 60 * 1000;
+
 export const WAITING_ON_ALAN = "alan";
 
 export type AGDecisionChipTone = "neutral" | "good" | "warn" | "bad";
@@ -20,6 +23,34 @@ export interface AGDecisionChip {
 export interface AGDecisionLink {
   label: string;
   url: string;
+}
+
+export interface AGDecisionAction {
+  id: string;
+  label: string;
+  primary: boolean;
+  batch: boolean;
+  /** Why this needs a second tap, or empty when it does not. */
+  confirm: string;
+  /** Asks for text first. */
+  note: { required: boolean; placeholder: string } | null;
+}
+
+export type AGDecisionIntentStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "refused"
+  | "expired"
+  | "cancelled";
+
+export interface AGDecisionIntent {
+  id: string;
+  cardRevision: number;
+  actionId: string;
+  status: AGDecisionIntentStatus;
+  message: string;
 }
 
 export interface AGDecisionCard {
@@ -41,11 +72,25 @@ export interface AGDecisionCard {
   bullets: string[];
   blockers: string[];
   links: AGDecisionLink[];
+  actions: AGDecisionAction[];
+  /** The id of the action the engine recommends, when it recommends one it can run. */
+  recommendedAction: string;
+  overrideReasons: string[];
+  latestIntent: AGDecisionIntent | null;
+}
+
+/** What the page sends for a click. The revision pins what was on screen. */
+export interface AGDecisionIntentInput {
+  revision: number;
+  action_id: string;
+  note: string;
+  override_reason: string;
 }
 
 export interface AGDecisionList {
   cards: AGDecisionCard[];
   lastSyncAt: string | null;
+  workerSeenAt: string | null;
 }
 
 export interface AGDecisionGroup {
@@ -85,7 +130,44 @@ const contentSchema = z.object({
   waiting_since: z.string().catch(""),
   blockers: itemsOf(z.string().min(1)),
   links: itemsOf(z.object({ label: z.string().min(1), url: z.string().refine(isWebUrl) })),
+  actions: itemsOf(
+    z.object({
+      id: z.string().min(1),
+      label: z.string().min(1),
+      primary: z.boolean().catch(false),
+      batch: z.boolean().catch(false),
+      confirm: z.string().catch(""),
+      note: z
+        .object({ required: z.boolean().catch(false), placeholder: z.string().catch("") })
+        .nullable()
+        .catch(null)
+        .default(null),
+    }),
+  ),
+  recommended_action: z.string().catch(""),
+  override_reasons: itemsOf(z.string().min(1)),
 });
+
+const INTENT_STATUSES = ["pending", "running", "succeeded", "failed", "refused", "expired", "cancelled"] as const;
+
+/** A status this build does not know reads as failed: the card keeps its buttons, and says what the server said. */
+const intentSchema = z
+  .object({
+    id: z.string().min(1),
+    card_revision: z.number().catch(0),
+    action_id: z.string().catch(""),
+    status: z.enum(INTENT_STATUSES).catch("failed"),
+    message: z.string().catch(""),
+  })
+  .transform(
+    (intent): AGDecisionIntent => ({
+      id: intent.id,
+      cardRevision: intent.card_revision,
+      actionId: intent.action_id,
+      status: intent.status,
+      message: intent.message,
+    }),
+  );
 
 const cardSchema = z
   .object({
@@ -97,6 +179,7 @@ const cardSchema = z
     head_sha: z.string().nullable().catch(null),
     first_seen_at: z.string().nullable().catch(null),
     content: z.unknown(),
+    latest_intent: intentSchema.nullable().catch(null).default(null),
   })
   .transform((card): AGDecisionCard => {
     const parsed = contentSchema.safeParse(card.content ?? {});
@@ -119,24 +202,35 @@ const cardSchema = z
       bullets: content.bullets,
       blockers: content.blockers,
       links: content.links,
+      actions: content.actions,
+      recommendedAction: content.recommended_action,
+      overrideReasons: content.override_reasons,
+      latestIntent: card.latest_intent,
     };
   });
 
 const listSchema = z.object({
   cards: itemsOf(cardSchema),
   last_sync_at: z.string().nullable().catch(null),
+  worker_seen_at: z.string().nullable().catch(null),
 });
 
-export const EMPTY_AG_DECISION_LIST: AGDecisionList = { cards: [], lastSyncAt: null };
+export const EMPTY_AG_DECISION_LIST: AGDecisionList = { cards: [], lastSyncAt: null, workerSeenAt: null };
 
 export function parseAGDecisionList(raw: unknown): AGDecisionList {
-  const parsed = parseWithFallback<{ cards: AGDecisionCard[]; last_sync_at: string | null } | null>(
+  const parsed = parseWithFallback<{
+    cards: AGDecisionCard[];
+    last_sync_at: string | null;
+    worker_seen_at: string | null;
+  } | null>(
     raw,
     listSchema,
     null,
     { endpoint: "/api/ag/decisions" },
   );
-  return parsed ? { cards: parsed.cards, lastSyncAt: parsed.last_sync_at } : EMPTY_AG_DECISION_LIST;
+  return parsed
+    ? { cards: parsed.cards, lastSyncAt: parsed.last_sync_at, workerSeenAt: parsed.worker_seen_at }
+    : EMPTY_AG_DECISION_LIST;
 }
 
 export function parseAGDecisionCount(raw: unknown): number {
@@ -178,4 +272,37 @@ export function isAGDecisionEngineStale(lastSyncAt: string | null, now: number):
   if (!lastSyncAt) return false;
   const at = Date.parse(lastSyncAt);
   return !Number.isNaN(at) && now - at > ENGINE_STALE_AFTER_MS;
+}
+
+/** True when clicks would sit in the queue. A worker never seen counts: nothing is going to pick them up. */
+export function isAGDecisionWorkerOffline(workerSeenAt: string | null, now: number): boolean {
+  if (!workerSeenAt) return true;
+  const at = Date.parse(workerSeenAt);
+  return Number.isNaN(at) || now - at > WORKER_OFFLINE_AFTER_MS;
+}
+
+/** The intent worth showing: anything live, or how the last click on this revision ended. A newer revision starts clean. */
+export function visibleAGDecisionIntent(card: AGDecisionCard): AGDecisionIntent | null {
+  const intent = card.latestIntent;
+  if (!intent || intent.status === "cancelled") return null;
+  if (intent.status === "pending" || intent.status === "running") return intent;
+  return intent.cardRevision === card.revision ? intent : null;
+}
+
+/** Actions stay offered unless one is under way or has just worked, so a failure's retry is the same button. */
+export function agDecisionCardIsActionable(card: AGDecisionCard): boolean {
+  const status = visibleAGDecisionIntent(card)?.status;
+  return status !== "pending" && status !== "running" && status !== "succeeded";
+}
+
+/** Actions every actionable card in a group offers, for clearing same-shape cards together. Needs two cards to be a batch. */
+export function agDecisionBatchActions(
+  cards: readonly AGDecisionCard[],
+): { action: AGDecisionAction; cards: AGDecisionCard[] }[] {
+  const ready = cards.filter(agDecisionCardIsActionable);
+  const [first] = ready;
+  if (!first || ready.length < 2) return [];
+  return first.actions
+    .filter((action) => action.batch && ready.every((card) => card.actions.some((a) => a.id === action.id && a.batch)))
+    .map((action) => ({ action, cards: ready }));
 }

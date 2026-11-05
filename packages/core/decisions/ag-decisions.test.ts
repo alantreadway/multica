@@ -1,12 +1,17 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import {
+  agDecisionBatchActions,
+  agDecisionCardIsActionable,
   countAGDecisionsByWaitingOn,
   ENGINE_STALE_AFTER_MS,
   groupAGDecisionCards,
   isAGDecisionEngineStale,
+  isAGDecisionWorkerOffline,
   parseAGDecisionCount,
   parseAGDecisionList,
+  visibleAGDecisionIntent,
+  WORKER_OFFLINE_AFTER_MS,
   type AGDecisionCard,
 } from "./ag-decisions";
 
@@ -52,6 +57,10 @@ const card = (over: Partial<AGDecisionCard>): AGDecisionCard => ({
   bullets: [],
   blockers: [],
   links: [],
+  actions: [],
+  recommendedAction: "",
+  overrideReasons: [],
+  latestIntent: null,
   ...over,
 });
 
@@ -174,5 +183,68 @@ describe("isAGDecisionEngineStale", () => {
   it("is not stale without a readable report", () => {
     expect(isAGDecisionEngineStale(null, base)).toBe(false);
     expect(isAGDecisionEngineStale("nope", base)).toBe(false);
+  });
+});
+
+describe("actions", () => {
+  const parsed = (content: Record<string, unknown>, over: Record<string, unknown> = {}) =>
+    parseAGDecisionList({ cards: [{ ...rawCard(over), content }], last_sync_at: null, worker_seen_at: "2026-11-01T00:00:00Z" });
+  const firstCard = (content: Record<string, unknown>, over: Record<string, unknown> = {}) =>
+    parsed(content, over).cards[0] as AGDecisionCard;
+
+  it("keeps the readable actions, and defaults what an older engine leaves out", () => {
+    const card = firstCard({ actions: [{ id: "park", label: "Snooze" }, { id: "" }, "nope"], recommended_action: 7 });
+    expect(card.actions).toEqual([{ id: "park", label: "Snooze", primary: false, batch: false, confirm: "", note: null }]);
+    expect(card.recommendedAction).toBe("");
+    expect(card.latestIntent).toBeNull();
+  });
+
+  it("reads the worker's last check-in, and a payload without one", () => {
+    expect(parsed({}).workerSeenAt).toBe("2026-11-01T00:00:00Z");
+    expect(parseAGDecisionList({ cards: [], last_sync_at: null }).workerSeenAt).toBeNull();
+  });
+
+  it("reads an unknown intent status as failed, and a malformed intent as none", () => {
+    const intent = { id: "i", card_revision: 2, action_id: "park", status: "paused", message: "m" };
+    expect(firstCard({}, { latest_intent: intent }).latestIntent?.status).toBe("failed");
+    expect(firstCard({}, { latest_intent: { id: 7 } }).latestIntent).toBeNull();
+  });
+
+  const withIntent = (status: string, revision = 2) =>
+    firstCard(
+      { actions: [{ id: "park", label: "Snooze", batch: true }] },
+      { latest_intent: { id: "i", card_revision: revision, action_id: "park", status, message: "" } },
+    );
+
+  it("shows a live intent always, and a finished one only on its own revision", () => {
+    expect(visibleAGDecisionIntent(withIntent("pending", 1))?.status).toBe("pending");
+    expect(visibleAGDecisionIntent(withIntent("failed", 2))?.status).toBe("failed");
+    expect(visibleAGDecisionIntent(withIntent("failed", 1))).toBeNull();
+    expect(visibleAGDecisionIntent(withIntent("cancelled", 2))).toBeNull();
+  });
+
+  it("offers actions unless one is under way or has just worked", () => {
+    expect(agDecisionCardIsActionable(withIntent("pending"))).toBe(false);
+    expect(agDecisionCardIsActionable(withIntent("running"))).toBe(false);
+    expect(agDecisionCardIsActionable(withIntent("succeeded"))).toBe(false);
+    expect(agDecisionCardIsActionable(withIntent("succeeded", 1))).toBe(true);
+    expect(agDecisionCardIsActionable(withIntent("failed"))).toBe(true);
+  });
+
+  it("batches only what every ready card offers, and needs two cards", () => {
+    const park = { id: "park", label: "Snooze", batch: true };
+    const close = { id: "close", label: "Close", batch: true };
+    const a = firstCard({ actions: [park, close] });
+    const b = firstCard({ actions: [park] });
+    expect(agDecisionBatchActions([a, b]).map((batch) => batch.action.id)).toEqual(["park"]);
+    expect(agDecisionBatchActions([a])).toEqual([]);
+    expect(agDecisionBatchActions([a, withIntent("pending")])).toEqual([]);
+  });
+
+  it("calls a worker offline when never seen or quiet too long", () => {
+    const now = Date.parse("2026-11-01T01:00:00Z");
+    expect(isAGDecisionWorkerOffline(null, now)).toBe(true);
+    expect(isAGDecisionWorkerOffline(new Date(now - WORKER_OFFLINE_AFTER_MS - 1).toISOString(), now)).toBe(true);
+    expect(isAGDecisionWorkerOffline(new Date(now - 1000).toISOString(), now)).toBe(false);
   });
 });

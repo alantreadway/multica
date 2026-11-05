@@ -154,6 +154,21 @@
     "recommended": "권장: {{action}}",
     "blocked": "자동 실행 안 함: {{reason}}",
     "load_error": "의사결정을 불러오지 못했습니다.",
-    "waiting": "대기 시작: {{time}}"
+    "waiting": "대기 시작: {{time}}",
+    "actions": {
+      "queued": "대기 중: {{action}}",
+      "working": "실행 중: {{action}}",
+      "cancel": "취소",
+      "back": "뒤로",
+      "confirm": "확인",
+      "expired": "워커가 가져가기 전에 만료되었습니다.",
+      "failed": "실패: {{message}}",
+      "not_done": "실행 안 됨: {{message}}",
+      "queue_error": "대기열에 추가할 수 없습니다: {{message}}",
+      "override_reason": "추천을 따르지 않는 이유는?",
+      "batch_title": "{{action}}: {{total}}개",
+      "batch_partial": "{{total}}개 중 {{failed}}개를 대기열에 추가하지 못했습니다.",
+      "worker_offline": "워커가 실행 중이 아닙니다. 작업은 대기하며 15분 후 만료됩니다."
+    }
   }
 }

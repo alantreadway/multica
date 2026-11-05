@@ -154,6 +154,21 @@
     "recommended": "推奨: {{action}}",
     "blocked": "自動実行しない理由: {{reason}}",
     "load_error": "意思決定を読み込めませんでした。",
-    "waiting": "待機開始: {{time}}"
+    "waiting": "待機開始: {{time}}",
+    "actions": {
+      "queued": "待機中: {{action}}",
+      "working": "実行中: {{action}}",
+      "cancel": "キャンセル",
+      "back": "戻る",
+      "confirm": "確認",
+      "expired": "ワーカーが取得する前に期限切れになりました。",
+      "failed": "失敗: {{message}}",
+      "not_done": "未実行: {{message}}",
+      "queue_error": "キューに追加できませんでした: {{message}}",
+      "override_reason": "推奨を選ばない理由は?",
+      "batch_title": "{{action}}: {{total}} 件",
+      "batch_partial": "{{total}} 件中 {{failed}} 件をキューに追加できませんでした。",
+      "worker_offline": "ワーカーが停止しています。アクションは待機し、15 分で期限切れになります。"
+    }
   }
 }

@@ -156,6 +156,21 @@
     "recommended": "Recommended: {{action}}",
     "blocked": "Not automatic: {{reason}}",
     "load_error": "Could not load decisions.",
-    "waiting": "Waiting since {{time}}"
+    "waiting": "Waiting since {{time}}",
+    "actions": {
+      "queued": "Queued: {{action}}",
+      "working": "Working: {{action}}",
+      "cancel": "Cancel",
+      "back": "Back",
+      "confirm": "Confirm",
+      "expired": "Expired before the worker picked it up.",
+      "failed": "Failed: {{message}}",
+      "not_done": "Not done: {{message}}",
+      "queue_error": "Could not queue that: {{message}}",
+      "override_reason": "Why not the recommendation?",
+      "batch_title": "{{action}}: {{total}} cards",
+      "batch_partial": "{{failed}} of {{total}} could not be queued.",
+      "worker_offline": "The worker is not running. Actions wait for it, and expire after 15 minutes."
+    }
   }
 }

@@ -1,6 +1,7 @@
-import { queryOptions, type QueryClient } from "@tanstack/react-query";
+import { queryOptions, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import type { WSClient } from "../api/ws-client";
+import type { AGDecisionIntentInput } from "./ag-decisions";
 
 // AG patch: Decision Desk. Events carry no data, so a change refetches.
 
@@ -11,7 +12,7 @@ export const agDecisionKeys = {
 };
 
 /** Polls because a sync that changes no card publishes nothing, and the staleness warning reads its timestamp. */
-const LIST_REFRESH_MS = 60_000;
+const LIST_REFRESH_MS = 30_000;
 
 export function agDecisionListOptions(wsId: string) {
   return queryOptions({
@@ -34,5 +35,23 @@ export function agDecisionCountOptions(wsId: string) {
 export function subscribeAGDecisions(ws: WSClient, qc: QueryClient): () => void {
   return ws.on("ag:decision_changed", () => {
     void qc.invalidateQueries({ queryKey: agDecisionKeys.all() });
+  });
+}
+
+/** Waits for the server: the card shows Queued only once the intent exists. */
+export function useCreateAGDecisionIntent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ cardId, intent }: { cardId: string; intent: AGDecisionIntentInput }) =>
+      api.createAGDecisionIntent(cardId, intent),
+    onSettled: () => qc.invalidateQueries({ queryKey: agDecisionKeys.all() }),
+  });
+}
+
+export function useCancelAGDecisionIntent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (intentId: string) => api.cancelAGDecisionIntent(intentId),
+    onSettled: () => qc.invalidateQueries({ queryKey: agDecisionKeys.all() }),
   });
 }
