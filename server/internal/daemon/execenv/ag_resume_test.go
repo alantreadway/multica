@@ -2,8 +2,9 @@ package execenv
 
 // AG patch: Claude resume across worktree directories. A new worktree is
 // resumable (OwnBranchResumable) when it stands on the conversation's own
-// branch and that branch was created or reset onto HEAD this run. Continued is
-// a separate flag that the Codex rule reads, so it must not move.
+// branch (never a fork) and that branch was continued, or was created or reset
+// onto HEAD this run. Continued is a separate flag that the Codex rule reads,
+// so it must not move.
 
 import (
 	"os"
@@ -116,8 +117,9 @@ func TestAGPatchOwnBranchResumableIsNotSetWhenForked(t *testing.T) {
 }
 
 // A sibling holds a branch that still carries unmerged work: the fork starts
-// from that branch's tip and so is continued. Resuming into it is the
-// Continued rule's, and the new flag stays out of it.
+// from that branch's tip, so Continued stays true (the Codex rule reads it), but
+// it is not the conversation's own branch and the holder may have uncommitted
+// work this tree lacks.
 func TestAGPatchOwnBranchResumableIsNotSetWhenForkedFromContinuedBranch(t *testing.T) {
 	t.Parallel()
 	repo := newTestRepo(t)
@@ -134,11 +136,66 @@ func TestAGPatchOwnBranchResumableIsNotSetWhenForkedFromContinuedBranch(t *testi
 	if sibling.OwnBranchResumable {
 		t.Error("a fork is never the conversation's own branch")
 	}
+	if !sibling.Continued {
+		t.Error("Continued must stay true on a fork of a branch with unmerged work: the Codex rule reads it")
+	}
 	if got := readFile(t, filepath.Join(sibling.WorkDir, "turn-one.txt")); got != "work from turn one\n" {
 		t.Errorf("the fork should carry the branch's work: %q", got)
 	}
 	finalizeOK(t, sibling)
 	finalizeOK(t, first)
+}
+
+// A preserved worktree (a failed Finalize or a crash) still holds the branch
+// with its unmerged work, so the next run forks from its tip. The holder may
+// have uncommitted edits the fork lacks: not resumable, although Continued is
+// set. A user checkout of the branch would make it HEAD, i.e. merged, which is
+// the other shape.
+func TestAGPatchOwnBranchResumableIsNotSetWhenUnmergedBranchIsHeldByWorktree(t *testing.T) {
+	t.Parallel()
+	repo := newTestRepo(t)
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
+	finalizeOK(t, first)
+	gitRun(t, repo, "worktree", "add", filepath.Join(t.TempDir(), "held"), "agent/j/mul-6881")
+
+	forked := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if forked.Branch == "agent/j/mul-6881" {
+		t.Fatal("premise: the run should have been forked off the held branch")
+	}
+	if !forked.Continued {
+		t.Fatal("premise: the fork of an unmerged branch should be continued")
+	}
+	if forked.OwnBranchResumable {
+		t.Error("a fork off a held branch must not be resumable, merged or not")
+	}
+}
+
+// A continued run on the conversation's own fingerprint branch has its work in
+// the tree, so the preferred name being held by the user does not matter.
+func TestAGPatchOwnBranchResumableIsSetWhenContinuedOnFingerprintBranch(t *testing.T) {
+	t.Parallel()
+	repo := newTestRepo(t)
+	gitRun(t, repo, "branch", "agent/j/mul-6881")
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	if first.Branch == "agent/j/mul-6881" {
+		t.Fatal("premise: the first run should have been refused the preferred name")
+	}
+	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
+	finalizeOK(t, first)
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if second.Branch != first.Branch {
+		t.Fatalf("premise: the second run should continue %s, got %s", first.Branch, second.Branch)
+	}
+	if !second.Continued || !second.OwnBranchResumable {
+		t.Errorf("continued on the fingerprint branch: Continued=%v OwnBranchResumable=%v, want true/true", second.Continued, second.OwnBranchResumable)
+	}
+	if got := readFile(t, filepath.Join(second.WorkDir, "turn-one.txt")); got != "work from turn one\n" {
+		t.Errorf("the continued branch should carry the work: %q", got)
+	}
 }
 
 // A run with no conversation key gets a task-scoped branch that continues

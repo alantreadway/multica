@@ -252,6 +252,7 @@ type agWTCase struct {
 	firstCommits      bool                // the prior run commits on its branch
 	mergeAfterFirst   bool                // the user merges that branch into HEAD
 	holdBranch        bool                // the user's checkout holds the branch, so the next run forks
+	holdByWorktree    bool                // a preserved worktree holds the branch while HEAD stays behind it, so the next run forks from unmerged work
 	transcriptAge     *time.Duration      // nil: no transcript is written
 	priorWorkDir      func(string) string // override the prior directory the server reports
 	noPriorSession    bool                // the server reports no prior session
@@ -430,6 +431,9 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 	if c.holdBranch {
 		git("checkout", first.BranchName)
 	}
+	if c.holdByWorktree {
+		git("worktree", "add", filepath.Join(t.TempDir(), "held"), first.BranchName)
+	}
 	if c.preferredHeld && first.BranchName == "agent/wt-agent/mul-9001" {
 		t.Fatalf("premise: the first run should have landed on the fingerprint branch, got %s", first.BranchName)
 	}
@@ -525,6 +529,7 @@ func TestAGPatchClaudeWorktreeResumeRunTask(t *testing.T) {
 		{"branch merged into HEAD", agWTCase{firstCommits: true, mergeAfterFirst: true, transcriptAge: agWTMinutes(10)}, true},
 		// AC6: a worktree where the prior work may not be present starts fresh.
 		{"forked because the branch is held", agWTCase{firstCommits: true, mergeAfterFirst: true, holdBranch: true, transcriptAge: agWTMinutes(10)}, false},
+		{"forked off a branch with unmerged work held by a preserved worktree", agWTCase{firstCommits: true, holdByWorktree: true, transcriptAge: agWTMinutes(10)}, false},
 		{"prior run was in a managed workdir", agWTCase{transcriptAge: agWTMinutes(10), priorWorkDir: func(string) string { return filepath.Join(t.TempDir(), "task-0", "workdir") }}, false},
 		{"prior directory not under an env root", agWTCase{transcriptAge: agWTMinutes(10), priorWorkDir: func(string) string { return filepath.Join(t.TempDir(), "elsewhere") }}, false},
 		// A branch that cannot be proved the conversation's moves the run to a
@@ -543,6 +548,7 @@ func TestAGPatchClaudeWorktreeResumeRunTask(t *testing.T) {
 		{"missing transcript, continued branch", agWTCase{firstCommits: true}, false},
 		// The record check: another branch in the repo holds this conversation's
 		// work that HEAD lacks.
+		{"continued on the fingerprint branch, preferred branch still held", agWTCase{firstCommits: true, preferredHeld: true, transcriptAge: agWTMinutes(10)}, true},
 		{"agent renamed after committing", agWTCase{firstCommits: true, renameAgent: true, transcriptAge: agWTMinutes(10)}, false},
 		{"work on the fingerprint branch, preferred branch deleted", agWTCase{firstCommits: true, preferredHeld: true, deletePreferred: true, transcriptAge: agWTMinutes(10)}, false},
 		{"agent renamed, prior run committed nothing", agWTCase{renameAgent: true, transcriptAge: agWTMinutes(10)}, true},
