@@ -265,6 +265,7 @@ type agWTCase struct {
 	rejectResume      bool                // the fake claude refuses a --resume, as it does for a session it cannot load
 	chat              bool                // a chat task rather than an issue task
 	provider          string              // "" is claude; "grok" is the one non-Claude fake
+	stablePath        bool                // the second run may take over the first run's env root
 }
 
 type agWTOutcome struct {
@@ -289,6 +290,7 @@ func (o agWTOutcome) dirLine() bool { return strings.Contains(o.stdin, "## Worki
 func (o agWTOutcome) freshLogged() bool {
 	return strings.Contains(o.log, "starting fresh Claude session")
 }
+func (o agWTOutcome) sameRoot() bool { return o.first.EnvRoot == o.second.EnvRoot }
 func (o agWTOutcome) copied() bool {
 	_, err := os.Stat(filepath.Join(o.configDir, "projects", encodeClaudeCwd(o.second.WorkDir), o.first.SessionID+".jsonl"))
 	return err == nil
@@ -298,6 +300,9 @@ func (o agWTOutcome) copied() bool {
 // creates the session, then the second carries it and is the run under test.
 func agWTRun(t *testing.T, c agWTCase) agWTOutcome {
 	t.Helper()
+	if !c.stablePath {
+		agDisableStablePath(t)
+	}
 	if runtime.GOOS == "windows" {
 		t.Skip("shell-script agent fixture is POSIX-only")
 	}
@@ -558,31 +563,48 @@ func TestAGPatchClaudeWorktreeResumeRunTask(t *testing.T) {
 		// AC4: no session from the server, no session in the run.
 		{"no prior session id", agWTCase{noPriorSession: true, transcriptAge: agWTMinutes(10)}, false},
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			got := agWTRun(t, tt.c)
+		for _, stable := range []bool{false, true} {
+			name := tt.name
+			if stable {
+				name += " (stable path)"
+			}
+			t.Run(name, func(t *testing.T) {
+				c := tt.c
+				c.stablePath = stable
+				got := agWTRun(t, c)
 
-			if got.invocations != 1 {
-				t.Fatalf("want one claude run, got %d\n%s", got.invocations, got.log)
-			}
-			if got.resumed() != tt.wantResume {
-				t.Errorf("--resume passed = %v, want %v\nargs:\n%s\n%s", got.resumed(), tt.wantResume, got.args, got.log)
-			}
-			if got.copied() != tt.wantResume {
-				t.Errorf("transcript copied into the new directory = %v, want %v", got.copied(), tt.wantResume)
-			}
-			if got.dirLine() != tt.wantResume {
-				t.Errorf("working-directory line = %v, want %v\n%s", got.dirLine(), tt.wantResume, got.stdin)
-			}
-			// A session lost or left behind carries the notice, except when the
-			// server never offered one.
-			wantNotice := !tt.wantResume && !tt.c.noPriorSession
-			if got.notice() != wantNotice {
-				t.Errorf("continuity notice = %v, want %v\n%s", got.notice(), wantNotice, got.stdin)
-			}
-			if got.freshLogged() {
-				t.Errorf("only the resume window logs a deliberate fresh start\n%s", got.log)
-			}
-		})
+				if got.invocations != 1 {
+					t.Fatalf("want one claude run, got %d\n%s", got.invocations, got.log)
+				}
+				if got.resumed() != tt.wantResume {
+					t.Errorf("--resume passed = %v, want %v\nargs:\n%s\n%s", got.resumed(), tt.wantResume, got.args, got.log)
+				}
+				// On the stable path the run is in the directory the session came
+				// from: nothing is copied and the directory is not restated.
+				// A run with a session on a worktree takes over the root, so the
+				// refused cases below are refused by the gate, not by never
+				// having had the path.
+				if wantRoot := stable && tt.c.transcriptAge != nil && !tt.c.chat && !tt.c.noPriorSession && tt.c.priorWorkDir == nil; got.sameRoot() != wantRoot {
+					t.Fatalf("stable env root taken = %v, want %v\n%s", got.sameRoot(), wantRoot, got.log)
+				}
+				wantMoved := tt.wantResume && !(stable && got.sameRoot())
+				if !got.sameRoot() && got.copied() != wantMoved {
+					t.Errorf("transcript copied into the new directory = %v, want %v", got.copied(), wantMoved)
+				}
+				if got.dirLine() != wantMoved {
+					t.Errorf("working-directory line = %v, want %v\n%s", got.dirLine(), wantMoved, got.stdin)
+				}
+				// A session lost or left behind carries the notice, except when the
+				// server never offered one.
+				wantNotice := !tt.wantResume && !tt.c.noPriorSession
+				if got.notice() != wantNotice {
+					t.Errorf("continuity notice = %v, want %v\n%s", got.notice(), wantNotice, got.stdin)
+				}
+				if got.freshLogged() {
+					t.Errorf("only the resume window logs a deliberate fresh start\n%s", got.log)
+				}
+			})
+		}
 	}
 }
 
@@ -723,4 +745,12 @@ func TestAGPatchClaudeWorktreeResumeRefusedAfterCopy(t *testing.T) {
 	if !strings.Contains(prompts[1], "## Session Continuity Notice") {
 		t.Errorf("the retry should carry the continuity notice:\n%s", prompts[1])
 	}
+}
+
+// agDisableStablePath keeps a run on its own env root, so the second turn of a
+// test is in a new directory and takes the cross-directory resume.
+func agDisableStablePath(t *testing.T) {
+	t.Helper()
+	agStablePathEnabled = false
+	t.Cleanup(func() { agStablePathEnabled = true })
 }

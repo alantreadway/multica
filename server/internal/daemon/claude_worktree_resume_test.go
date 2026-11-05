@@ -135,6 +135,7 @@ func TestMigrateClaudeWorktreeTranscriptRejectsUnsafeSessionID(t *testing.T) {
 // Exercise real task preparation and launch with a fake CLI, so custom_env
 // must reach both the migration gate and the subprocess without using an account.
 func TestRunTask_ClaudeWorktreeResumeUsesCustomConfigDir(t *testing.T) {
+	agDisableStablePath(t)
 	if runtime.GOOS == "windows" {
 		t.Skip("shell-script agent fixture is POSIX-only")
 	}
