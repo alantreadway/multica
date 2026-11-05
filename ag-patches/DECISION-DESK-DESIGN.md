@@ -128,7 +128,11 @@ reason shown on the card:
 1. Author is `app/ag-jira-agent-ci`. Base is `latest` (not `bX.Y.Z`, not another PR's branch).
 2. The branch is in this repo, and every push to it, per GitHub's activity log, is by app id `286720198`.
 3. 50 changed lines or fewer, 5 files or fewer, and every file under `packages/ag-charts-{community,enterprise,core}/src/`.
+   No file under a `license/` directory. No added line uses `eval`, `new Function`, raw HTML sinks, network calls,
+   `postMessage` or `document.cookie`, or contains hidden Unicode. The scan catches plain forms only: it is a speed bump.
 4. `report` passes on the head, with at least one check that actually succeeded.
+   CodeQL also passes on the head, published by `github-advanced-security`, which a workflow on the PR's branch cannot
+   publish as.
 5. The `github-actions[bot]` Codex summary comment's stamp equals the head, its summary line says no issues found, and
    there are zero unresolved Codex threads. A finding may never become a thread, and a thread can be resolved unfixed.
 6. That comment's classification line exists for this head: `content` is `library`, `change` is `mechanical` or
