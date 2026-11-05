@@ -1,7 +1,7 @@
 # Decision Desk: design
 
-Status: phase 0 shipped (`ag-jira-sync` `df308e4`); phase 1 is built and tested but not deployed (the engine is on `ag-jira-sync` branch `desk-phase1`). Section 1's numbers are from read-only checks on
-2026-11-05, before phase 0.
+Status: phases 0 and 1 are live (`ag-jira-sync` `36284f0`, self-host `v0.7.1-ag.2`). Phase 1 is read-only: job 17 sends cards
+and shadow records, and acts on nothing. Section 1's numbers are from read-only checks on 2026-11-05, before phase 0.
 
 **Goal:** one screen that lists everything stuck on Alan, offers one-tap actions, lets low-risk items
 progress on their own, and logs why.
