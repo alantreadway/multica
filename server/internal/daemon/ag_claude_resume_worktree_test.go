@@ -254,6 +254,10 @@ type agWTCase struct {
 	transcriptAge   *time.Duration      // nil: no transcript is written
 	priorWorkDir    func(string) string // override the prior directory the server reports
 	noPriorSession  bool                // the server reports no prior session
+	rewriteBranch   bool                // the user rewrites the branch, so it can no longer be proved the conversation's
+	rejectResume    bool                // the fake claude refuses a --resume, as it does for a session it cannot load
+	chat            bool                // a chat task rather than an issue task
+	provider        string              // "" is claude; "grok" is the one non-Claude fake
 }
 
 type agWTOutcome struct {
@@ -264,12 +268,16 @@ type agWTOutcome struct {
 	pwd           string // directory claude ran in on the second run
 	log           string
 	invocations   int
+	provider      string
 }
 
 func (o agWTOutcome) resumed() bool {
+	if o.provider == "grok" {
+		return strings.Contains(o.stdin, `"method":"session/load"`)
+	}
 	return strings.Contains(o.args, "--resume\n"+o.first.SessionID+"\n")
 }
-func (o agWTOutcome) notice() bool  { return strings.Contains(o.stdin, "could not be restored") }
+func (o agWTOutcome) notice() bool  { return strings.Contains(o.stdin, "## Session Continuity Notice") }
 func (o agWTOutcome) dirLine() bool { return strings.Contains(o.stdin, "## Working directory") }
 func (o agWTOutcome) freshLogged() bool {
 	return strings.Contains(o.log, "starting fresh Claude session")
@@ -296,11 +304,46 @@ func agWTRun(t *testing.T, c agWTCase) agWTOutcome {
 	repo := createDaemonTestRepo(t)
 	out := t.TempDir()
 	argsFile, stdinFile, pwdFile := filepath.Join(out, "args"), filepath.Join(out, "stdin"), filepath.Join(out, "pwd")
-	fakeBin := filepath.Join(t.TempDir(), "claude")
-	script := func(commit bool) []byte {
+	provider := "claude"
+	if c.provider != "" {
+		provider = c.provider
+	}
+	fakeBin := filepath.Join(t.TempDir(), provider)
+	script := func(commit bool, rejectResume bool) []byte {
 		body := ""
 		if commit {
 			body = "printf 'first turn work\\n' > turn-one.txt\ngit add turn-one.txt\ngit -c user.name=t -c user.email=t@example.com commit -q -m 'turn one'\n"
+		}
+		if c.provider == "grok" {
+			return []byte(`#!/bin/sh
+case "$*" in *--version*) echo '1.0.0'; exit 0;; esac
+printf '%s\n' "$@" >> '` + argsFile + `'
+printf '%s\n' '--invocation-end--' >> '` + argsFile + `'
+pwd >> '` + pwdFile + `'
+` + body + `while IFS= read -r line; do
+  printf '%s\n' "$line" >> '` + stdinFile + `'
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1,"authMethods":[{"id":"cached_token","name":"Test authentication"}],"agentCapabilities":{"mcpCapabilities":{"http":true,"sse":true}}}}\n' "$id";;
+    *'"method":"session/new"'*|*'"method":"session/load"'*)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"session-wt","models":{"currentModelId":"grok-4.6","availableModels":[{"modelId":"grok-4.6","name":"Test model"}]}}}\n' "$id";;
+    *'"method":"session/prompt"'*)
+      printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-wt","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}}}'
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn","_meta":{"modelId":"grok-4.6"}}}\n' "$id";;
+    *) if [ -n "$id" ]; then printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id"; fi;;
+  esac
+done
+`)
+		}
+		reject := ""
+		if rejectResume {
+			reject = `case "$*" in *--resume*)
+printf '%s\n' '{"type":"system","session_id":"fresh-new"}'
+printf '%s\n' '{"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"fresh-new","result":"No conversation found with session ID: session-wt"}'
+exit 1;;
+esac
+`
 		}
 		return []byte(`#!/bin/sh
 case "$*" in *--version*) echo '2.1.299'; exit 0;; esac
@@ -309,7 +352,7 @@ printf '%s\n' '--invocation-end--' >> '` + argsFile + `'
 pwd >> '` + pwdFile + `'
 ` + body + `IFS= read -r line
 printf '%s\n--prompt-end--\n' "$line" >> '` + stdinFile + `'
-printf '%s\n' '{"type":"system","session_id":"session-wt"}'
+` + reject + `printf '%s\n' '{"type":"system","session_id":"session-wt"}'
 printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id":"session-wt","result":"done"}'
 `)
 	}
@@ -322,8 +365,9 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 		workspaces: make(map[string]*workspaceState), activeEnvRoots: make(map[string]int),
 		cfg: Config{
 			DaemonID: "daemon-wt", WorkspacesRoot: t.TempDir(), AgentTimeout: 5 * time.Second,
-			ServerBaseURL: srv.URL, Agents: map[string]AgentEntry{"claude": {Path: fakeBin}},
+			ServerBaseURL: srv.URL, Agents: map[string]AgentEntry{provider: {Path: fakeBin}},
 		},
+		runtimeIndex: map[string]Runtime{"runtime-wt": {ID: "runtime-wt", Provider: provider}},
 	}
 	ref, err := json.Marshal(localDirectoryRef{LocalPath: repo, DaemonID: d.cfg.DaemonID, ExecutionMode: localDirectoryModeWorktree})
 	if err != nil {
@@ -336,8 +380,16 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 		ProjectResources: []ProjectResourceData{{ID: "repo-wt", ResourceType: localDirectoryResourceType, ResourceRef: ref}},
 	}
 
-	writeTestExecutable(t, fakeBin, script(c.firstCommits))
-	first, err := d.runTask(context.Background(), task, "claude", 0, logger)
+	if c.chat {
+		task.IssueID, task.IssueIdentifier = "", ""
+		task.ChatSessionID, task.ChatMessage = "chat-wt", "please continue"
+	}
+	if provider == "grok" {
+		task.Agent.Model = "grok-4.6"
+	}
+
+	writeTestExecutable(t, fakeBin, script(c.firstCommits, false))
+	first, err := d.runTask(context.Background(), task, provider, 0, logger)
 	if err != nil || first.Status != "completed" {
 		t.Fatalf("first turn = %+v, %v", first, err)
 	}
@@ -347,13 +399,18 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 	if _, err := os.Stat(first.WorkDir); !os.IsNotExist(err) {
 		t.Fatalf("prior worktree was not removed: %v", err)
 	}
-	git := func(args ...string) {
+	git := func(args ...string) string {
 		t.Helper()
 		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
 		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		if outp, err := cmd.CombinedOutput(); err != nil {
+		outp, err := cmd.CombinedOutput()
+		if err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, outp)
 		}
+		return strings.TrimSpace(string(outp))
+	}
+	if c.rewriteBranch {
+		git("update-ref", "refs/heads/"+first.BranchName, git("commit-tree", "-m", "rewritten", "HEAD^{tree}"))
 	}
 	if c.mergeAfterFirst {
 		git("merge", "--no-edit", first.BranchName)
@@ -373,7 +430,7 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 	if !c.noPriorSession {
 		task.PriorSessionID, task.PriorWorkDir = first.SessionID, priorDir
 	}
-	writeTestExecutable(t, fakeBin, script(false))
+	writeTestExecutable(t, fakeBin, script(false, c.rejectResume))
 	// Truncate what the first turn recorded, so only the run under test remains.
 	for _, f := range []string{argsFile, stdinFile, pwdFile} {
 		if err := os.Truncate(f, 0); err != nil {
@@ -382,7 +439,7 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 	}
 	var logs bytes.Buffer
 	runLog := slog.New(slog.NewTextHandler(&logs, nil))
-	second, err := d.runTask(context.Background(), task, "claude", 0, runLog)
+	second, err := d.runTask(context.Background(), task, provider, 0, runLog)
 	if err != nil || second.Status != "completed" {
 		t.Fatalf("second turn = %+v, %v\n%s", second, err, logs.String())
 	}
@@ -392,7 +449,7 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 	return agWTOutcome{
 		first: first, second: second, repo: repo, configDir: configDir,
 		args: string(args), stdin: string(stdin), pwd: strings.TrimSpace(string(pwd)), log: logs.String(),
-		invocations: strings.Count(string(args), "--invocation-end--"),
+		invocations: strings.Count(string(args), "--invocation-end--"), provider: provider,
 	}
 }
 
@@ -412,6 +469,17 @@ func TestAGPatchClaudeWorktreeResumeRunTask(t *testing.T) {
 		{"forked because the branch is held", agWTCase{firstCommits: true, mergeAfterFirst: true, holdBranch: true, transcriptAge: agWTMinutes(10)}, false},
 		{"prior run was in a managed workdir", agWTCase{transcriptAge: agWTMinutes(10), priorWorkDir: func(string) string { return filepath.Join(t.TempDir(), "task-0", "workdir") }}, false},
 		{"prior directory not under an env root", agWTCase{transcriptAge: agWTMinutes(10), priorWorkDir: func(string) string { return filepath.Join(t.TempDir(), "elsewhere") }}, false},
+		// A branch that cannot be proved the conversation's moves the run to a
+		// fingerprint branch, forked from HEAD: the prior work is on the refused one.
+		{"preferred branch rewritten, so refused", agWTCase{firstCommits: true, rewriteBranch: true, transcriptAge: agWTMinutes(10)}, false},
+		// A prior run in a managed workdir may have left work this tree lacks,
+		// even when the branch continues.
+		{"continued branch, prior run was in a managed workdir", agWTCase{firstCommits: true, transcriptAge: agWTMinutes(10), priorWorkDir: func(string) string { return filepath.Join(t.TempDir(), "task-0", "workdir") }}, false},
+		// A chat task never crosses directories, which the resume window would
+		// otherwise leave unchecked: not even for a transcript three hours old.
+		{"chat task, continued branch", agWTCase{chat: true, firstCommits: true, transcriptAge: agWTMinutes(10)}, false},
+		{"chat task, continued branch, stale transcript", agWTCase{chat: true, firstCommits: true, transcriptAge: agWTMinutes(180)}, false},
+		{"chat task, prior run committed nothing", agWTCase{chat: true, transcriptAge: agWTMinutes(10)}, false},
 		// AC6: a missing session file falls back to a fresh start.
 		{"missing transcript, nothing committed", agWTCase{}, false},
 		{"missing transcript, continued branch", agWTCase{firstCommits: true}, false},
@@ -513,5 +581,74 @@ func TestAGPatchWorkingDirectoryLineOnlyOnCrossDirectoryResume(t *testing.T) {
 				t.Errorf("a same-directory resume should not get the directory line:\n%s", got.invocations[0].stdin)
 			}
 		})
+	}
+}
+
+// AC5: another provider, on the setups where Claude resumes, behaves as it did:
+// the changed directory drops the session with its notice, and nothing is
+// copied or added to the prompt.
+func TestAGPatchOtherProviderWorktreeRunUnchanged(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		c    agWTCase
+	}{
+		{"continued branch", agWTCase{firstCommits: true}},
+		{"prior run committed nothing", agWTCase{}},
+		{"branch merged into HEAD", agWTCase{firstCommits: true, mergeAfterFirst: true}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.c.provider, tt.c.transcriptAge = "grok", agWTMinutes(10)
+			got := agWTRun(t, tt.c)
+
+			if got.invocations != 1 {
+				t.Fatalf("want one grok run, got %d\n%s", got.invocations, got.log)
+			}
+			if got.resumed() {
+				t.Errorf("grok should not resume across directories:\n%s", got.stdin)
+			}
+			if got.copied() {
+				t.Error("a Claude transcript was copied for another provider")
+			}
+			if got.dirLine() {
+				t.Errorf("the directory line is Claude's only:\n%s", got.stdin)
+			}
+			if !got.notice() {
+				t.Errorf("the dropped session should carry the continuity notice:\n%s", got.stdin)
+			}
+		})
+	}
+}
+
+// A resume that Claude refuses after the transcript was copied takes the
+// fresh-session retry. The retry is a cold run: the notice, and no directory
+// line, which would claim the earlier turns used another directory.
+func TestAGPatchClaudeWorktreeResumeRefusedAfterCopy(t *testing.T) {
+	got := agWTRun(t, agWTCase{firstCommits: true, transcriptAge: agWTMinutes(10), rejectResume: true})
+
+	if got.invocations != 2 {
+		t.Fatalf("want the refused resume then one fresh retry, got %d runs\n%s", got.invocations, got.log)
+	}
+	if !got.copied() {
+		t.Fatal("premise: the transcript should have been copied before the resume was refused")
+	}
+	runs := strings.Split(strings.TrimSuffix(got.args, "--invocation-end--\n"), "--invocation-end--\n")
+	prompts := strings.Split(strings.TrimSuffix(got.stdin, "--prompt-end--\n"), "--prompt-end--\n")
+	if len(runs) != 2 || len(prompts) != 2 {
+		t.Fatalf("unexpected runs %q or prompts %q", runs, prompts)
+	}
+	if !strings.Contains(runs[0], "--resume\n"+got.first.SessionID+"\n") {
+		t.Errorf("the first attempt should resume:\n%s", runs[0])
+	}
+	if !strings.Contains(prompts[0], "## Working directory") || strings.Contains(prompts[0], "## Session Continuity Notice") {
+		t.Errorf("the resume attempt should carry the directory line and no notice:\n%s", prompts[0])
+	}
+	if strings.Contains(runs[1], "--resume") {
+		t.Errorf("the retry should start a fresh session:\n%s", runs[1])
+	}
+	if strings.Contains(prompts[1], "## Working directory") {
+		t.Errorf("the retry should not carry the directory line:\n%s", prompts[1])
+	}
+	if !strings.Contains(prompts[1], "## Session Continuity Notice") {
+		t.Errorf("the retry should carry the continuity notice:\n%s", prompts[1])
 	}
 }
