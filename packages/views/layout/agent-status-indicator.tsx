@@ -242,13 +242,15 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
                     {t(($) => $.layout.agent_status.hover_tokens_header)}
                   </div>
                   {tokens.runtimes.map((r) => (
-                    <div key={r.runtimeId} className="truncate text-caption tabular-nums">
-                      {t(($) => $.layout.agent_status.hover_tokens_runtime, {
-                        name: runtimeName(r.runtimeId),
-                        input: formatTokenRate(r.inputPerSec, locale),
-                        output: formatTokenRate(r.outputPerSec, locale),
-                        cache: formatTokenRate(r.cacheReadPerSec, locale),
-                      })}
+                    <div key={r.runtimeId} className="flex flex-col text-caption">
+                      <span className="truncate">{runtimeName(r.runtimeId)}</span>
+                      <span className="truncate tabular-nums text-muted-foreground">
+                        {t(($) => $.layout.agent_status.hover_tokens_rates, {
+                          input: formatTokenRate(r.inputPerSec, locale),
+                          output: formatTokenRate(r.outputPerSec, locale),
+                          cache: formatTokenRate(r.cacheReadPerSec, locale),
+                        })}
+                      </span>
                     </div>
                   ))}
                 </div>

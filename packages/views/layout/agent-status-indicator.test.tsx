@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AgentRuntime } from "@multica/core/types";
 import type { AGTokenRate } from "@multica/core/runtimes/ag-token-rate";
@@ -539,8 +539,13 @@ describe("AG patch: AgentStatusIndicator", () => {
       await userEvent.hover(screen.getByRole("link"));
       const hover = await screen.findByTestId("agent-status-tokens-hover");
       expect(hover).toHaveTextContent("Tokens per second · last 60s");
-      expect(hover).toHaveTextContent("mac-mini · 12.5 in · 85 out · 12.4K cache reads");
-      expect(hover).toHaveTextContent("Other runtime · 0 in · 3 out · 0 cache reads");
+      // The name has its own line, so a long runtime name never cuts off the rates.
+      expect(within(hover).getByText("mac-mini").nextSibling).toHaveTextContent(
+        "12.5 in · 85 out · 12.4K cache reads",
+      );
+      expect(within(hover).getByText("Other runtime").nextSibling).toHaveTextContent(
+        "0 in · 3 out · 0 cache reads",
+      );
     });
 
     it("AG patch: follows cache updates from events without refetching", () => {

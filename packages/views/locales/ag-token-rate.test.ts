@@ -8,7 +8,7 @@ const SIDEBAR: Record<string, readonly string[]> = {
   tokens: ["{{input}}", "{{output}}"],
   tokens_unknown: [],
   hover_tokens_header: [],
-  hover_tokens_runtime: ["{{name}}", "{{input}}", "{{output}}", "{{cache}}"],
+  hover_tokens_rates: ["{{input}}", "{{output}}", "{{cache}}"],
   hover_tokens_unlisted: [],
 };
 

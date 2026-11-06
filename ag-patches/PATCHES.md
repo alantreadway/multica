@@ -1750,8 +1750,8 @@ While agents run, the sidebar status row gets a line under the summary:
 "↓ 12.4K/s in · ↑ 85/s out", tokens per second averaged over the last 60s and
 summed across the workspace's Claude and Codex runtimes. "In" is new context:
 uncached input plus cache writes. Cache reads, which dwarf it on every call,
-appear only in the hover card, which lists each runtime ("mac-mini · 12.5 in ·
-85 out · 12.4K cache reads"), busiest first. With agents running but no live
+appear only in the hover card, which lists each runtime on two lines (the name,
+then "12.5 in · 85 out · 12.4K cache reads", so neither is cut off), busiest first. With agents running but no live
 rate (a stock daemon or backend, or a provider without usage events) the line
 shows "— tokens/s". Subagent usage is included.
 
@@ -1819,7 +1819,7 @@ shows "— tokens/s". Subagent usage is included.
   - `packages/views/runtimes/ag-token-rate-format.ts` (new);
     `layout/agent-status-indicator.tsx`, `agent-status-indicator.test.tsx`
   - `packages/views/locales/*/ag.json` (`layout.agent_status.tokens`,
-    `tokens_unknown`, `hover_tokens_header`, `hover_tokens_runtime`,
+    `tokens_unknown`, `hover_tokens_header`, `hover_tokens_rates`,
     `hover_tokens_unlisted`), `locales/ag-token-rate.test.ts` (new)
 
 - Upstream:

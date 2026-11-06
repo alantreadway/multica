@@ -114,7 +114,7 @@
       "tokens": "↓ {{input}}/s in · ↑ {{output}}/s out",
       "tokens_unknown": "— tokens/s",
       "hover_tokens_header": "Tokens per second · last 60s",
-      "hover_tokens_runtime": "{{name}} · {{input}} in · {{output}} out · {{cache}} cache reads",
+      "hover_tokens_rates": "{{input}} in · {{output}} out · {{cache}} cache reads",
       "hover_tokens_unlisted": "Other runtime"
     }
   },

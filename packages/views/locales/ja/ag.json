@@ -112,7 +112,7 @@
       "tokens": "↓ 入力 {{input}}/秒 · ↑ 出力 {{output}}/秒",
       "tokens_unknown": "— トークン/秒",
       "hover_tokens_header": "毎秒トークン数 · 直近 60 秒",
-      "hover_tokens_runtime": "{{name}} · 入力 {{input}} · 出力 {{output}} · キャッシュ読み取り {{cache}}",
+      "hover_tokens_rates": "入力 {{input}} · 出力 {{output}} · キャッシュ読み取り {{cache}}",
       "hover_tokens_unlisted": "その他のランタイム"
     }
   },
