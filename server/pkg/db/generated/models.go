@@ -69,6 +69,29 @@ type AgDecisionRecord struct {
 	Record      []byte             `json:"record"`
 }
 
+type AgOverviewForecast struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	Kind        string             `json:"kind"`
+	Ref         string             `json:"ref"`
+	Day         pgtype.Date        `json:"day"`
+	P50At       pgtype.Timestamptz `json:"p50_at"`
+	P85At       pgtype.Timestamptz `json:"p85_at"`
+	KnownUnits  int32              `json:"known_units"`
+	DoneUnits   int32              `json:"done_units"`
+	ScopeOpen   bool               `json:"scope_open"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type AgOverviewPin struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	Kind        string             `json:"kind"`
+	Ref         string             `json:"ref"`
+	CreatedBy   pgtype.UUID        `json:"created_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type Agent struct {
 	ID                 pgtype.UUID        `json:"id"`
 	WorkspaceID        pgtype.UUID        `json:"workspace_id"`

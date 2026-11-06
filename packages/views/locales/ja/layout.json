@@ -1,5 +1,6 @@
 {
   "nav": {
+    "overview": "概要",
     "inbox": "インボックス",
     "decisions": "意思決定",
     "chat": "チャット",
@@ -86,6 +87,7 @@
   "rail": {
     "label": "アプリナビゲーション",
     "sheet_description": "スペースとワークスペースを切り替えます。",
+    "overview": "概要",
     "inbox": "受信箱",
     "decisions": "意思決定",
     "work": "作業",

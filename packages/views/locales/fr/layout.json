@@ -1,5 +1,6 @@
 {
   "nav": {
+    "overview": "Vue d'ensemble",
     "inbox": "Boîte de réception",
     "decisions": "Décisions",
     "chat": "Discussion",
@@ -86,6 +87,7 @@
   "rail": {
     "label": "Navigation de l'application",
     "sheet_description": "Changer d'espace et d'espace de travail.",
+    "overview": "Vue d'ensemble",
     "inbox": "Boîte",
     "decisions": "Décisions",
     "work": "Travail",

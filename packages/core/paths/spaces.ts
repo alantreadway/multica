@@ -7,6 +7,7 @@
  */
 
 export type AppSpaceId =
+  | "overview" // AG patch: Overview
   | "inbox"
   | "decisions" // AG patch: Decision Desk
   | "work"
@@ -20,6 +21,7 @@ export type RailSpaceId = Exclude<AppSpaceId, "settings">;
 
 /** Spaces in rail order. */
 export const RAIL_SPACES: readonly RailSpaceId[] = [
+  "overview", // AG patch: Overview
   "inbox",
   "decisions", // AG patch: Decision Desk
   "work",
@@ -29,6 +31,7 @@ export const RAIL_SPACES: readonly RailSpaceId[] = [
 ];
 
 const SPACE_BY_SEGMENT: Record<string, AppSpaceId> = {
+  overview: "overview", // AG patch: Overview
   inbox: "inbox",
   decisions: "decisions", // AG patch: Decision Desk
   "my-issues": "work",

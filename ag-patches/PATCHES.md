@@ -69,6 +69,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 25 | Claude fresh session past the resume window (daemon) | `fork-only` | [#8070](https://github.com/multica-ai/multica/issues/8070) (open, no maintainer reply on 2026-11-05) | Low: the 60-minute threshold is our cost policy | Very low | None. |
 | 26 | Claude sessions resume across worktree directories (daemon) | `candidate` | [#9731](https://github.com/multica-ai/multica/issues/9731) / [#9734](https://github.com/multica-ai/multica/pull/9734) (merged in v0.8.0; the cherry-pick), no overlap for the wider rule | Good for the wider rule: it closes a gap in #9734 | Low | Offer the wider rule after the rebase onto v0.8.0, if asked. |
 | 27 | Claude stable worktree path for resumed sessions (daemon) | `fork-only` | none for issue worktrees; [#9707](https://github.com/multica-ai/multica/pull/9707) (open, unreviewed on 2026-11-05) does the same for autopilot workdirs and adds a server query | Low: Claude Code's cwd-keyed transcript and our cache cost | Low | None. Review at the rebase if #9707 merges: it touches the same GC and reuse code. |
+| 28 | Overview dashboard (backend + web) | `fork-only` | none found | Low: built around one person's pinned JIRA epics and the Decision Desk | Very low | None. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -2179,6 +2180,48 @@ The design and later phases are in
 - **Upstream**
   - Status: `fork-only`.
   - Fit: built around one person's review queue and an external sync job.
+
+### Overview dashboard (backend + web)
+
+An `Overview` page with its own app-rail space directly above Inbox: what runs now, what is queued, what
+waits on you (open Decision Desk cards, linking to the Decisions page), units
+past their state's usual time, and one panel per pinned work tree. Each tree is
+split into known scope (units done of known, a stage strip per open unit, and a
+p50-p85 range for the known units only) and unknown scope (issues not yet
+broken into units, units added in the last 3 days, and how much past waves grew
+after day one), with "Scope still open" or "Scope looks complete". The page
+never acts on anything. The design and the options it was chosen from are in
+[`OVERVIEW-DASHBOARD-DESIGN.md`](./OVERVIEW-DASHBOARD-DESIGN.md).
+
+- Tables: `ag_overview_pin` (one row per pinned JIRA key or root issue) and
+  `ag_overview_forecast` (one row per pinned tree per day: p50, p85, known and
+  done units, scope open), migrations `9014`-`9017`, no foreign keys. One-line
+  hooks in upstream files: the two index builds in `concurrentIndexCleanups`
+  (`cmd/migrate/main.go`), and the tables in `DeleteWorkspace`
+  (`queries/workspace.sql`, generated code) and `workspaceDeletionManifest`.
+- API: `/api/ag/overview` (`GET /`, `POST /pins`, `DELETE /pins/{id}`), behind
+  `RequireHumanActor`. `GET` computes everything from tables the server holds
+  and writes the day's forecast row for each tree; the first write of a UTC day
+  wins, so no scheduler is needed. A pin takes a JIRA key or an issue
+  identifier; pinning the same tree twice returns the existing pin.
+- Rules: a work tree is the seed issues (the pinned root, or every issue whose
+  metadata names the key) plus their descendants, minus descendants that name a
+  different key; each root is one wave. A unit has a `unit_flow`, or is a leaf
+  with a PR. Ageing is past the wall-clock p90 of one stay in that state over
+  60 days. The ETA draws each open unit's weekday time to done from units that
+  were in the same state at least as long, 1000 runs seeded by pin and day, and
+  stays hidden below 20 samples for any open unit's state.
+- WebSocket: task, issue and `ag:decision_changed` events invalidate the query,
+  at most once every 5 seconds; it also refetches every minute.
+- Web: `packages/core/overview/` (parser, stage strip, queries, live refresh),
+  `packages/views/overview/` (page), web and desktop routes, the reserved slug
+  `overview`, the `nav.overview` and `rail.overview` labels in `layout.json`, and
+  one-line hooks in the app rail (`app-rail.tsx`, `spaces.ts`), paths, route
+  icons (`LayoutDashboard`: a rail icon needs a body), tab subjects,
+  diagnostics buckets and the palette's page keywords (`search/use-root-model.ts`).
+- **Upstream**
+  - Status: `fork-only`.
+  - Fit: built around one person's pinned epics and the Decision Desk.
 
 ## Tooling (not a patch)
 

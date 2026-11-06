@@ -37,6 +37,7 @@
     "./members": "./members/index.ts",
     "./inbox": "./inbox/index.ts",
     "./decisions": "./decisions/index.ts",
+    "./overview": "./overview/index.ts",
     "./runtimes": "./runtimes/index.ts",
     "./billing": "./billing/index.ts",
     "./dashboard": "./dashboard/index.ts",

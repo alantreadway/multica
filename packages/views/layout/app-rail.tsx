@@ -182,6 +182,13 @@ export function AppRail({
   const settingsPeek = usePeekHandlers("settings", space === "settings");
 
   const items: Record<RailSpaceId, { href: string; icon: IconComponent; label: string; fullLabel: string }> = {
+    // AG patch: Overview
+    overview: {
+      href: p.overview(),
+      icon: routeIconForPath(p.overview()),
+      label: t(($) => $.rail.overview),
+      fullLabel: t(($) => $.nav.overview),
+    },
     inbox: {
       href: p.inbox(),
       icon: routeIconForPath(p.inbox()),

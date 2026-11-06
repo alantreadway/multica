@@ -1,5 +1,6 @@
 {
   "nav": {
+    "overview": "概覽",
     "inbox": "收件箱",
     "decisions": "決策",
     "chat": "聊天",
@@ -86,6 +87,7 @@
   "rail": {
     "label": "應用導覽",
     "sheet_description": "切換空間和工作區。",
+    "overview": "概覽",
     "inbox": "收件箱",
     "decisions": "決策",
     "work": "工作",

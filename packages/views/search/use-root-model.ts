@@ -33,6 +33,7 @@ import { useServerSearch, type SearchResults } from "./use-server-search";
 // total Record so adding a workspace page is a compile error until its
 // keywords are filled in.
 const PAGE_KEYWORDS: Record<WorkspacePageKey, string[]> = {
+  overview: ["overview", "dashboard", "eta", "概览"], // AG patch: Overview
   inbox: ["inbox", "notifications", "收件箱", "通知"],
   decisions: ["decisions", "queue", "review", "决策"], // AG patch: Decision Desk
   chat: ["chat", "messages", "conversation", "聊天", "消息", "对话"],

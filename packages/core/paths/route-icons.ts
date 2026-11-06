@@ -20,6 +20,7 @@
 
 /** Every icon name a nav page or a tab type-icon can resolve to. */
 export type RouteIconName =
+  | "LayoutDashboard"
   | "Inbox"
   | "CheckCircle2"
   | "MessageSquare"
@@ -46,6 +47,7 @@ export type RouteIconName =
 
 /** i18n label key (under the `layout.nav` namespace) for a page. */
 export type NavLabelKey =
+  | "overview"
   | "inbox"
   | "decisions"
   | "chat"
@@ -63,6 +65,7 @@ export type NavLabelKey =
 
 /** Stable identifier for each workspace navigation page. */
 export type WorkspacePageKey =
+  | "overview"
   | "inbox"
   | "decisions"
   | "chat"
@@ -92,6 +95,7 @@ export interface WorkspacePage {
  * destinations in paths.ts and the sidebar nav groups.
  */
 export const WORKSPACE_PAGES: Record<WorkspacePageKey, WorkspacePage> = {
+  overview: { segment: "overview", icon: "LayoutDashboard", navKey: "overview" }, // AG patch: Overview
   inbox: { segment: "inbox", icon: "Inbox", navKey: "inbox" },
   decisions: { segment: "decisions", icon: "CheckCircle2", navKey: "decisions" }, // AG patch: Decision Desk
   chat: { segment: "chat", icon: "MessageSquare", navKey: "chat" },

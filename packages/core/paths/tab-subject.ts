@@ -85,6 +85,8 @@ export function parseTabSubject(url: string): TabSubject {
       return isMyAgentsSearch(query) ? { kind: "myAgents" } : { kind: "page", page: "myIssues" };
     case "views":
       return { kind: "page", page: "views" };
+    case "overview": // AG patch: Overview
+      return { kind: "page", page: "overview" };
     case "decisions": // AG patch: Decision Desk
       return { kind: "page", page: "decisions" };
     case "projects":

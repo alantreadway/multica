@@ -69,6 +69,7 @@ const WORKSPACE_ROUTES: readonly RoutePattern[] = [
   ["members", ":id"],
   ["squads"],
   ["squads", ":id"],
+  ["overview"], // AG patch: Overview
   ["inbox"],
   ["decisions"], // AG patch: Decision Desk
   ["chat"],

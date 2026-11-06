@@ -1,5 +1,6 @@
 {
   "nav": {
+    "overview": "Resumen",
     "inbox": "Bandeja de entrada",
     "decisions": "Decisiones",
     "chat": "Chat",
@@ -86,6 +87,7 @@
   "rail": {
     "label": "Navegación de la app",
     "sheet_description": "Cambia de sección y de espacio de trabajo.",
+    "overview": "Resumen",
     "inbox": "Bandeja de entrada",
     "decisions": "Decisiones",
     "work": "Trabajo",
