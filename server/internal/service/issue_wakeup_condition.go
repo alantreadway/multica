@@ -117,6 +117,20 @@ func validateCondition(ctx context.Context, tx pgx.Tx, issue db.Issue, raw json.
 					return nil, nil, badCondition("unknown status")
 				}
 			}
+			// Closing an issue disables its wakeups in the same transaction, so a
+			// rule waiting on this issue's own done or closed status never fires.
+			category, err := issuestatus.CategoryWithError(ctx, db.New(tx), ws, status)
+			if err != nil {
+				return nil, nil, err
+			}
+			if category == issuestatus.CategoryDone || category == issuestatus.CategoryClosed {
+				states := "done|ended"
+				if category == issuestatus.CategoryClosed {
+					states = "ended"
+				}
+				return nil, nil, badCondition(fmt.Sprintf("a wakeup on this issue is disabled when the issue closes, so --until-status %s (%s category) can never fire; register it on another open issue (usually the parent) with --until-issue %s --until-issue-state %s",
+					status, category, util.UUIDToString(issue.ID), states))
+			}
 			out.Value, _ = json.Marshal(status)
 			events = []string{"issue.status_changed"}
 		case "assignee":
