@@ -55,6 +55,9 @@ Newest first:
 | `ag/v0.7.1-ag.2` | `616d6fd2b4e1f35b9c762a867d3641a29b9dc240` | `multica-web-ag:v0.7.1-ag.2` | `multica-backend-ag:v0.7.1-ag.2` | `dist/multica-v0.7.1-ag.2-darwin-arm64` | 2026-11-05 |
 | `ag/v0.7.1-ag.3` | `f360bbcc3dc57f2170f46005085a445fe39be804` | `multica-web-ag:v0.7.1-ag.3` | `multica-backend-ag:v0.7.1-ag.2` (unchanged) | `dist/multica-v0.7.1-ag.2-darwin-arm64` (unchanged) | 2026-11-05 |
 | `ag/v0.7.1-ag.4` | `596f2bc083d920f8719e6d84821bec370b326608` | `multica-web-ag:v0.7.1-ag.4` | `multica-backend-ag:v0.7.1-ag.4` | `dist/multica-v0.7.1-ag.4-darwin-arm64` | 2026-11-05 |
+| `ag/v0.7.1-ag.5` | `985104c1556012f8675911a3fcf7e44afff11e73` | `multica-web-ag:v0.7.1-ag.5` | `multica-backend-ag:v0.7.1-ag.5` | `dist/multica-v0.7.1-ag.5-darwin-arm64` | 2026-11-05 |
+| `ag/v0.7.1-ag.6` | `4e869772002a8696dfc96e512803700807a8852a` | `multica-web-ag:v0.7.1-ag.6` | `multica-backend-ag:v0.7.1-ag.6` | `dist/multica-v0.7.1-ag.6-darwin-arm64` | 2026-11-05 |
+| `ag/v0.7.1-ag.7` | `32953c629ff2f24cf99d2a81965c781569f4b383` | `multica-web-ag:v0.7.1-ag.7` | `multica-backend-ag:v0.7.1-ag.7` | `dist/multica-v0.7.1-ag.7-darwin-arm64` | 2026-11-06 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
@@ -65,6 +68,23 @@ does not.
 Notes, newest first. Notes for builds before `v0.7.0` are in git history
 (`git log -p -- ag-patches/PATCHES.md`).
 
+- **`v0.7.1-ag.7`**: the Claude resume patches merged on GitHub (#39, #40, #41)
+  and the Decision Desk line built locally since `ag.4`, in one branch. The 22
+  local commits were rebased onto `origin/ag/v0.7.1` at `764bc43eb`; the only
+  conflict was `PATCHES.md`, where both sides added sections, and both were kept.
+  Full Go suite: the four known Cursor failures only. Deployed 2026-11-06 with
+  `--skip-daemon` (backup `multica-pre-v0.7.1-ag.7-20261106-105225.sql.gz`, no
+  new migrations). The running daemon had been started outside launchd at its
+  idle auto-reload, so neither label owned it and `multica-daemon-reload` would
+  have seen no daemon. It was handed over by the script's overlap steps run by
+  hand: `daemon drain --handoff`, the overlap marker, then `bootout` and
+  `bootstrap` of label `.a`.
+- **`v0.7.1-ag.6`**: Decision Desk card clearing (an action whose goal is
+  already reached succeeds, and a successful action clears its card at once)
+  and GitHub PR polling that skips closed and merged PRs on the first pass after
+  a restart. Deployed 2026-11-05 with `--skip-daemon`.
+- **`v0.7.1-ag.5`**: `ag.4` plus the PR polling fix. Built 2026-11-05, never deployed;
+  `ag.6` replaced it.
 - **`v0.7.1-ag.4`**: Decision Desk phase 2, one-tap actions (migrations
   `9009`-`9013`). Full Go suite: the same five upstream failures as stock
   `v0.7.1`. Deployed 2026-11-05 with `--skip-daemon`, so the daemon moves to the new
