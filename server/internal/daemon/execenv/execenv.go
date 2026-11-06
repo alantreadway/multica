@@ -52,6 +52,9 @@ type PrepareParams struct {
 	// JSON boundary back to the daemon. The claim therefore has to be held by
 	// the parent, whose lifetime is the task run.
 	EnvRootPreclaimed bool
+	// EnvRootOverride is an env root the caller claimed with ClaimChainedEnvRoot
+	// (ag_chain_root.go); Prepare works there instead of the task's own root.
+	EnvRootOverride string // AG patch: claude stable worktree path
 	// Profile is the daemon's profile name (empty = default). It namespaces the
 	// per-issue Codex session store so a second profile-daemon sharing the same
 	// ~/.codex cannot see or GC this daemon's stores (MUL-4424).
@@ -430,6 +433,10 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 		TaskID:          params.TaskID,
 		IssueIdentifier: params.IssueIdentifier,
 	})
+	if err != nil {
+		return nil, err
+	}
+	envRoot, err = agEnvRootOverride(params, envRoot) // AG patch: claude stable worktree path
 	if err != nil {
 		return nil, err
 	}

@@ -68,6 +68,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 24 | Live token rate in the sidebar (daemon + backend + web) | `fork-only` | none found (searched 2026-10-27) | Low: needs a second Claude output stream for one sidebar line | Low | None. |
 | 25 | Claude fresh session past the resume window (daemon) | `fork-only` | [#8070](https://github.com/multica-ai/multica/issues/8070) (open, no maintainer reply on 2026-11-05) | Low: the 60-minute threshold is our cost policy | Very low | None. |
 | 26 | Claude sessions resume across worktree directories (daemon) | `candidate` | [#9731](https://github.com/multica-ai/multica/issues/9731) / [#9734](https://github.com/multica-ai/multica/pull/9734) (merged in v0.8.0; the cherry-pick), no overlap for the wider rule | Good for the wider rule: it closes a gap in #9734 | Low | Offer the wider rule after the rebase onto v0.8.0, if asked. |
+| 27 | Claude stable worktree path for resumed sessions (daemon) | `fork-only` | none for issue worktrees; [#9707](https://github.com/multica-ai/multica/pull/9707) (open, unreviewed on 2026-11-05) does the same for autopilot workdirs and adds a server query | Low: Claude Code's cwd-keyed transcript and our cache cost | Low | None. Review at the rebase if #9707 merges: it touches the same GC and reuse code. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -1921,9 +1922,10 @@ minutes costs more than a new session.
   directory than the prior run's. It names the directory and says to ignore
   earlier paths. It renders only while the task still carries a prior session,
   so the fresh-session retry drops it.
-- Window order: `agClaudeFreshAfterWindow` runs before the migration and finds
-  the prior transcript by session id under every project directory, so the age
-  is read before the copy sets a new mtime. Keep that order.
+- Window order: the age is read (`agReadClaudeSessionAge`) before the migration
+  and `agClaudeApplyWindow` acts on it; the lookup finds the prior transcript by
+  session id under every project directory, so the age is read before the copy
+  sets a new mtime. Keep that order.
 - Fails closed to a fresh session with the existing notice when the prior
   directory is not a worktree, or the copy or lookup fails. A missing transcript
   follows the existing path: the gate drops the resume, and
@@ -1975,6 +1977,95 @@ minutes costs more than a new session.
     only.
   - Fit: closes the gap where a run with no commits has no branch to continue.
     Nothing goes upstream without alan's say-so.
+
+### Claude stable worktree path for resumed sessions (daemon)
+
+Third part of the resume work, and it needs the two above. A Claude Code run on
+a worktree-mode project that will resume its prior session runs at the path the
+prior run used, so Claude Code finds the transcript where it wrote it and reads
+the history as a cache hit. The copy above rebuilds it at the uncached rate
+(about 82% first-call cache hit against about 98%; both from a scratch test
+with `git worktree add` at a repeated path, not a daemon run). Anything short of
+the conditions below leaves the run on its own per-task root, and the copy above
+is the fallback.
+
+- Rule: a run takes over `filepath.Dir(task.PriorWorkDir)` as its env root when
+  all of these hold: provider `claude`, an issue task (not chat) on a
+  worktree-mode `local_directory`, a prior session whose transcript is found and
+  is under 60 minutes old (the one reading `agClaudeApplyWindow` also acts on;
+  exactly 60 counts as over), and a prior workdir that is a clean path ending in
+  `/worktree` two levels under the workspaces root. A first run, other
+  providers, over-60 and force-fresh runs, and chat tasks get today's per-task
+  root, and nothing on disk changes until a resume happens. A resume then also
+  leaves its own task's root behind (see the fence below).
+- Fence: at most one live execution per task id, whichever root it works in.
+  The base's claim on the task's own root is what fails a redelivered task as
+  busy (the server re-sends a task whose lease lapsed under the same id), so
+  `agClaimEnvRoot` takes it first on every path and a stable-path run holds it
+  alongside the chained root, releasing both when the run ends. A redelivery
+  therefore fails busy as it does without this patch, whether the live run took
+  the chained root or fell back. The own root a stable run leaves holds only the
+  owner marker and lock. It has no `.gc_meta.json` and is not marked after the
+  run, so GC takes the no-record orphan path and removes the empty directory once
+  its mtime is past `GCOrphanTTL` (72 hours by default). A GC pass never sees it
+  as work: it is marked active while the run is.
+- Claim (`execenv.ClaimChainedEnvRoot`, `execenv/ag_chain_root.go`): the daemon
+  parent takes the root's execution lock without waiting (preparation runs in a
+  helper process, so a lock taken there would die with it) and refuses, with the
+  reason, unless: the owner marker names a task of this workspace whose key is
+  in the directory's name; the completion record, when there is one, is this
+  issue's and does not carry `PreservedWorktree`; and `worktree/` is gone. A
+  worktree still there was not finalized, and is never inspected, removed or
+  cleaned: the run takes its own root. A missing completion record is not a
+  reason to refuse, because the server wakes the next run before the previous
+  run's handler writes it. It then resets the root's contents as a rerun of the
+  root's own task gets, keeping the marker and the lock.
+- The owner marker is not rewritten. It keeps the first task's id, which is
+  what GC's path check (`ValidateEnvRootOwnerPath`) and the task-root record
+  removal read, so the root is reclaimed on the normal TTL from the last run's
+  `.gc_meta.json`. A daemon without this patch finds a marker naming an earlier
+  task, never reuses the root, and reclaims it by the same path check. A rerun
+  of the first task itself (redelivered by the server) would reset the root.
+- Active roots: the root is `filepath.Dir(task.PriorWorkDir)`, which `handleTask`
+  and `runTask` already mark active before claiming, so GC sees it in use for the
+  run.
+- Resume gate: with the directory unchanged, nothing is migrated and the base
+  gate would pass the resume on the directory comparison alone. A stable-path run
+  instead resumes only when `agClaudeWorktreeResumable` allows it (the same
+  answer a run in another directory gets, `OwnBranchResumable` and a worktree
+  prior), and otherwise drops the session with the usual notice
+  (`agClaudeStableResume`). The `## Working directory` line stays off: the
+  directory has not changed.
+- Fails open: busy root, unexpected marker, path gone, not under the workspaces
+  root, a preserved or unfinalized worktree all give a new per-task root, never a
+  failed task. Each worktree-mode Claude run with a prior session logs `claude
+  resume: stable worktree path` or `claude resume: per-task worktree path` with
+  the reason.
+- Hooks: `runTask` reads the age once (`agReadClaudeSessionAge`) ahead of the
+  claim, claims through `agClaimEnvRoot` in place of `ClaimEnvRoot`, passes the
+  root as `PrepareParams.EnvRootOverride`, and hands `agClaudeStableResume`'s
+  answer to the gate. `execenv.Prepare` takes the override in one line.
+- Rollback: point the daemon at the previous binary. Roots left behind carry an
+  owner marker naming the first task of a chain and the last run's
+  `.gc_meta.json`; the old daemon never claims a root whose marker is not its
+  task's, and GC reclaims it by the same rules as any other root. No server, web
+  or DB change.
+- Files:
+  - `server/internal/daemon/ag_claude_stable_path.go` (new);
+    `execenv/ag_chain_root.go` (new)
+  - `server/internal/daemon/ag_claude_resume.go` (age read once);
+    `daemon.go` (`runTask`, a handful of lines); `execenv/execenv.go` (one field, two
+    lines)
+- Test prefix: `TestAGPatch…`.
+
+- Upstream:
+  - Status: `fork-only` for now; no upstream issue or PR covers issue worktrees.
+  - Overlap: [#9707](https://github.com/multica-ai/multica/pull/9707) (open,
+    unreviewed on 2026-11-05) does the same for autopilot workdirs and adds a
+    server query. If it merges it touches the same GC and reuse code: review this
+    patch at that rebase.
+  - Fit: depends on Claude Code keying transcripts on the working directory and
+    on our uncached-read cost; upstream has no reason to prefer it.
 
 ## Tooling (not a patch)
 

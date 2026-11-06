@@ -26,14 +26,33 @@ const agClaudeResumeWindow = 60 * time.Minute
 // agClaudeResumeNow is swapped in tests.
 var agClaudeResumeNow = time.Now
 
-// agClaudeFreshAfterWindow clears the prior session of an issue run on the
-// claude provider when its transcript is at least agClaudeResumeWindow old. It
-// must run before the brief and prompt are built. Chat tasks and other
-// providers are untouched. When the age is unknown (no transcript, stat
-// failure) it does nothing and leaves the existing gates to handle the session.
-func agClaudeFreshAfterWindow(task *Task, taskCtx *execenv.TaskContextForEnv, provider, workDir string, taskLog *slog.Logger) {
-	if provider != "claude" || task.PriorSessionID == "" || task.ChatSessionID != "" {
-		return
+// agClaudeSessionAge is the age of a prior Claude session's transcript, read
+// once per run: the stable-path decision before the env root is claimed and the
+// resume window after preparation both use this reading, so they cannot
+// disagree about the same session.
+type agClaudeSessionAge struct {
+	age   time.Duration
+	known bool
+}
+
+// over reports whether the session is at least agClaudeResumeWindow old.
+// Exactly the window counts as over it. An unknown age is not over.
+func (a agClaudeSessionAge) over() bool {
+	return a.known && a.age >= agClaudeResumeWindow
+}
+
+// agClaudeSessionApplies reports whether the resume window is about this run:
+// an issue run on the claude provider that carries a prior session.
+func agClaudeSessionApplies(task *Task, provider string) bool {
+	return provider == "claude" && task.PriorSessionID != "" && task.ChatSessionID == ""
+}
+
+// agReadClaudeSessionAge reads the transcript's age for a run the window
+// applies to. When the age is unknown (no transcript, stat failure) the result
+// is the zero value, and the existing gates handle the session.
+func agReadClaudeSessionAge(task *Task, provider, workDir string) agClaudeSessionAge {
+	if !agClaudeSessionApplies(task, provider) {
+		return agClaudeSessionAge{}
 	}
 	env := os.Environ()
 	if task.Agent != nil {
@@ -43,16 +62,28 @@ func agClaudeFreshAfterWindow(task *Task, taskCtx *execenv.TaskContextForEnv, pr
 	}
 	modTime, err := agent.ClaudeSessionModTime(env, workDir, task.PriorSessionID)
 	if err != nil {
-		return
+		return agClaudeSessionAge{}
 	}
-	age := agClaudeResumeNow().Sub(modTime)
-	if age < agClaudeResumeWindow {
+	return agClaudeSessionAge{age: agClaudeResumeNow().Sub(modTime), known: true}
+}
+
+// agClaudeFreshAfterWindow clears the prior session of an issue run on the
+// claude provider when its transcript is at least agClaudeResumeWindow old. It
+// must run before the brief and prompt are built. Chat tasks and other
+// providers are untouched. When the age is unknown it does nothing.
+func agClaudeFreshAfterWindow(task *Task, taskCtx *execenv.TaskContextForEnv, provider, workDir string, taskLog *slog.Logger) {
+	agClaudeApplyWindow(task, taskCtx, provider, agReadClaudeSessionAge(task, provider, workDir), taskLog)
+}
+
+// agClaudeApplyWindow is agClaudeFreshAfterWindow with the age already read.
+func agClaudeApplyWindow(task *Task, taskCtx *execenv.TaskContextForEnv, provider string, age agClaudeSessionAge, taskLog *slog.Logger) {
+	if !agClaudeSessionApplies(task, provider) || !age.over() {
 		return
 	}
 	taskLog.Info("starting fresh Claude session: prior session is past the resume window",
 		"provider", provider,
 		"session_id", task.PriorSessionID,
-		"age", age.Round(time.Second).String(),
+		"age", age.age.Round(time.Second).String(),
 		"window", agClaudeResumeWindow.String(),
 	)
 	task.PriorSessionID = ""
