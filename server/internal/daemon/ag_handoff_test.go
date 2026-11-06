@@ -31,21 +31,23 @@ import (
 // and body. A path in status answers with that code instead of 200.
 type agHandoffRecorder struct {
 	*httptest.Server
-	mu     sync.Mutex
-	paths  []string
-	bodies map[string]string
-	status map[string]int
+	mu      sync.Mutex
+	paths   []string
+	bodies  map[string]string
+	status  map[string]int
+	replies map[string]string // a 200 body per path; {} when unset
 }
 
 func newAGHandoffRecorder(t *testing.T) *agHandoffRecorder {
 	t.Helper()
-	r := &agHandoffRecorder{bodies: map[string]string{}, status: map[string]int{}}
+	r := &agHandoffRecorder{bodies: map[string]string{}, status: map[string]int{}, replies: map[string]string{}}
 	r.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		body, _ := io.ReadAll(req.Body)
 		r.mu.Lock()
 		r.paths = append(r.paths, req.URL.Path)
 		r.bodies[req.URL.Path] = string(body)
 		code := r.status[req.URL.Path]
+		reply := r.replies[req.URL.Path]
 		r.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if code != 0 {
@@ -53,10 +55,19 @@ func newAGHandoffRecorder(t *testing.T) *agHandoffRecorder {
 			_, _ = w.Write([]byte(`{"error":"injected"}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{}`))
+		if reply == "" {
+			reply = `{}`
+		}
+		_, _ = w.Write([]byte(reply))
 	}))
 	t.Cleanup(r.Close)
 	return r
+}
+
+func (r *agHandoffRecorder) setReply(path, body string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.replies[path] = body
 }
 
 func (r *agHandoffRecorder) setStatus(path string, code int) {
@@ -673,6 +684,48 @@ func TestAGPatchOverlapFollowsPredecessor(t *testing.T) {
 		}
 		if d.agOverlapActive() {
 			t.Fatal("still in overlap mode after the leftovers were failed")
+		}
+	})
+
+	t.Run("AG patch: a leftover the server already shows as finished is dropped, not failed", func(t *testing.T) {
+		rec := newAGHandoffRecorder(t)
+		dead := agDeadPID(t)
+		pred := newAGFakePredecessor(t, dead, "a", "b")
+		pred.Close() // gone: its last task finished after the last health read
+		d := agHandoffDaemon(t, rec.URL)
+		d.AGEnableOverlap(AGPredecessor{PID: dead, Port: pred.port(), TaskIDs: []string{"a", "b"}, MaxConcurrentTasks: 2})
+		rec.setReply("/api/daemon/tasks/a/status", `{"status":"completed"}`)
+		rec.setReply("/api/daemon/tasks/b/status", `{"status":"running"}`)
+
+		for i := 0; i < agOverlapNoPIDProbeFailures+1; i++ {
+			if ended, _ := step(d); ended {
+				break
+			}
+		}
+		if d.agOverlapActive() {
+			t.Fatal("overlap did not end")
+		}
+		if got := rec.failed(); !slices.Equal(got, []string{"b"}) {
+			t.Fatalf("failed tasks = %v, want only [b], the one still running", got)
+		}
+	})
+
+	t.Run("AG patch: a leftover whose status cannot be read is failed as before", func(t *testing.T) {
+		rec := newAGHandoffRecorder(t)
+		dead := agDeadPID(t)
+		pred := newAGFakePredecessor(t, dead, "a")
+		pred.Close()
+		d := agHandoffDaemon(t, rec.URL)
+		d.AGEnableOverlap(AGPredecessor{PID: dead, Port: pred.port(), TaskIDs: []string{"a"}, MaxConcurrentTasks: 2})
+		rec.setStatus("/api/daemon/tasks/a/status", http.StatusInternalServerError)
+
+		for i := 0; i < agOverlapNoPIDProbeFailures+1; i++ {
+			if ended, _ := step(d); ended {
+				break
+			}
+		}
+		if got := rec.failed(); !slices.Equal(got, []string{"a"}) {
+			t.Fatalf("failed tasks = %v, want [a]", got)
 		}
 	})
 

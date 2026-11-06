@@ -487,9 +487,13 @@ Second, the handoff and overlap modes on top.
 - **Predecessor death.** While the predecessor runs, the successor polls its PID
   and `/health` every 2s and keeps the task-ID set current (it only shrinks). A
   transient failure with the PID alive changes nothing. If the PID dies with
-  tasks left, only those IDs are failed through the daemon's terminal-report fail
-  path (reason `runtime_offline`, message names the predecessor's exit
-  mid-handoff), best effort per task. Then overlap ends and the daemon is
+  tasks left, each is first checked with `GET /api/daemon/tasks/{id}/status`:
+  the set is from the last health read, up to 2s before the exit, so a
+  predecessor that finished its last task and exited in between left it there.
+  One already `completed`, `failed` or `cancelled` is dropped with an Info line.
+  The rest, and any whose status cannot be read, are failed through the
+  daemon's terminal-report fail path (reason `runtime_offline`, message names
+  the predecessor's exit mid-handoff), best effort per task. Then overlap ends and the daemon is
   normal. Windows can't probe a PID, so it counts failed `/health` reads
   instead.
 - **GC preemption.** A running heavy `reflog expire` / `git gc` step watches the

@@ -400,20 +400,35 @@ func (d *Daemon) agShrinkPredecessorTasks(reported []string) {
 }
 
 // agFinishOverlap runs once the predecessor's process is gone: any task it
-// still had is failed, then the daemon behaves as a normal one.
+// still had is failed, then the daemon behaves as a normal one. The tracked set
+// is from the last health read, which can be a second older than the
+// predecessor's exit; a predecessor that finishes its last task and exits in
+// between leaves that task in the set. So each leftover is checked with the
+// server first, and one that already finished is dropped, not failed. A status
+// that cannot be read counts as still running.
 func (d *Daemon) agFinishOverlap(ctx context.Context) {
 	d.agHandoff.mu.Lock()
 	pred := d.agHandoff.pred
 	leftovers := sortedIDs(d.agHandoff.predTasks)
 	d.agHandoff.mu.Unlock()
 
-	if len(leftovers) == 0 {
+	var running []string
+	for _, id := range leftovers {
+		status, err := d.client.GetTaskStatus(ctx, id)
+		if err == nil && agTaskStatusTerminal(status) {
+			d.logger.Info("overlap: predecessor's last task had already finished", "task", id, "status", status)
+			continue
+		}
+		running = append(running, id)
+	}
+
+	if len(running) == 0 {
 		d.logger.Info("overlap: predecessor exited; resuming normal operation", "predecessor_pid", pred.PID)
 	} else {
 		d.logger.Warn("overlap: predecessor exited with tasks still running; failing them",
-			"predecessor_pid", pred.PID, "tasks", len(leftovers))
+			"predecessor_pid", pred.PID, "tasks", len(running))
 		msg := fmt.Sprintf("the previous daemon (pid %d) exited mid-handoff before this task finished", pred.PID)
-		for _, id := range leftovers {
+		for _, id := range running {
 			// Best effort per task: one that already finished server-side may be
 			// rejected, and must not stop the rest.
 			if err := d.reportTerminalTask(ctx, terminalTaskReport{
@@ -427,6 +442,15 @@ func (d *Daemon) agFinishOverlap(ctx context.Context) {
 		}
 	}
 	d.agHandoff.overlapping.Store(false)
+}
+
+// agTaskStatusTerminal reports whether a server task status is final.
+func agTaskStatusTerminal(status string) bool {
+	switch status {
+	case "completed", "failed", "cancelled":
+		return true
+	}
+	return false
 }
 
 // agGCProbeInterval is how often a running heavy GC step re-checks whether
