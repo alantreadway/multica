@@ -321,7 +321,7 @@ func TestAGPatchClaudeResumeWindowMissingTranscriptStillGetsGateNotice(t *testin
 
 	agClaudeFreshAfterWindow(&task, &taskCtx, "claude", t.TempDir(), log)
 	// The workdir differs from the prior one, so the existing gate drops the session.
-	gateResumeToReachableSession(&task, &taskCtx, "claude", t.TempDir(), true, false, false, log)
+	gateResumeToReachableSession(&task, &taskCtx, "claude", t.TempDir(), true, false, false, false, log)
 
 	if !task.PriorSessionResumeUnavailable {
 		t.Fatal("the gate should still flag the lost session")

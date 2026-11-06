@@ -67,6 +67,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 23 | Backup Claude account failover, urgent only (daemon) | `fork-only` | [#5282](https://github.com/multica-ai/multica/pull/5282), [#8579](https://github.com/multica-ai/multica/pull/8579) (fallback runtime, open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC) | Low: one subscriber's two-account setup | Very low | None. |
 | 24 | Live token rate in the sidebar (daemon + backend + web) | `fork-only` | none found (searched 2026-10-27) | Low: needs a second Claude output stream for one sidebar line | Low | None. |
 | 25 | Claude fresh session past the resume window (daemon) | `fork-only` | [#8070](https://github.com/multica-ai/multica/issues/8070) (open, no maintainer reply on 2026-11-05) | Low: the 60-minute threshold is our cost policy | Very low | None. |
+| 26 | Claude sessions resume across worktree directories (daemon) | `candidate` | [#9731](https://github.com/multica-ai/multica/issues/9731) / [#9734](https://github.com/multica-ai/multica/pull/9734) (merged in v0.8.0; the cherry-pick), no overlap for the wider rule | Good for the wider rule: it closes a gap in #9734 | Low | Offer the wider rule after the rebase onto v0.8.0, if asked. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -1861,6 +1862,119 @@ is deliberate, so the run gets no "prior session unavailable" notice.
     maintainer reply on 2026-11-05).
   - Fit: a cost trade-off for a subscriber who pays for uncached reads; upstream
     resumes unconditionally.
+
+### Claude sessions resume across worktree directories (daemon)
+
+A Claude Code run on a worktree-mode project resumes the prior session even
+though the worktree path changes every run. It is the second part of the resume
+work and must never deploy without the resume window above: a resume past 60
+minutes costs more than a new session.
+
+- Cherry-pick: upstream `f75db6ad5` ([#9734](https://github.com/multica-ai/multica/pull/9734),
+  in v0.8.0). `migrateClaudeWorktreeTranscript` copies the prior transcript
+  into the new worktree's `<config dir>/projects/<encoded cwd>/` and the gate
+  accepts the resume only when that copy is present. Upstream does this only
+  when `LocalWorktree.Continued` is true.
+- Wider rule (ours): `LocalWorktree.OwnBranchResumable`, set by
+  `agOwnBranchResumable` in `execenv/ag_resume.go`, is true when the worktree
+  stands on the conversation's own branch (not a fork off a held branch or a
+  task-scoped fallback) and either the branch is continued, or it was created or
+  reset onto HEAD this run, reached without the preferred name having been
+  refused, with no other branch in the repo recorded
+  (`refs/multica/local-state/`) as this conversation's with its tip outside
+  HEAD. The record check applies to the created and reset cases only. A record
+  that names another owner is ignored; a merged branch doesn't refuse. A failed
+  ref listing, record read or ancestor test also refuses. `Continued` is
+  unchanged, because the Codex rule reads it; the Claude gate reads
+  `OwnBranchResumable` alone, so it is narrower than upstream's rule: a fork
+  keeps `Continued` set and Codex still resumes it, Claude starts fresh.
+
+| New worktree state | Prior work in the tree? | Action |
+|---|---|---|
+| `Continued`, on the conversation's own branch (the `<preferred>-<fingerprint>` branch included) | Yes | Resume |
+| Own branch newly created | Prior run made no commits | Resume |
+| Own branch reset (merged into HEAD) | Yes, through HEAD | Resume |
+| Forked because a sibling or another worktree holds the branch, merged or not, `Continued` or not | No | Fresh, with the notice |
+| Fingerprint fallback branch (preferred name refused) | Unknown | Fresh, with the notice |
+| Task-scoped fallback | Unknown | Fresh, with the notice |
+| Prior run not in a worktree (`workdir`), whatever the new state | Unknown | Fresh, with the notice |
+| Chat task | Not covered | Fresh, with the notice (base behaviour) |
+
+  Every resume row also needs the prior working directory to be inside a
+  `worktree` directory (`agIsWorktreePath`), `Continued` included. A fork off a
+  held branch starts fresh even when `Continued` is set, because the holder (a
+  preserved worktree after a failed Finalize, a crash, or the user's own
+  checkout) may have work this tree lacks. A clean Finalize removes the worktree,
+  so the normal next run finds the branch free and is not forked. A fork because
+  the user's checkout holds the branch costs a cache miss. On our logs #9734
+  alone would have resumed 13 of 143 recent dropped worktree runs; none of the
+  Lead or Reviewer drops with a known outcome had `Continued` set, because a run
+  with no commits has its created branch deleted at Finalize.
+- Hooks: `migrateClaudeWorktreeTranscript` asks `agClaudeWorktreeResumable`
+  instead of testing `Continued`; `runTask` asks `agClaudeMayMigrate` (Claude,
+  not a chat task) before it and passes `agWithResumedWorkDir` into the prompt
+  options; `perTurnContextBlocks` renders `agBuildResumedWorkDirBlock`
+  (field `resumedWorkDir` on `promptOpts`); `LocalWorktree` gains the one field,
+  set by one line in `PrepareLocalWorktree`.
+- Directory line: a `## Working directory` block in the per-turn text, after the
+  cached prefix, only when a Claude run resumed with a different working
+  directory than the prior run's. It names the directory and says to ignore
+  earlier paths. It renders only while the task still carries a prior session,
+  so the fresh-session retry drops it.
+- Window order: `agClaudeFreshAfterWindow` runs before the migration and finds
+  the prior transcript by session id under every project directory, so the age
+  is read before the copy sets a new mtime. Keep that order.
+- Fails closed to a fresh session with the existing notice when the prior
+  directory is not a worktree, or the copy or lookup fails. A missing transcript
+  follows the existing path: the gate drops the resume, and
+  `shouldRetryWithFreshSession` covers "no conversation found" at launch. A
+  session never carries to another agent or issue: the server's lookup is keyed
+  on both, and the branch rule keys on the conversation.
+- Record check: the branch name comes from the agent's display name, so a free
+  name doesn't prove the prior run committed nothing. The check closes an agent
+  renamed after committing, and commits on the `<preferred>-<fingerprint>`
+  branch after the preferred branch was deleted. A run with no commits has its
+  branch and record deleted at Finalize, so it still resumes, renamed or not.
+- Known limits, not closed by the record check: a branch someone deleted
+  without merging looks like "no commits" and leaves no record, so that run
+  resumes onto a tree without that work. Likewise, run 2 forks because the own
+  branch is held (merged or unmerged) and commits on the fork; once the branch
+  is released, run 3 continues, resets or creates it and resumes without run 2's
+  commits (a fork records nothing). The fork rule narrows this but doesn't close
+  it. An issue moved to a project on
+  another repo keeps its commits in the first repo, which this repo's records
+  can't show (read in code only). A run that commits on another branch and
+  leaves its task worktree's HEAD back on the base at Finalize counts as "no
+  commits" (`dropped` looks only at the tip, and the other branch has no
+  record), so the next run resumes with no notice. Accepted, not detected: the
+  run moved the work itself, so its transcript says where it went (read in
+  code only).
+- Rebase note: the cherry-picked `TestGateClaudeResumeAcrossLocalWorktrees` and
+  the `claude_worktree_resume_test.go` migration tests use a prior directory
+  named `worktree`, and set `OwnBranchResumable` beside `Continued`, because the
+  wider rule requires both.
+- Checked on Claude Code 2.1.317 with Opus: a session created in one scratch
+  worktree and copied to two others resumed in each, and the edit and commit of
+  each hop landed in that hop's worktree.
+- Files:
+  - `server/internal/daemon/execenv/ag_resume.go` (new); `local_worktree.go`
+    (one field, one line)
+  - `server/internal/daemon/ag_claude_resume.go`; `daemon.go` (`runTask`, the
+    migration check, one line each); `prompt.go` (one field, one line)
+  - Cherry-pick: `daemon.go`, `server/pkg/agent/claude.go` and two test files.
+- Test prefix: `TestAGPatch…`.
+
+- Upstream:
+  - Status: `candidate` for the wider rule; the cherry-pick drops out at the
+    next rebase onto v0.8.0 or later, and the wider rule stays. The rule is
+    narrower than #9734 for a fork off a held branch with `Continued` set
+    (upstream resumes, this starts fresh), so it must stay when the cherry-pick
+    drops out at a rebase.
+  - Overlap: [#9731](https://github.com/multica-ai/multica/issues/9731) fixed by
+    [#9734](https://github.com/multica-ai/multica/pull/9734) for `Continued`
+    only.
+  - Fit: closes the gap where a run with no commits has no branch to continue.
+    Nothing goes upstream without alan's say-so.
 
 ## Tooling (not a patch)
 

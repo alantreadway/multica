@@ -170,6 +170,8 @@ type LocalWorktree struct {
 	// of the same conversation left behind, instead of forking a new one from
 	// the user's HEAD.
 	Continued bool
+	// OwnBranchResumable is set by agOwnBranchResumable (ag_resume.go).
+	OwnBranchResumable bool
 	// ReplayConflicts names the files where the user's edits since the previous
 	// turn could not be merged with what the branch already carries. The
 	// worktree is handed to the agent WITH those conflicts in it — resolving
@@ -400,6 +402,7 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 		// was busy is delivered once and never continued, so it records nothing.
 		tracksState: plan.tracksState && actualBranch == plan.name,
 	}
+	wt.OwnBranchResumable = agOwnBranchResumable(gitRoot, plan, actualBranch) // AG patch: claude resume across worktrees
 
 	// Tear the worktree back down on every failure below. A half-replayed tree
 	// is the worst outcome available: it looks like a working checkout, so
