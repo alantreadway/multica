@@ -16,6 +16,9 @@ package daemon
 //	weekly:  c = min(1 - T/L, 0.97); n = Max while u <= c, else (0.97 - u) / (T * b)
 //	target = clamp(floor(min(n_5h, n_7d)), 1, Max)
 //
+// With MULTICA_AG_PACE_WORK_HOURS set, the weekly c and T count working time
+// instead of clock time (ag_quota_pace_hours.go).
+//
 // The limiter moves C one step toward the target at most every 10 minutes (the
 // first step after a quiet period is immediate). After a window rolls over or a
 // hold clears, C jumps to the target. Other windows are tracked by the quota
@@ -65,6 +68,7 @@ type agPaceWin struct {
 	Remaining time.Duration // time to resetsAt, > 0
 	Burn      float64       // fraction/hour per run
 	BurnKnown bool
+	Work      *agPaceWork // weekly window in working time; nil is clock time
 }
 
 // agPaceSessionAllowed is n_5h: how many runs fit. A nil window constrains nothing.
@@ -73,7 +77,7 @@ func agPaceSessionAllowed(w *agPaceWin, max int) (n float64, hold bool) {
 	if w == nil || w.Util < agPaceSessionKnee {
 		return float64(max), false
 	}
-	return agPaceRuns(agPaceSessionTarget, w, max)
+	return agPaceRuns(agPaceSessionTarget, w, w.Remaining, max)
 }
 
 // agPaceWeeklyAllowed is n_7d: the linear spending curve is the elapsed fraction
@@ -83,18 +87,23 @@ func agPaceWeeklyAllowed(w *agPaceWin, max int) (n float64, hold bool) {
 		return float64(max), false
 	}
 	elapsed := 1 - float64(w.Remaining)/float64(agPaceWeeklyLen)
+	left := w.Remaining
+	if w.Work != nil {
+		elapsed, left = w.Work.Elapsed, w.Work.Left
+	}
 	elapsed = math.Max(0, math.Min(1, elapsed))
 	if w.Util <= math.Min(elapsed, agPaceWeeklyTarget) {
 		return float64(max), false
 	}
-	return agPaceRuns(agPaceWeeklyTarget, w, max)
+	return agPaceRuns(agPaceWeeklyTarget, w, left, max)
 }
 
-func agPaceRuns(target float64, w *agPaceWin, max int) (float64, bool) {
+// agPaceRuns is (target - u) / (T * b) over the horizon T.
+func agPaceRuns(target float64, w *agPaceWin, horizon time.Duration, max int) (float64, bool) {
 	if !w.BurnKnown {
 		return 0, true
 	}
-	denom := w.Remaining.Hours() * w.Burn
+	denom := horizon.Hours() * w.Burn
 	if denom <= 0 {
 		// No burn at all: the target is not reachable by running.
 		if w.Util >= target {
@@ -188,6 +197,9 @@ type agPaceState struct {
 	nextRun uint64
 	running map[uint64]string   // run token -> account
 	claimed map[string]struct{} // task ids claimed and not yet through their dispatch goroutine
+
+	hoursOnce sync.Once
+	hours     *agPaceHours // MULTICA_AG_PACE_WORK_HOURS; nil is clock time
 
 	predActive int  // predecessor's reported Claude runs
 	predKnown  bool // false until the predecessor reports
@@ -295,7 +307,7 @@ func (d *Daemon) agPaceObserve(account string, windows map[string]agQuotaWindow,
 
 // window turns a window into the maths' input; nil when it constrains
 // nothing (no utilisation, no reset, expired).
-func (a *agPaceAccount) window(name string, w agQuotaWindow, ok bool, now time.Time) *agPaceWin {
+func (a *agPaceAccount) window(name string, w agQuotaWindow, ok bool, hours *agPaceHours, now time.Time) *agPaceWin {
 	if !ok || w.Utilization == nil || w.ResetsAt.IsZero() {
 		return nil
 	}
@@ -307,6 +319,9 @@ func (a *agPaceAccount) window(name string, w agQuotaWindow, ok bool, now time.T
 		return nil
 	}
 	out := &agPaceWin{Util: *w.Utilization, Remaining: w.ResetsAt.Sub(now)}
+	if name == agQuotaWindowSevenDay && hours != nil {
+		out.Work = hours.work(w.ResetsAt, now)
+	}
 	if st := a.wins[name]; st != nil && st.known {
 		out.Burn, out.BurnKnown = st.burn, true
 	}
@@ -318,6 +333,7 @@ func (d *Daemon) agPaceEvaluate(account string, windows map[string]agQuotaWindow
 	if max < 1 {
 		max = 1
 	}
+	hours := d.agPaceWorkHours()
 	p := &d.agPace
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -341,7 +357,7 @@ func (d *Daemon) agPaceEvaluate(account string, windows map[string]agQuotaWindow
 	}
 	w5, ok5 := windows[agQuotaWindowFiveHour]
 	w7, ok7 := windows[agQuotaWindowSevenDay]
-	in5, in7 := a.window(agQuotaWindowFiveHour, w5, ok5, now), a.window(agQuotaWindowSevenDay, w7, ok7, now)
+	in5, in7 := a.window(agQuotaWindowFiveHour, w5, ok5, hours, now), a.window(agQuotaWindowSevenDay, w7, ok7, hours, now)
 
 	n5, hold5 := agPaceSessionAllowed(in5, max)
 	n7, hold7 := agPaceWeeklyAllowed(in7, max)

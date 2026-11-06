@@ -1353,6 +1353,13 @@ are never touched, and it is read every claim cycle, so no restart is needed.
   below 80%; above that `n = (0.95 - u) / (T * b)` runs, to land on 95% at the reset.
 - Weekly: full max while utilisation is at or under the linear curve
   `c = min(elapsed fraction of 7d, 0.97)`; over it `n = (0.97 - u) / (T * b)`.
+- Working hours: `MULTICA_AG_PACE_WORK_HOURS` (for example `Mon-Fri 08:00-19:00`,
+  daemon-local time, DST-safe) makes the weekly `c` and `T` count working time
+  instead of clock time, so a quota spent mostly in working hours is not paced
+  down late in the week while plenty of it is left for the hours that remain.
+  Runs outside those hours still spend quota; that shows up in `u` and `b` at
+  the next sample, so the 97% target holds. Unset or invalid (a warning is
+  logged) keeps clock time. The 5-hour window always uses clock time.
 - `b` is the burn per run in fraction/hour: an EWMA (alpha 0.3) of du/dt over
   the time-weighted mean active runs (at least 1), sampled when utilisation
   changes or 15 minutes after the last sample. A negative du is dropped; a
@@ -1387,7 +1394,8 @@ the account as a parameter (`agPaceEvaluate`), so a backup account can reuse it.
   A-H from the design as table tests)
 - Files:
   - `server/internal/daemon/ag_quota_pace.go`, `ag_quota_pace_test.go`,
-    `ag_quota_pace_spec_test.go`, `ag_quota_pace_start_test.go` (new)
+    `ag_quota_pace_spec_test.go`, `ag_quota_pace_start_test.go`,
+    `ag_quota_pace_hours.go`, `ag_quota_pace_hours_test.go` (new)
   - `server/internal/daemon/ag_quota.go` (`agQuotaClaim` applies C,
     `agQuotaObserver` also returns a `done` func, the observe hook, `/health`),
     `ag_handoff.go` (reads the predecessor's `ag_quota` block in the overlap
