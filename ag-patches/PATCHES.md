@@ -2051,7 +2051,14 @@ is the fallback.
   helper process, so a lock taken there would die with it) and refuses, with the
   reason, unless: the owner marker names a task of this workspace whose key is
   in the directory's name; the completion record, when there is one, is this
-  issue's and does not carry `PreservedWorktree`; and `worktree/` is gone. A
+  issue's and does not carry `PreservedWorktree`; and `worktree/` is gone. The
+  quick-create run that created the issue counts as the issue's: its record says
+  `quick_create` with no issue, because it is written from the task as claimed,
+  and the server links the task to the issue afterwards (which is how its
+  session became the issue's prior session). Such a record is accepted only when
+  its task id is the one the owner marker names. Without this the issue's first
+  run migrated the transcript instead (75% first-call cache hit, against about
+  98% on the stable path). A
   worktree still there was not finalized, and is never inspected, removed or
   cleaned: the run takes its own root. A missing completion record is not a
   reason to refuse, because the server wakes the next run before the previous

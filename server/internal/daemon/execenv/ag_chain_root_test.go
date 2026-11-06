@@ -128,6 +128,23 @@ func TestAGPatchClaimChainedEnvRootAllowsAMissingCompletionRecord(t *testing.T) 
 }
 
 // Every refusal leaves the root exactly as it was, and says why.
+// The issue's first run takes over the root of the quick-create run that
+// created the issue: that record has no issue, since it is written from the
+// task as claimed.
+func TestAGPatchClaimChainedEnvRootTakesOverTheQuickCreateRoot(t *testing.T) {
+	t.Parallel()
+	f := newChainFixture(t)
+	f.writeMeta(t, GCMeta{Kind: GCKindQuickCreate, WorkspaceID: chainWS, TaskID: "task-first", CompletedAt: time.Now()})
+	claim, err := f.claim(t)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	defer claim.Release()
+	if claim.RootDir() != f.root {
+		t.Fatalf("root = %s, want %s", claim.RootDir(), f.root)
+	}
+}
+
 func TestAGPatchClaimChainedEnvRootRefusals(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
@@ -166,6 +183,18 @@ func TestAGPatchClaimChainedEnvRootRefusals(t *testing.T) {
 		}, "another issue"},
 		{"a chat record", func(t *testing.T, f chainFixture) (string, string) {
 			f.writeMeta(t, GCMeta{Kind: GCKindChat, ChatSessionID: "chat-1", WorkspaceID: chainWS, TaskID: "task-first", CompletedAt: time.Now()})
+			return f.wsRoot, f.root
+		}, "another issue"},
+		{"a quick-create record of another task", func(t *testing.T, f chainFixture) (string, string) {
+			f.writeMeta(t, GCMeta{Kind: GCKindQuickCreate, WorkspaceID: chainWS, TaskID: "task-unrelated", CompletedAt: time.Now()})
+			return f.wsRoot, f.root
+		}, "another issue"},
+		{"a quick-create record naming another issue", func(t *testing.T, f chainFixture) (string, string) {
+			f.writeMeta(t, GCMeta{Kind: GCKindQuickCreate, IssueID: "issue-other", WorkspaceID: chainWS, TaskID: "task-first", CompletedAt: time.Now()})
+			return f.wsRoot, f.root
+		}, "another issue"},
+		{"a quick-create record of another workspace", func(t *testing.T, f chainFixture) (string, string) {
+			f.writeMeta(t, GCMeta{Kind: GCKindQuickCreate, WorkspaceID: "ws-other", TaskID: "task-first", CompletedAt: time.Now()})
 			return f.wsRoot, f.root
 		}, "another issue"},
 		{"a record of another workspace", func(t *testing.T, f chainFixture) (string, string) {

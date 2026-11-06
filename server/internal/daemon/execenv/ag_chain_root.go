@@ -40,7 +40,11 @@ func chainRefused(format string, args ...any) error {
 //     directory's name (the root is a task root the daemon made);
 //   - its completion record, when present, belongs to issueID and does not mark
 //     a preserved worktree (a record is absent while the run before has not
-//     written one yet, which is no reason to refuse);
+//     written one yet, which is no reason to refuse). A quick-create record
+//     with no issue, written by the task the owner marker names, also counts:
+//     the record is written from the task as claimed, before the run created
+//     the issue, and the server links the task to that issue afterwards, which
+//     is how its session became this issue's prior session;
 //   - worktree/ is gone. A worktree still there was not finalized, and removing
 //     it would destroy the only copy of that work, so it is never inspected or
 //     cleaned, only declined.
@@ -104,8 +108,7 @@ func ClaimChainedEnvRoot(workspacesRoot, workspaceID, taskID, issueID, priorRoot
 		if meta.PreservedWorktree {
 			return nil, chainRefused("the worktree was preserved")
 		}
-		if meta.Kind != GCKindIssue || strings.TrimSpace(meta.IssueID) != issueID ||
-			(meta.WorkspaceID != "" && strings.TrimSpace(meta.WorkspaceID) != workspaceID) {
+		if !agChainRecordMatches(meta, owner.TaskID, workspaceID, issueID) {
 			return nil, chainRefused("completion record belongs to another issue")
 		}
 	case errors.Is(err, os.ErrNotExist):
@@ -126,6 +129,21 @@ func ClaimChainedEnvRoot(workspacesRoot, workspaceID, taskID, issueID, priorRoot
 	}
 	claimed = true
 	return &EnvRootClaim{rootDir: envRoot, lock: lockFile}, nil
+}
+
+// agChainRecordMatches reports whether a completion record is the issue's own,
+// or the issue's quick-create run (see ClaimChainedEnvRoot).
+func agChainRecordMatches(meta *GCMeta, ownerTaskID, workspaceID, issueID string) bool {
+	if meta.WorkspaceID != "" && strings.TrimSpace(meta.WorkspaceID) != workspaceID {
+		return false
+	}
+	switch meta.Kind {
+	case GCKindIssue:
+		return strings.TrimSpace(meta.IssueID) == issueID
+	case GCKindQuickCreate:
+		return strings.TrimSpace(meta.IssueID) == "" && meta.TaskID != "" && meta.TaskID == ownerTaskID
+	}
+	return false
 }
 
 // agEnvRootOverride returns the env root Prepare works in: proposed, or the
