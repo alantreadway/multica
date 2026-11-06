@@ -1945,7 +1945,12 @@ minutes costs more than a new session.
   commits (a fork records nothing). The fork rule narrows this but doesn't close
   it. An issue moved to a project on
   another repo keeps its commits in the first repo, which this repo's records
-  can't show (read in code only).
+  can't show (read in code only). A run that commits on another branch and
+  leaves its task worktree's HEAD back on the base at Finalize counts as "no
+  commits" (`dropped` looks only at the tip, and the other branch has no
+  record), so the next run resumes with no notice. Accepted, not detected: the
+  run moved the work itself, so its transcript says where it went (read in
+  code only).
 - Rebase note: the cherry-picked `TestGateClaudeResumeAcrossLocalWorktrees` and
   the `claude_worktree_resume_test.go` migration tests use a prior directory
   named `worktree`, and set `OwnBranchResumable` beside `Continued`, because the
