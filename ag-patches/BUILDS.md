@@ -59,6 +59,7 @@ Newest first:
 | `ag/v0.7.1-ag.6` | `4e869772002a8696dfc96e512803700807a8852a` | `multica-web-ag:v0.7.1-ag.6` | `multica-backend-ag:v0.7.1-ag.6` | `dist/multica-v0.7.1-ag.6-darwin-arm64` | 2026-11-05 |
 | `ag/v0.7.1-ag.7` | `32953c629ff2f24cf99d2a81965c781569f4b383` | `multica-web-ag:v0.7.1-ag.7` | `multica-backend-ag:v0.7.1-ag.7` | `dist/multica-v0.7.1-ag.7-darwin-arm64` | 2026-11-06 |
 | `ag/v0.7.1-ag.8` | `e282400141904c27d5f7707e75981d47f4f6e498` | `multica-web-ag:v0.7.1-ag.8` | `multica-backend-ag:v0.7.1-ag.7` (unchanged) | `dist/multica-v0.7.1-ag.7-darwin-arm64` (unchanged) | 2026-11-06 |
+| `ag/v0.7.1-ag.9` | `1773042681a957cd8588c8670b7f8e4ef1063b7d` | `multica-web-ag:v0.7.1-ag.9` | `multica-backend-ag:v0.7.1-ag.7` (unchanged, retagged `ag.9`) | `dist/multica-v0.7.1-ag.9-darwin-arm64` | 2026-11-06 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
@@ -69,6 +70,14 @@ does not.
 Notes, newest first. Notes for builds before `v0.7.0` are in git history
 (`git log -p -- ag-patches/PATCHES.md`).
 
+- **`v0.7.1-ag.9`**, web and CLI: weekly Claude pacing over working hours
+  (`MULTICA_AG_PACE_WORK_HOURS="Mon-Fri 08:00-19:00"`, added to both launchd
+  plists), the sidebar's "Claude paced: 1 of 5 · weekly 91%" line, and the
+  token hover card's runtime name on its own line. Guard: 1009 views, 629 core
+  and 294 Go patch tests passed. The backend image did not change; `ag.7`'s was
+  tagged `ag.9` so `deploy-selfhost.sh` could run as usual, and compose left the
+  backend container running. Deployed 2026-11-06; the daemon handed over `.a`
+  to `.b`.
 - **`v0.7.1-ag.8`**, web only: the Decisions page redesign. Compact rows beside
   the selected card's detail, number-key and `j`/`k`/`z` shortcuts, and a
   clicked card animating out of the queue into an Activity list with an undo
