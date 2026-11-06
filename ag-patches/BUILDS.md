@@ -61,6 +61,7 @@ Newest first:
 | `ag/v0.7.1-ag.8` | `e282400141904c27d5f7707e75981d47f4f6e498` | `multica-web-ag:v0.7.1-ag.8` | `multica-backend-ag:v0.7.1-ag.7` (unchanged) | `dist/multica-v0.7.1-ag.7-darwin-arm64` (unchanged) | 2026-11-06 |
 | `ag/v0.7.1-ag.9` | `1773042681a957cd8588c8670b7f8e4ef1063b7d` | `multica-web-ag:v0.7.1-ag.9` | `multica-backend-ag:v0.7.1-ag.7` (unchanged, retagged `ag.9`) | `dist/multica-v0.7.1-ag.9-darwin-arm64` | 2026-11-06 |
 | `ag/v0.7.1-ag.10` | `692b25e75313cf20784a2dc39e6de847474645d0` | `multica-web-ag:v0.7.1-ag.10` | `multica-backend-ag:v0.7.1-ag.10` | `dist/multica-v0.7.1-ag.10-darwin-arm64` | 2026-11-06 |
+| `ag/v0.7.1-ag.11` | `fe9b98e6e70aaa065216b88a95bd451d87a19c69` | `multica-web-ag:v0.7.1-ag.10` (unchanged, retagged `ag.11`) | `multica-backend-ag:v0.7.1-ag.10` (unchanged, retagged `ag.11`) | `dist/multica-v0.7.1-ag.11-darwin-arm64` | 2026-11-06 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
@@ -71,6 +72,15 @@ does not.
 Notes, newest first. Notes for builds before `v0.7.0` are in git history
 (`git log -p -- ag-patches/PATCHES.md`).
 
+- **`v0.7.1-ag.11`**, CLI only: a quick-created issue's first Claude run resumes
+  in the quick-create task's directory when its resumed session came from that
+  task (it fell back to a copied transcript, about 75% first-call cache), and a
+  new daemon in overlap mode asks the server for each of the predecessor's tasks
+  before failing them, so a run that finished during the handoff no longer logs
+  "predecessor exited with tasks still running". Guard: 1013 views, 631 core
+  and 296 Go patch tests passed. The `ag.10` backend and web images were tagged
+  `ag.11`; both containers kept running. Deployed 2026-11-06; the daemon handed
+  over `.a` to `.b`.
 - **`v0.7.1-ag.10`**: the Claude pacing override. A "Pace Claude runs" switch on
   the Runtimes quota card stores `pace_off`; while it is off the daemon claims up
   to its max (a quota hold still applies) and the sidebar shows "Claude pacing
