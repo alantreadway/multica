@@ -62,6 +62,7 @@ Newest first:
 | `ag/v0.7.1-ag.9` | `1773042681a957cd8588c8670b7f8e4ef1063b7d` | `multica-web-ag:v0.7.1-ag.9` | `multica-backend-ag:v0.7.1-ag.7` (unchanged, retagged `ag.9`) | `dist/multica-v0.7.1-ag.9-darwin-arm64` | 2026-11-06 |
 | `ag/v0.7.1-ag.10` | `692b25e75313cf20784a2dc39e6de847474645d0` | `multica-web-ag:v0.7.1-ag.10` | `multica-backend-ag:v0.7.1-ag.10` | `dist/multica-v0.7.1-ag.10-darwin-arm64` | 2026-11-06 |
 | `ag/v0.7.1-ag.11` | `fe9b98e6e70aaa065216b88a95bd451d87a19c69` | `multica-web-ag:v0.7.1-ag.10` (unchanged, retagged `ag.11`) | `multica-backend-ag:v0.7.1-ag.10` (unchanged, retagged `ag.11`) | `dist/multica-v0.7.1-ag.11-darwin-arm64` | 2026-11-06 |
+| `ag/v0.7.1-ag.12` | `dfb1ca24591e55a21d322a58abab57214986bce8` | `multica-web-ag:v0.7.1-ag.12` | `multica-backend-ag:v0.7.1-ag.12` | `dist/multica-v0.7.1-ag.12-darwin-arm64` | 2026-11-06 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
@@ -72,6 +73,15 @@ does not.
 Notes, newest first. Notes for builds before `v0.7.0` are in git history
 (`git log -p -- ag-patches/PATCHES.md`).
 
+- **`v0.7.1-ag.12`**: the Overview dashboard (patch 28): an `Overview` page
+  above Inbox with what runs now, the queue, what waits on you, units in a state
+  longer than their p90, and pinned work trees split into known scope (stage
+  strip, ETA range from the per-unit stage method) and unknown scope signals.
+  Migrations `9014`–`9017` add `ag_overview_pin` and `ag_overview_forecast` (one
+  row per pinned tree per day). Guard: 1019 views, 644 core and 296 Go patch
+  tests passed. The CLI has no change but was rebuilt for the deploy script.
+  Deployed 2026-11-06 with `--skip-daemon`; the daemon moves to `ag.12` at its
+  next idle auto-reload.
 - **`v0.7.1-ag.11`**, CLI only: a quick-created issue's first Claude run resumes
   in the quick-create task's directory when its resumed session came from that
   task (it fell back to a copied transcript, about 75% first-call cache), and a
