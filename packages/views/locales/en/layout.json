@@ -1,5 +1,6 @@
 {
   "nav": {
+    "overview": "Overview",
     "inbox": "Inbox",
     "decisions": "Decisions",
     "chat": "Chat",
@@ -99,6 +100,7 @@
   "rail": {
     "label": "App navigation",
     "sheet_description": "Switch spaces and workspaces.",
+    "overview": "Overview",
     "decisions": "Decisions",
     "work": "Work",
     "team": "Team",

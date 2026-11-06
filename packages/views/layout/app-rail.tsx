@@ -385,6 +385,13 @@ export function AppRail({
   );
 
   const items: Record<RailSpaceId, { href: string; icon: IconComponent; label: string; fullLabel: string }> = {
+    // AG patch: Overview
+    overview: {
+      href: p.overview(),
+      icon: routeIconForPath(p.overview()),
+      label: t(($) => $.rail.overview),
+      fullLabel: t(($) => $.nav.overview),
+    },
     // AG patch: Decision Desk
     decisions: {
       href: p.decisions(),

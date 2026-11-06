@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<title>Overview revamp: three directions</title>
+<style>
+  :root {
+    --canvas: oklch(0.18 0.005 285.8); --card: oklch(0.21 0.006 285.9); --raised: oklch(0.235 0.007 285.9);
+    --hover: oklch(0.274 0.006 286); --fg: oklch(0.985 0 0); --muted: oklch(0.705 0.015 286); --faint: oklch(0.60 0.015 286);
+    --border: oklch(1 0 0 / 8%); --border2: oklch(1 0 0 / 14%); --track: oklch(1 0 0 / 7%);
+    --brand: oklch(0.65 0.16 255); --ok: #0ca30c; --warn: #fab219; --bad: oklch(0.704 0.191 22.2);
+    /* Owner = categorical identity (validated: dark, all pairs, CVD ΔE ≥ 9.4). Nobody = neutral + dashed. */
+    --you: #d95926; --agent: #3987e5; --coll: #199e70; --nobody: oklch(0.55 0.01 286);
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--fg); font: 13px/18px -apple-system, "Inter", system-ui, sans-serif; padding: 24px; }
+  h1 { font-size: 18px; margin: 0 0 4px; } .lede { color: var(--muted); margin: 0 0 24px; }
+  .dir { margin-bottom: 48px; } .dir > h2 { font-size: 15px; margin: 0 0 2px; } .dir > p.why { color: var(--muted); margin: 0 0 12px; max-width: 900px; }
+  .frame { border: 1px solid var(--border2); border-radius: 12px; padding: 16px; background: var(--canvas); }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; min-width: 0; }
+  .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .muted { color: var(--muted); } .faint { color: var(--faint); } .mono { font-family: var(--mono); font-size: 12px; }
+  .id { font-family: var(--mono); font-size: 12px; color: var(--fg); }
+  .trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .cap { font-size: 12px; line-height: 16px; } .micro { font-size: 11px; line-height: 15px; }
+  .h { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 0 0 8px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .big { font-size: 28px; line-height: 32px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .owner { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .d-you { background: var(--you); } .d-agent { background: var(--agent); } .d-coll { background: var(--coll); }
+  .d-nobody { background: transparent; border: 1.5px dashed var(--nobody); }
+  .pill { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border2); border-radius: 999px; padding: 0 7px; font-size: 11px; line-height: 17px; color: var(--muted); white-space: nowrap; }
+  .pill.bad { color: var(--bad); border-color: color-mix(in oklch, var(--bad) 40%, transparent); }
+  .pill.ok { color: var(--ok); border-color: color-mix(in oklch, var(--ok) 40%, transparent); }
+  .pill.warn { color: var(--warn); border-color: color-mix(in oklch, var(--warn) 40%, transparent); }
+  .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--agent); box-shadow: 0 0 0 0 var(--agent); animation: p 1.8s infinite; flex: none; }
+  @keyframes p { 0% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--agent) 60%, transparent); } 100% { box-shadow: 0 0 0 7px transparent; } }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; }
+  /* stacked owner bar: 2px surface gaps between segments */
+  .stack { display: flex; gap: 2px; height: 10px; } .stack > span { border-radius: 2px; }
+  .stack > .s-nobody { background: repeating-linear-gradient(135deg, var(--nobody) 0 2px, transparent 2px 5px); outline: 1px solid var(--nobody); outline-offset: -1px; }
+  .note { margin-top: 10px; font-size: 11px; color: var(--faint); }
+  .new { color: var(--warn); font-size: 11px; }
+  [title] { cursor: default; }
+
+  /* ---------- A: stage board ---------- */
+  .board { display: grid; grid-template-columns: 220px repeat(6, 1fr); gap: 2px; margin-top: 12px; }
+  .board .colh { font-size: 11px; color: var(--muted); padding: 6px 8px; background: var(--raised); border-radius: 6px 6px 0 0; display: flex; justify-content: space-between; }
+  .board .cell { background: oklch(1 0 0 / 2.5%); min-height: 38px; padding: 6px; display: flex; align-items: center; }
+  .board .lbl { padding: 6px 8px; display: flex; gap: 8px; align-items: center; min-width: 0; background: oklch(1 0 0 / 2.5%); }
+  .token { display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 3px 8px; font-size: 11px; white-space: nowrap; border: 1px solid; background: var(--raised); position: relative; }
+  .token.you { border-color: var(--you); } .token.agent { border-color: var(--agent); } .token.coll { border-color: var(--coll); } .token.nobody { border: 1.5px dashed var(--nobody); }
+  .token .age { color: var(--muted); } .token.ageing .age { color: var(--warn); }
+  .trail { height: 2px; background: var(--border2); flex: 1; margin: 0 -6px; }
+  .trail.done { background: color-mix(in oklch, var(--fg) 30%, transparent); }
+  .running-tile { display: flex; gap: 12px; align-items: center; }
+  .ring { --p: 40; width: 44px; height: 44px; border-radius: 50%; background: conic-gradient(var(--agent) calc(var(--p) * 1%), var(--track) 0); display: grid; place-items: center; flex: none; }
+  .ring > span { width: 36px; height: 36px; border-radius: 50%; background: var(--card); display: grid; place-items: center; font-size: 11px; }
+
+  /* ---------- B: timeline ---------- */
+  .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .kpi .lab { font-size: 12px; color: var(--muted); } .kpi .sub { font-size: 11px; color: var(--faint); margin-top: 2px; }
+  .spark { display: flex; gap: 2px; align-items: flex-end; height: 22px; margin-top: 6px; } .spark span { flex: 1; background: var(--agent); border-radius: 2px 2px 0 0; opacity: .85; }
+  .spark span.q { background: var(--track); }
+  .eta { position: relative; height: 64px; margin: 8px 0 4px; }
+  .eta .axis { position: absolute; left: 0; right: 0; top: 34px; height: 1px; background: var(--border2); }
+  .eta .tick { position: absolute; top: 38px; font-size: 11px; color: var(--faint); transform: translateX(-50%); white-space: nowrap; }
+  .eta .tick::before { content: ""; position: absolute; left: 50%; top: -6px; height: 5px; width: 1px; background: var(--border2); }
+  .eta .wknd { position: absolute; top: 16px; height: 18px; background: oklch(1 0 0 / 3%); }
+  .eta .band { position: absolute; top: 16px; height: 18px; background: color-mix(in oklch, var(--agent) 55%, transparent); border-radius: 4px; }
+  .eta .unk { position: absolute; top: 16px; height: 18px; border-radius: 0 4px 4px 0; background: repeating-linear-gradient(135deg, color-mix(in oklch, var(--warn) 55%, transparent) 0 2px, transparent 2px 6px); border: 1px dashed color-mix(in oklch, var(--warn) 60%, transparent); border-left: 0; }
+  .eta .today { position: absolute; top: 8px; height: 30px; width: 2px; background: var(--fg); }
+  .eta .flag { position: absolute; top: -4px; font-size: 11px; transform: translateX(-50%); white-space: nowrap; }
+  table.units { width: 100%; border-collapse: collapse; }
+  table.units td, table.units th { padding: 7px 8px; border-top: 1px solid var(--border); vertical-align: middle; }
+  table.units th { font-size: 11px; color: var(--faint); font-weight: 500; text-align: left; border-top: 0; padding-bottom: 4px; }
+  .steps { display: flex; align-items: center; gap: 0; }
+  .steps .st { display: flex; align-items: center; }
+  .steps .n { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--faint); background: transparent; flex: none; }
+  .steps .n.done { background: var(--muted); border-color: var(--muted); }
+  .steps .n.cur { width: 12px; height: 12px; border: 2px solid var(--fg); background: var(--agent); }
+  .steps .n.cur.you { background: var(--you); } .steps .n.cur.coll { background: var(--coll); } .steps .n.cur.nobody { background: var(--nobody); }
+  .steps .ln { width: 18px; height: 2px; background: var(--border2); } .steps .ln.done { background: var(--muted); }
+  .steps .curlab { font-size: 11px; margin-left: 8px; white-space: nowrap; }
+  .agebar { position: relative; height: 8px; width: 140px; background: var(--track); border-radius: 4px; }
+  .agebar > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--muted); }
+  .agebar > i.over { background: var(--warn); }
+  .agebar > b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--fg); opacity: .6; }
+  .agebar > em { position: absolute; right: -4px; top: -1px; width: 0; height: 0; border-left: 6px solid var(--warn); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+
+  /* ---------- C: triage ---------- */
+  .hero { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; }
+  .ask { border: 1px solid color-mix(in oklch, var(--you) 45%, transparent); background: color-mix(in oklch, var(--you) 7%, var(--card)); }
+  .askitem { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 10px; border-radius: 8px; background: var(--raised); margin-top: 8px; }
+  .btn { font: inherit; font-size: 12px; border-radius: 6px; padding: 4px 10px; border: 1px solid var(--border2); background: var(--hover); color: var(--fg); }
+  .btn.primary { background: var(--fg); color: var(--card); border-color: transparent; }
+  .lanes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 12px; }
+  .lane { border-top: 3px solid; padding-top: 10px; }
+  .lane.you { border-color: var(--you); } .lane.agent { border-color: var(--agent); } .lane.coll { border-color: var(--coll); } .lane.nobody { border-top: 3px dashed var(--nobody); }
+  .lane .item { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+  .lane .item.ageing { border-color: color-mix(in oklch, var(--warn) 45%, transparent); }
+  .meter { display: flex; gap: 2px; height: 6px; margin-top: 6px; } .meter span { flex: 1; border-radius: 1px; background: var(--track); } .meter span.on { background: var(--muted); } .meter span.cur { background: var(--fg); }
+  .treecard { display: grid; grid-template-columns: 180px 1fr 260px; gap: 20px; align-items: center; }
+  .donut { width: 120px; height: 120px; }
+</style>
+</head>
+<body>
+<h1>Overview revamp: three directions</h1>
+<p class="lede">Same data as today's page (MAG-950 under AG-9003, Mon 9 Nov). Owner colour is the one categorical encoding across all three: <span class="owner"><span class="dot d-you"></span>You</span> <span class="owner"><span class="dot d-agent"></span>Agent</span> <span class="owner"><span class="dot d-coll"></span>Colleague</span> <span class="owner"><span class="dot d-nobody"></span>Nobody</span>. Amber = past usual time, red = CI failed. Hover marks for detail.</p>
+
+<!-- ======================================================= A -->
+<section class="dir">
+  <h2>A · Stage board — "where is each unit, who holds it"</h2>
+  <p class="why">Turns the stage-strip text into a spatial board: one row per unit, one column per stage, a token in the current stage. The eye reads progress left→right and ownership by colour without parsing chips. Now becomes three tiles with one number each.</p>
+  <div class="frame">
+    <div class="grid3">
+      <div class="card">
+        <div class="h">Running · 1</div>
+        <div class="running-tile">
+          <div class="ring" style="--p:60" title="3m of a typical 5m build turn"><span class="num">3m</span></div>
+          <div style="min-width:0">
+            <div class="row"><span class="pulse"></span><b>Builder</b><span class="pill">round 7</span></div>
+            <div class="row cap"><span class="id">MAG-978</span><span class="muted trunc">Series-level glow and its cascade</span></div>
+          </div>
+        </div>
+        <div class="row cap muted" style="margin-top:10px">Queue <div class="stack" style="flex:1;height:6px">
+          <span style="flex:12;background:var(--track)"></span></div><span class="num">12 · oldest 1h</span></div>
+      </div>
+      <div class="card">
+        <div class="h">Ball in court · 29 cards</div>
+        <div class="stack" style="height:14px">
+          <span style="flex:2;background:var(--you)" title="You 2"></span>
+          <span style="flex:16;background:var(--agent)" title="Agent 16"></span>
+          <span style="flex:2;background:var(--coll)" title="Colleague 2"></span>
+          <span class="s-nobody" style="flex:9" title="Nobody 9"></span>
+        </div>
+        <div class="legend cap" style="margin-top:8px">
+          <span class="owner"><span class="dot d-you"></span><b style="color:var(--fg)">2</b> You</span>
+          <span class="owner"><span class="dot d-agent"></span>16 Agent</span>
+          <span class="owner"><span class="dot d-coll"></span>2 Colleague</span>
+          <span class="owner"><span class="dot d-nobody"></span>9 Nobody</span>
+        </div>
+        <div class="row cap" style="margin-top:10px"><span class="pill">agent question</span><span class="id">MAG-981</span><span class="pill">colleague pr</span><span class="id">MAG-780</span><a style="color:var(--brand);margin-left:auto">Decisions →</a></div>
+      </div>
+      <div class="card">
+        <div class="h">Ageing · 5</div>
+        <!-- dot plot: x = time in state ÷ usual p90, log-ish scale -->
+        <svg viewBox="0 0 300 74" width="100%" height="74" role="img" aria-label="Ageing units, time in state as multiple of usual">
+          <line x1="10" y1="40" x2="290" y2="40" stroke="oklch(1 0 0 / 14%)"/>
+          <line x1="10" y1="30" x2="10" y2="50" stroke="oklch(1 0 0 / 40%)"/>
+          <text x="10" y="64" fill="oklch(0.6 0.015 286)" font-size="10" text-anchor="middle">1× usual</text>
+          <text x="100" y="64" fill="oklch(0.6 0.015 286)" font-size="10" text-anchor="middle">2×</text>
+          <text x="190" y="64" fill="oklch(0.6 0.015 286)" font-size="10" text-anchor="middle">5×</text>
+          <text x="280" y="64" fill="oklch(0.6 0.015 286)" font-size="10" text-anchor="middle">10×+</text>
+          <circle cx="58" cy="40" r="6" fill="#199e70" stroke="oklch(0.21 0.006 285.9)" stroke-width="2"><title>MAG-1024 in review 47h, usually under 22h · Colleague</title></circle>
+          <circle cx="45" cy="40" r="6" fill="#199e70" stroke="oklch(0.21 0.006 285.9)" stroke-width="2" transform="translate(-14,0)"><title>MAG-1011 in review 2d</title></circle>
+          <circle cx="150" cy="40" r="6" fill="none" stroke="oklch(0.55 0.01 286)" stroke-width="1.5" stroke-dasharray="2 2"><title>MAG-973 handoff 4d, usually under 9.3h · Nobody</title></circle>
+          <circle cx="235" cy="40" r="6" fill="none" stroke="oklch(0.55 0.01 286)" stroke-width="1.5" stroke-dasharray="2 2"><title>MAG-813 handoff 10d · Nobody</title></circle>
+          <circle cx="240" cy="40" r="6" fill="#3987e5" stroke="oklch(0.21 0.006 285.9)" stroke-width="2" transform="translate(30,0)"><title>MAG-412 in progress 13d, usually under 4.7h · Agent</title></circle>
+          <text x="150" y="22" fill="oklch(0.985 0 0)" font-size="10" text-anchor="middle" font-family="ui-monospace">973</text>
+          <text x="235" y="22" fill="oklch(0.985 0 0)" font-size="10" text-anchor="middle" font-family="ui-monospace">813</text>
+          <text x="270" y="22" fill="oklch(0.985 0 0)" font-size="10" text-anchor="middle" font-family="ui-monospace">412</text>
+        </svg>
+        <div class="cap muted">Worst: <span class="id">MAG-412</span> in progress 13d (usual 4.7h)</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="row">
+        <b style="font-size:15px">AG-9003</b><span class="muted">Chart shadow and glow</span>
+        <span class="faint cap">5 waves · 5 weeks · 171h agent</span>
+        <span style="flex:1"></span>
+        <span class="cap muted num">37 / 44 units</span>
+        <div class="stack" style="width:220px;height:8px">
+          <span style="flex:37;background:var(--muted)"></span><span style="flex:7;background:var(--track)"></span>
+        </div>
+        <span class="pill">ETA Wed 11 Nov <span class="faint">known units</span></span>
+        <span class="pill warn">+ scope open</span>
+      </div>
+      <div class="board">
+        <div></div>
+        <div class="colh"><span>Build</span><span class="num">5</span></div>
+        <div class="colh"><span>Bench</span></div>
+        <div class="colh"><span>Tests</span></div>
+        <div class="colh"><span>Handoff / review</span><span class="num">2</span></div>
+        <div class="colh"><span>Merge</span></div>
+        <div class="colh"><span>Done</span><span class="num">37</span></div>
+
+        <div class="lbl"><span class="id">973</span><span class="trunc">Spike options API</span></div>
+        <div class="cell"><div class="trail done"></div></div><div class="cell"><div class="trail done"></div></div><div class="cell"><div class="trail done"></div></div>
+        <div class="cell"><span class="token nobody ageing">handoff <span class="age">4d ⚠</span></span></div><div class="cell"></div><div class="cell"></div>
+
+        <div class="lbl"><span class="id">981</span><span class="trunc">Shadow + glow to item stylers</span></div>
+        <div class="cell"><div class="trail done"></div></div><div class="cell"><div class="trail done"></div></div><div class="cell"><div class="trail done"></div></div>
+        <div class="cell"><span class="token you">handoff r6 <span class="age">33m</span></span><span class="pill bad" style="margin-left:6px">CI</span></div><div class="cell"></div><div class="cell"></div>
+
+        <div class="lbl"><span class="id">978</span><span class="trunc">Series-level glow cascade</span></div>
+        <div class="cell"><span class="token agent"><span class="pulse"></span>r7 <span class="age">1h</span></span><span class="pill bad" style="margin-left:6px">CI</span></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+
+        <div class="lbl"><span class="id">979</span><span class="trunc">highlightedItem shadow</span></div>
+        <div class="cell"><span class="token agent">r5 <span class="age">1h</span></span><span class="pill bad" style="margin-left:6px">CI</span></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+
+        <div class="lbl"><span class="id">980</span><span class="trunc">Glow gap</span></div>
+        <div class="cell"><span class="token agent">r5 <span class="age">1h</span></span><span class="pill bad" style="margin-left:6px">CI</span></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+
+        <div class="lbl"><span class="id">977</span><span class="trunc">Second cast slot</span></div>
+        <div class="cell"><span class="token agent">r2 <span class="age">23m</span></span><span class="pill bad" style="margin-left:6px">CI</span></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+
+        <div class="lbl"><span class="id">982</span><span class="trunc">Tidy up leftovers</span></div>
+        <div class="cell"><span class="token nobody">r1 <span class="age">5m</span></span><span class="pill ok" style="margin-left:6px">CI</span></div><div class="cell" style="opacity:.3"><span class="micro faint">skip</span></div><div class="cell"></div><div class="cell"></div><div class="cell"></div><div class="cell"></div>
+      </div>
+      <div class="row cap muted" style="margin-top:10px"><span class="pill warn">MAG-1061</span> not yet broken into units · past waves grew 1.6× and 3.1× after day one · <span class="faint">Done waves: MAG-22 · MAG-40 · MAG-688 · MAG-933 ▸</span></div>
+    </div>
+    <p class="note">Data needed: all present today. Ageing dot plot uses inStateSince ÷ p90Hours already in the payload.</p>
+  </div>
+</section>
+
+<!-- ======================================================= B -->
+<section class="dir">
+  <h2>B · Timeline — "when will it land, and what's slow"</h2>
+  <p class="why">Leans into time. KPI strip up top, the ETA as a band on a real calendar (weekends shaded) with unknown scope drawn as a hatched tail instead of a sentence, and each unit gets a stepper plus a bar of time-in-state against its usual (p90) tick.</p>
+  <div class="frame">
+    <div class="kpis">
+      <div class="card kpi"><div class="lab">Running</div><div class="big">1</div><div class="sub">Builder · MAG-978 · 3m</div></div>
+      <div class="card kpi"><div class="lab">Queued</div><div class="big">12</div><div class="sub">oldest 1h · Coordinator</div></div>
+      <div class="card kpi" style="border-color:color-mix(in oklch,var(--you) 45%,transparent)"><div class="lab"><span class="dot d-you" style="display:inline-block"></span> Waiting on you</div><div class="big">2</div><div class="sub">MAG-981 · MAG-780</div></div>
+      <div class="card kpi"><div class="lab">Past usual</div><div class="big" style="color:var(--warn)">5</div><div class="sub">longest MAG-412 · 13d</div></div>
+      <div class="card kpi"><div class="lab">Units merged · 7 days</div><div class="big">11</div>
+        <div class="spark" title="Units done per day, last 7 days"><span style="height:40%"></span><span style="height:70%"></span><span style="height:100%"></span><span style="height:55%"></span><span style="height:30%"></span><span class="q" style="height:8%"></span><span class="q" style="height:8%"></span></div></div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="row"><b style="font-size:15px">AG-9003</b><span class="muted">Chart shadow and glow</span><span class="faint cap">5 waves · 5 weeks · 171h agent</span><span style="flex:1"></span><span class="cap num muted">37 of 44 known units done</span></div>
+      <div class="eta" aria-label="ETA for known units Tue 10 to Wed 11 Nov; unknown scope may extend to Wed 18 Nov">
+        <div class="wknd" style="left:57.1%;width:14.3%"></div>
+        <div class="band" style="left:14.3%;width:14.3%" title="Known units: p50 Tue 10, p85 Wed 11"></div>
+        <div class="unk" style="left:28.6%;width:57%" title="If scope grows like past waves (1.6×–3.1×)"></div>
+        <div class="today" style="left:7.1%"></div>
+        <div class="flag" style="left:7.1%">Today</div>
+        <div class="flag" style="left:21.4%">Known units: Tue 10 – Wed 11</div>
+        <div class="flag" style="left:62%;color:var(--warn)">If it grows like past waves → ~Wed 18</div>
+        <div class="axis"></div>
+        <div class="tick" style="left:7.1%">Mon 9</div><div class="tick" style="left:21.4%">Wed 11</div><div class="tick" style="left:35.7%">Fri 13</div><div class="tick" style="left:64.3%">Sun 15</div><div class="tick" style="left:78.6%">Tue 17</div><div class="tick" style="left:92.9%">Thu 19</div>
+      </div>
+      <table class="units">
+        <tr><th>Unit</th><th></th><th>Stage</th><th>Time in stage vs usual</th><th>PR</th><th>Owner</th></tr>
+        <tr><td class="id">MAG-973</td><td class="trunc" style="max-width:260px">Spike the shadow and glow options API</td>
+          <td><div class="steps"><span class="n done"></span><span class="ln done"></span><span class="n done"></span><span class="ln done"></span><span class="n cur nobody"></span><span class="ln"></span><span class="n"></span><span class="curlab">handoff</span></div></td>
+          <td><div class="row"><div class="agebar"><i class="over" style="width:100%"></i><b style="left:10%"></b><em></em></div><span class="cap num" style="color:var(--warn)">4d · 10×</span></div></td>
+          <td class="cap muted">#8973 draft ✓</td><td><span class="owner"><span class="dot d-nobody"></span>Nobody</span></td></tr>
+        <tr><td class="id">MAG-981</td><td class="trunc" style="max-width:260px">Add shadow and glow to item stylers</td>
+          <td><div class="steps"><span class="n done"></span><span class="ln done"></span><span class="n done"></span><span class="ln done"></span><span class="n done"></span><span class="ln done"></span><span class="n cur you"></span><span class="ln"></span><span class="n"></span><span class="curlab">handoff r6</span></div></td>
+          <td><div class="row"><div class="agebar"><i style="width:6%"></i><b style="left:55%"></b></div><span class="cap num muted">33m</span></div></td>
+          <td class="cap" style="color:var(--bad)">#9023 ✕</td><td><span class="owner"><span class="dot d-you"></span><b style="color:var(--fg)">You</b></span></td></tr>
+        <tr><td class="id">MAG-978</td><td class="trunc" style="max-width:260px">Add series-level glow and its cascade</td>
+          <td><div class="steps"><span class="n cur"></span><span class="ln"></span><span class="n"></span><span class="ln"></span><span class="n"></span><span class="ln"></span><span class="n"></span><span class="ln"></span><span class="n"></span><span class="curlab">build r7 <span class="pulse" style="display:inline-block;width:6px;height:6px"></span></span></div></td>
+          <td><div class="row"><div class="agebar"><i style="width:21%"></i><b style="left:55%"></b></div><span class="cap num muted">1h</span></div></td>
+          <td class="cap" style="color:var(--bad)">#8996 draft ✕</td><td><span class="owner"><span class="dot d-agent"></span>Agent</span></td></tr>
+        <tr><td class="id">MAG-977</td><td class="trunc" style="max-width:260px">Add a second cast slot and root key order</td>
+          <td><div class="steps"><span class="n cur"></span><span class="ln"></span><span class="n"></span><span class="ln"></span><span class="n"></span><span class="ln"></span><span class="n"></span><span class="ln"></span><span class="n"></span><span class="curlab">build r2</span></div></td>
+          <td><div class="row"><div class="agebar"><i style="width:8%"></i><b style="left:55%"></b></div><span class="cap num muted">23m</span></div></td>
+          <td class="cap" style="color:var(--bad)">#8984 ✕</td><td><span class="owner"><span class="dot d-agent"></span>Agent</span></td></tr>
+        <tr><td class="id faint" colspan="6">+ MAG-979, MAG-980 (build, agent, CI ✕) · MAG-982 (build r1, nobody) <a style="color:var(--brand)">show all 7</a></td></tr>
+      </table>
+    </div>
+    <p class="note"><span class="new">New data:</span> "units merged per day" needs a 7-day count (cheap SQL). The hatched tail multiplies remaining time by past growth (pastGrowth is already sent); the stepper and age bar use fields already in the payload.</p>
+  </div>
+</section>
+
+<!-- ======================================================= C -->
+<section class="dir">
+  <h2>C · Triage first — "what do I do next"</h2>
+  <p class="why">Answers your question before anything else: the items waiting on you are big and actionable at the top; everything else sits in owner lanes, so "nobody holds this" is a visible column, not a grey chip. The tree shrinks to one summary card with a donut.</p>
+  <div class="frame">
+    <div class="hero">
+      <div class="card ask">
+        <div class="row"><span class="dot d-you"></span><b style="font-size:15px">2 things need you</b><span style="flex:1"></span><a class="cap" style="color:var(--brand)">All decisions →</a></div>
+        <div class="askitem"><span class="pill">agent question</span><div style="min-width:0"><div class="row"><span class="id">MAG-981</span><span class="trunc">Add shadow and glow to item stylers</span></div><div class="cap muted">Handoff round 6 · #9023 CI failed · 33m ago</div></div><button class="btn primary">Answer</button></div>
+        <div class="askitem"><span class="pill">colleague PR</span><div style="min-width:0"><div class="row"><span class="id">MAG-780</span><span class="trunc">Review ag-charts#8833: Upgrade nx 20.3.1 → 24.0.2</span></div><div class="cap muted">Review requested</div></div><button class="btn">Review</button></div>
+      </div>
+      <div class="card">
+        <div class="h">Agents now</div>
+        <div class="row"><span class="pulse"></span><b>Builder</b><span class="id">MAG-978</span><span class="muted trunc">Series-level glow</span><span style="flex:1"></span><span class="pill">r7</span><span class="cap num muted">3m</span></div>
+        <div class="row cap muted" style="margin-top:12px">Queue</div>
+        <div class="row" style="gap:3px;margin-top:4px">
+          <!-- one block per queued run, shade = wait time -->
+          <span title="1h" style="width:18px;height:18px;border-radius:4px;background:var(--agent)"></span>
+          <span style="width:18px;height:18px;border-radius:4px;background:color-mix(in oklch,var(--agent) 80%,transparent)"></span>
+          <span style="width:18px;height:18px;border-radius:4px;background:color-mix(in oklch,var(--agent) 70%,transparent)"></span>
+          <span style="width:18px;height:18px;border-radius:4px;background:color-mix(in oklch,var(--agent) 60%,transparent)"></span>
+          <span style="width:18px;height:18px;border-radius:4px;background:color-mix(in oklch,var(--agent) 50%,transparent)"></span>
+          <span style="width:18px;height:18px;border-radius:4px;background:color-mix(in oklch,var(--agent) 45%,transparent)"></span>
+          <span style="width:18px;height:18px;border-radius:4px;background:color-mix(in oklch,var(--agent) 40%,transparent)"></span>
+          <span style="width:18px;height:18px;border-radius:4px;background:color-mix(in oklch,var(--agent) 35%,transparent)"></span>
+          <span style="width:18px;height:18px;border-radius:4px;background:color-mix(in oklch,var(--agent) 30%,transparent)"></span>
+          <span style="width:18px;height:18px;border-radius:4px;background:color-mix(in oklch,var(--agent) 25%,transparent)"></span>
+          <span style="width:18px;height:18px;border-radius:4px;background:color-mix(in oklch,var(--agent) 22%,transparent)"></span>
+          <span style="width:18px;height:18px;border-radius:4px;background:color-mix(in oklch,var(--agent) 20%,transparent)"></span>
+          <span class="cap muted" style="margin-left:6px">12 · oldest 1h</span>
+        </div>
+        <div class="cap faint" style="margin-top:6px">Darker = waiting longer</div>
+      </div>
+    </div>
+
+    <div class="lanes">
+      <div class="lane you"><div class="row h" style="color:var(--fg)">You <span class="muted num">1</span></div>
+        <div class="item"><div class="row"><span class="id">981</span><span class="trunc cap">Item stylers</span></div><div class="row micro muted">handoff r6 · 33m <span class="pill bad">CI</span></div><div class="meter"><span class="on"></span><span class="on"></span><span class="on"></span><span class="cur"></span><span></span></div></div>
+      </div>
+      <div class="lane agent"><div class="row h" style="color:var(--fg)">Agent <span class="muted num">4</span></div>
+        <div class="item"><div class="row"><span class="pulse"></span><span class="id">978</span><span class="trunc cap">Series-level glow</span></div><div class="row micro muted">build r7 · 1h <span class="pill bad">CI</span></div><div class="meter"><span class="cur"></span><span></span><span></span><span></span><span></span></div></div>
+        <div class="item"><div class="row"><span class="id">979</span><span class="trunc cap">highlightedItem shadow</span></div><div class="row micro muted">build r5 · 1h <span class="pill bad">CI</span></div><div class="meter"><span class="cur"></span><span></span><span></span><span></span><span></span></div></div>
+        <div class="item faint cap">+ 980, 977</div>
+      </div>
+      <div class="lane coll"><div class="row h" style="color:var(--fg)">Colleague <span class="muted num">2</span></div>
+        <div class="item ageing"><div class="row"><span class="id">1011</span><span class="trunc cap">In review</span></div><div class="row micro" style="color:var(--warn)">2d · usual 22h ⚠</div></div>
+        <div class="item ageing"><div class="row"><span class="id">1024</span><span class="trunc cap">In review</span></div><div class="row micro" style="color:var(--warn)">47h · usual 22h ⚠</div></div>
+      </div>
+      <div class="lane nobody"><div class="row h" style="color:var(--fg)">Nobody <span class="muted num">3</span> <span class="micro faint" style="text-transform:none">needs an owner</span></div>
+        <div class="item ageing"><div class="row"><span class="id">813</span><span class="trunc cap">Handoff</span></div><div class="row micro" style="color:var(--warn)">10d · usual 9h ⚠</div></div>
+        <div class="item ageing"><div class="row"><span class="id">973</span><span class="trunc cap">Options API spike</span></div><div class="row micro" style="color:var(--warn)">4d · usual 9h ⚠</div></div>
+        <div class="item"><div class="row"><span class="id">982</span><span class="trunc cap">Tidy leftovers</span></div><div class="row micro muted">build r1 · 5m <span class="pill ok">CI</span></div></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+      <div class="treecard">
+        <svg class="donut" viewBox="0 0 42 42" role="img" aria-label="37 of 44 known units done">
+          <circle cx="21" cy="21" r="15.9" fill="none" stroke="oklch(1 0 0 / 7%)" stroke-width="5"/>
+          <circle cx="21" cy="21" r="15.9" fill="none" stroke="oklch(0.705 0.015 286)" stroke-width="5" stroke-dasharray="84.1 15.9" stroke-dashoffset="25" pathLength="100"/>
+          <text x="21" y="21" text-anchor="middle" fill="oklch(0.985 0 0)" font-size="8" font-weight="600">37/44</text>
+          <text x="21" y="27" text-anchor="middle" fill="oklch(0.6 0.015 286)" font-size="3.6">known units</text>
+        </svg>
+        <div>
+          <div class="row"><b style="font-size:15px">AG-9003</b><span class="muted">Chart shadow and glow</span></div>
+          <div class="cap faint">5 waves · 5 weeks · 171h agent</div>
+          <div class="stack" style="margin-top:10px;height:10px" title="Open units by owner">
+            <span style="flex:1;background:var(--you)"></span><span style="flex:4;background:var(--agent)"></span><span class="s-nobody" style="flex:2"></span>
+          </div>
+          <div class="legend cap" style="margin-top:6px"><span class="owner"><span class="dot d-you"></span>1 You</span><span class="owner"><span class="dot d-agent"></span>4 Agent</span><span class="owner"><span class="dot d-nobody"></span>2 Nobody</span></div>
+        </div>
+        <div>
+          <div class="cap muted">Known units land</div>
+          <div style="font-size:20px;font-weight:600">Wed 11 Nov</div>
+          <div class="row cap" style="margin-top:6px"><span class="pill warn">Scope still open</span><span class="muted">MAG-1061 not split · past waves grew 1.6–3.1×</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Data needed: all present today. Lanes span every pinned tree plus the ageing list, grouped on waitingOn.</p>
+  </div>
+</section>
+</body>
+</html>

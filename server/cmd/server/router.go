@@ -2711,6 +2711,14 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Post("/{id}/reject", h.RejectAppRequest)
 			})
 
+			// AG patch: Overview dashboard
+			r.Route("/api/ag/overview", func(r chi.Router) {
+				r.Use(handler.RequireHumanActor)
+				r.Get("/", h.GetAGOverview)
+				r.Post("/pins", h.CreateAGOverviewPin)
+				r.Delete("/pins/{id}", h.DeleteAGOverviewPin)
+			})
+
 			// AG patch: Decision Desk
 			r.Route("/api/ag/decisions", func(r chi.Router) {
 				r.Use(handler.RequireHumanActor)

@@ -1,4 +1,5 @@
 import {
+  LayoutDashboard,
   Inbox,
   CheckCircle2,
   MessageSquare,
@@ -34,6 +35,7 @@ import { resolveRouteIconName, type RouteIconName } from "@multica/core/paths";
  * missing key a compile error.
  */
 export const ROUTE_ICON_COMPONENTS: Record<RouteIconName, IconComponent> = {
+  LayoutDashboard,
   Inbox,
   CheckCircle2,
   MessageSquare,

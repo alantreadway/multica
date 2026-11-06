@@ -42,6 +42,7 @@
     "./members": "./members/index.ts",
     "./inbox": "./inbox/index.ts",
     "./decisions": "./decisions/index.ts",
+    "./overview": "./overview/index.ts",
     "./runtimes": "./runtimes/index.ts",
     "./runtimes/components/provider-logo": "./runtimes/components/provider-logo.tsx",
     "./settings/components/dingtalk-mark": "./settings/components/dingtalk-mark.tsx",

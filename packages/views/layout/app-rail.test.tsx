@@ -165,14 +165,16 @@ describe("AppRail global actions", () => {
 describe("AppRail order", () => {
   it("lists the spaces in the default order", () => {
     renderRail();
-    expect(railOrder()).toEqual(["work", "team", "chat", "autopilots"]);
+    // AG patch: Overview and Decisions head the default rail.
+    expect(railOrder()).toEqual(["overview", "decisions", "work", "team", "chat", "autopilots"]);
   });
 
   it("follows the saved order", () => {
     const order = ["chat", "work", "team", "autopilots"] as const;
     useRailOrderStore.getState().setOrder(order);
     renderRail();
-    expect(railOrder()).toEqual(order);
+    // AG patch: an order saved without the fork's spaces gets them back at the front.
+    expect(railOrder()).toEqual(["overview", "decisions", ...order]);
   });
 
   // dnd-kit stops the release's click at the document without cancelling
