@@ -6,7 +6,8 @@ package daemon
 // quota tracker (ag_quota.go) and the pacing limiter (ag_quota_pace.go); the
 // server stores it in the runtime's metadata for the runtimes page. The ack
 // carries ag_settings back: the backup-account setting the UI stored for that
-// runtime; ag_quota_backup.go detects and uses the backup account.
+// runtime; ag_quota_backup.go detects and uses the backup account. Its pace_off
+// overrides pacing (agPaceOff).
 //
 // Fail policy: a runtime that is not Claude reports nothing; a received ack with
 // no setting disables backup for that runtime at once (a rollback to a stock
@@ -52,6 +53,7 @@ type agSettingsState struct {
 	mu      sync.Mutex
 	byRT    map[string]protocol.AGRuntimeSettings
 	savedAt map[string]time.Time
+	paceOff bool // last agPaceOff result, to log changes
 }
 
 // agApplySettings keeps the setting a received ack carried for runtimeID. A nil
@@ -88,6 +90,37 @@ func (d *Daemon) agBackupSetting(runtimeID string) protocol.AGRuntimeSettings {
 	return protocol.AGRuntimeSettings{BackupEnabled: false, BackupMaxConcurrent: agBackupDefaultMaxConcurrent}
 }
 
+// agPaceOff reports whether a Claude runtime's setting, received within
+// agSettingsTTL, overrides pacing. Pacing is per account and the setting per
+// runtime, so any one of the daemon's Claude runtimes turns it off for all.
+func (d *Daemon) agPaceOff() bool {
+	st := &d.agSettings
+	now := d.agQuotaNow()
+	var ids []string
+	st.mu.Lock()
+	for id, s := range st.byRT {
+		if s.PaceOff && now.Sub(st.savedAt[id]) < agSettingsTTL {
+			ids = append(ids, id)
+		}
+	}
+	st.mu.Unlock()
+	off := false
+	for _, id := range ids {
+		if d.agQuotaIsClaudeRuntime(id) { // outside st.mu: it takes the runtime lock
+			off = true
+			break
+		}
+	}
+	st.mu.Lock()
+	changed := off != st.paceOff
+	st.paceOff = off
+	st.mu.Unlock()
+	if changed {
+		d.agQuotaLogger().Info("quota: claude pacing override changed", "pace_off", off)
+	}
+	return off
+}
+
 // agQuotaReport builds the report for one heartbeat, or nil for a runtime that is
 // not Claude. It describes the daemon's own account, or the backup while urgent
 // Claude work is failing over to it (see agBackupFillReport).
@@ -109,6 +142,9 @@ func (d *Daemon) agQuotaReport(runtimeID string) *protocol.DaemonQuotaReport {
 			Enabled:       setting.BackupEnabled,
 			MaxConcurrent: setting.BackupMaxConcurrent,
 		},
+	}
+	if d.agPaceOff() {
+		report.PaceOff, report.EffectiveCap = true, report.Max
 	}
 	if hold != nil {
 		report.EffectiveCap = 0

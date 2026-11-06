@@ -25,6 +25,9 @@ type DaemonQuotaReport struct {
 	Backup  DaemonQuotaBackup            `json:"backup"`
 	// BackupWindows is the backup account's windows, once it is detected.
 	BackupWindows map[string]DaemonQuotaWindow `json:"backup_windows"`
+	// PaceOff is true while a stored pace_off setting has the daemon claim up to
+	// Max instead of its paced cap; EffectiveCap then reads Max.
+	PaceOff bool `json:"pace_off,omitempty"`
 }
 
 // DaemonQuotaHold is a quota hold on Claude claims. Until is RFC 3339.
@@ -54,8 +57,12 @@ type DaemonQuotaBackup struct {
 
 // AGRuntimeSettings is the per-runtime setting the UI stores in
 // agent_runtime.metadata under "ag_settings" and the heartbeat ack returns to
-// the daemon. A daemon that gets none treats the backup account as disabled.
+// the daemon. A daemon that gets none treats the backup account as disabled and
+// paces as usual.
 type AGRuntimeSettings struct {
 	BackupEnabled       bool `json:"backup_enabled"`
 	BackupMaxConcurrent int  `json:"backup_max_concurrent"`
+	// PaceOff overrides Claude pacing: the daemon claims up to its max. A quota
+	// hold still applies.
+	PaceOff bool `json:"pace_off"`
 }

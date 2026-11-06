@@ -1422,8 +1422,8 @@ The backend merges it into `agent_runtime.metadata.ag_quota` and publishes a
 `daemon:register` refresh (`action: "quota"`) so the Runtimes page refetches. A
 write that only moves a window's `observed_at` is stored but not published. In
 the other direction `PUT /api/runtimes/{runtimeId}/ag-settings` stores
-`{backup_enabled, backup_max_concurrent}` for a Claude runtime and the heartbeat
-ack returns it as `ag_settings`. Detecting and using a backup account is the
+`{backup_enabled, backup_max_concurrent, pace_off}` for a Claude runtime and the
+heartbeat ack returns it as `ag_settings`. Detecting and using a backup account is the
 next patch ("Backup Claude account failover"); this patch alone reports
 `detected/valid: false` plus the stored setting.
 
@@ -1455,7 +1455,8 @@ next patch ("Backup Claude account failover"); this patch alone reports
   first beat and every 60s: a toggle reaches the daemon within about a minute.
 - Endpoint: gated by `canEditRuntime`; Claude runtimes only (400 otherwise);
   `backup_enabled` required, `backup_max_concurrent` 1..100 and 2 when unset
-  (400 outside the range); publishes `daemon:register` with `action: "ag_settings"`
+  (400 outside the range), `pace_off` keeps the stored value when omitted (so a
+  desktop app that predates it, saving the backup form, cannot clear it); publishes `daemon:register` with `action: "ag_settings"`
   only when the stored value changed. It is its own handler, not a field on
   `UpdateAgentRuntimeRequest`.
 - Daemon: `handleHeartbeatActions` stores the ack's setting per runtime. A
@@ -1463,6 +1464,13 @@ next patch ("Backup Claude account failover"); this patch alone reports
   (fail closed, so rolling the server back to stock stops failover on the next
   heartbeat). The last setting is kept for 10 minutes only to ride out an ack
   that never arrives (a missed or failed heartbeat), and dropped on restart.
+- Pacing override: while any of the daemon's Claude runtimes has `pace_off` in a
+  setting received within those 10 minutes, the batch claim uses
+  `MULTICA_DAEMON_MAX_CONCURRENT_TASKS` instead of the pacing cap (pacing is per
+  account, the setting per runtime). A quota hold still keeps Claude out of the
+  claim. The limiter keeps sampling burn, so switching it off resumes at the
+  limiter's own cap. The report then carries `pace_off: true` and
+  `effective_cap` = `max`; the change is logged (`quota: claude pacing override changed`).
 
 Fail policy: an unpatched daemon sends no `ag_quota` and ignores `ag_settings`; an
 unpatched server ignores `ag_quota` and sends no `ag_settings`.
@@ -1489,6 +1497,8 @@ unpatched server ignores `ag_quota` and sends no `ag_settings`.
     reports to upstream's heartbeat body), `ag_quota_report_test.go`,
     `ag_quota_report_spec_test.go` (new); `client.go` (`SendHeartbeatWithReports`), `daemon.go` (the field, the two HTTP
     call sites, one line in `handleHeartbeatActions`), `wakeup.go` (the WS frame)
+  - `server/internal/daemon/ag_quota.go` (`agQuotaClaim` applies `pace_off`),
+    `ag_quota_pace_off_test.go` (new)
 
 - Upstream:
   - Status: `fork-only`. The report alone would be a `candidate` only if it

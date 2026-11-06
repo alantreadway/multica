@@ -1,6 +1,6 @@
 package handler
 
-// AG patch: runtime backup setting. The UI stores it in
+// AG patch: runtime backup and pacing settings. The UI stores them in
 // agent_runtime.metadata["ag_settings"]; the heartbeat ack returns it to the daemon.
 
 import (
@@ -18,6 +18,9 @@ import (
 type agRuntimeSettingsRequest struct {
 	BackupEnabled       *bool `json:"backup_enabled"`
 	BackupMaxConcurrent *int  `json:"backup_max_concurrent"`
+	// PaceOff keeps the stored value when omitted, so a client that predates it
+	// (an installed desktop app saving the backup form) cannot clear it.
+	PaceOff *bool `json:"pace_off"`
 }
 
 // agRuntimeIsClaude reports whether the runtime speaks the Claude protocol.
@@ -67,6 +70,11 @@ func (h *Handler) UpdateAGRuntimeSettings(w http.ResponseWriter, r *http.Request
 	settings := protocol.AGRuntimeSettings{BackupEnabled: *req.BackupEnabled, BackupMaxConcurrent: agquota.DefaultBackupMaxConcurrent}
 	if req.BackupMaxConcurrent != nil {
 		settings.BackupMaxConcurrent = *req.BackupMaxConcurrent
+	}
+	if req.PaceOff != nil {
+		settings.PaceOff = *req.PaceOff
+	} else if stored := agquota.SettingsFromMetadata(rt.Metadata); stored != nil {
+		settings.PaceOff = stored.PaceOff
 	}
 	if settings.BackupMaxConcurrent < 1 || settings.BackupMaxConcurrent > agquota.MaxBackupMaxConcurrent {
 		writeError(w, http.StatusBadRequest, "backup_max_concurrent must be between 1 and 100")

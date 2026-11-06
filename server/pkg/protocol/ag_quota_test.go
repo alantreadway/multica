@@ -104,12 +104,12 @@ func TestAGPatchRuntimeSettingsAckWireFormat(t *testing.T) {
 	})
 
 	t.Run("AG patch: ag_settings round-trips on the ack, false and all", func(t *testing.T) {
-		in := DaemonHeartbeatAckPayload{RuntimeID: "rt-1", Status: "ok", AGSettings: &AGRuntimeSettings{BackupEnabled: false, BackupMaxConcurrent: 4}}
+		in := DaemonHeartbeatAckPayload{RuntimeID: "rt-1", Status: "ok", AGSettings: &AGRuntimeSettings{BackupEnabled: false, BackupMaxConcurrent: 4, PaceOff: true}}
 		b, err := json.Marshal(in)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(b), `"ag_settings":{"backup_enabled":false,"backup_max_concurrent":4}`) {
+		if !strings.Contains(string(b), `"ag_settings":{"backup_enabled":false,"backup_max_concurrent":4,"pace_off":true}`) {
 			t.Fatalf("encoded ack = %s", b)
 		}
 		var out DaemonHeartbeatAckPayload

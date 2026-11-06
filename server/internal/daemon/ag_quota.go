@@ -289,6 +289,11 @@ func (d *Daemon) agQuotaDefaultWindows() map[string]agQuotaWindow {
 func (d *Daemon) agQuotaClaim(ctx context.Context, daemonID string, runtimeIDs []string, maxTasks int) (claimTasksResult, error) {
 	account, hold := d.agQuotaDefaultHold()
 	capNow, active := d.agPaceEvaluate(account, d.agQuotaDefaultWindows(), hold != nil, d.cfg.MaxConcurrentTasks, d.agQuotaNow())
+	if d.agPaceOff() {
+		// The limiter keeps sampling burn, so pacing resumes at its own cap when
+		// the override is switched off.
+		capNow = d.cfg.MaxConcurrentTasks
+	}
 
 	var claude, other []string
 	for _, id := range runtimeIDs {

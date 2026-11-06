@@ -194,6 +194,27 @@ func TestAGPatchRuntimeSettings(t *testing.T) {
 		}
 	})
 
+	t.Run("AG patch: pace_off is stored, and a PUT that omits it keeps the stored value", func(t *testing.T) {
+		runtimeID := createRuntimeLocalSkillTestRuntime(t, testUserID)
+		w := agQuotaPutSettings(testUserID, runtimeID, map[string]any{"backup_enabled": false, "pace_off": true})
+		if w.Code != http.StatusOK {
+			t.Fatalf("PUT = %d %s", w.Code, w.Body)
+		}
+		// An older client saving only the backup form.
+		var resp protocol.AGRuntimeSettings
+		w = agQuotaPutSettings(testUserID, runtimeID, map[string]any{"backup_enabled": true, "backup_max_concurrent": 3})
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &resp) != nil || !resp.PaceOff || !resp.BackupEnabled {
+			t.Fatalf("PUT = %d %s, want pace_off kept", w.Code, w.Body)
+		}
+		if s := agquota.ParseSettings(agDrainMetadata(t, runtimeID)[agquota.SettingsKey]); s == nil || !s.PaceOff {
+			t.Fatalf("stored setting = %+v", s)
+		}
+		agQuotaPutSettings(testUserID, runtimeID, map[string]any{"backup_enabled": true, "backup_max_concurrent": 3, "pace_off": false})
+		if s := agquota.ParseSettings(agDrainMetadata(t, runtimeID)[agquota.SettingsKey]); s == nil || s.PaceOff {
+			t.Fatalf("stored setting after pace_off false = %+v", s)
+		}
+	})
+
 	t.Run("AG patch: an unset limit defaults to 2 and a repeat PUT does not rewrite the row", func(t *testing.T) {
 		runtimeID := createRuntimeLocalSkillTestRuntime(t, testUserID)
 		var resp protocol.AGRuntimeSettings
