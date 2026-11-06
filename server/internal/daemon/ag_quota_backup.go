@@ -17,6 +17,11 @@ package daemon
 //
 // The hold ends on its own at the primary's reset and everything goes back.
 //
+// backup_urgent_until (set from the runtime page, normally to the primary's weekly
+// reset) sends urgent issues to the backup before any hold: they are claimed
+// first, onto the backup, at backup_max_concurrent with no pacing ramp
+// (agBackupEarlyClaim), and the rest of the claim stays paced on the primary.
+//
 // Detection spends no quota: `claude auth status --json` against each dir, at
 // start and every 30 minutes. Valid = logged in with claude.ai, a subscription,
 // and a different account from the primary. Accounts are told apart by orgId (two
@@ -96,6 +101,8 @@ type agBackupState struct {
 	capSeen  time.Time
 	rejected map[string]agBackupRejection // task id -> primary account it was rejected on
 	slots    map[string]struct{}          // task ids holding a backup slot until their run is counted
+	// urgentMode is the last agBackupEarlyClaim result, to log changes.
+	urgentMode bool
 }
 
 // agBackupDir is the backup config dir: MULTICA_AG_CLAUDE_BACKUP_DIR, else ~/.claude-backup.
@@ -289,13 +296,49 @@ func (d *Daemon) agBackupUsable(runtimeID string) bool {
 }
 
 // agBackupOn reports whether new urgent Claude runs for runtimeID go to the backup:
-// it is usable and the daemon's own account is on hold.
+// it is usable, and the daemon's own account is on hold or the runtime's
+// backup_urgent_until is still ahead.
 func (d *Daemon) agBackupOn(runtimeID string) bool {
 	if !d.agBackupUsable(runtimeID) {
 		return false
 	}
+	if d.agBackupUrgentNow(runtimeID) {
+		return true
+	}
 	_, hold := d.agQuotaDefaultHold()
 	return hold != nil
+}
+
+// agBackupUrgentNow reports whether runtimeID's backup_urgent_until is still
+// ahead. An unparseable value counts as unset.
+func (d *Daemon) agBackupUrgentNow(runtimeID string) bool {
+	raw := d.agBackupSetting(runtimeID).BackupUrgentUntil
+	if raw == "" {
+		return false
+	}
+	until, err := time.Parse(time.RFC3339, raw)
+	return err == nil && d.agQuotaNow().Before(until)
+}
+
+// agBackupEligible returns the Claude runtimes that may claim onto the backup and
+// the smallest backup_max_concurrent among them. With urgentNow it keeps only the
+// runtimes whose backup_urgent_until is still ahead.
+func (d *Daemon) agBackupEligible(claude []string, urgentNow bool) (eligible []string, limit int, early bool) {
+	for _, id := range claude {
+		if !d.agBackupUsable(id) {
+			continue
+		}
+		u := d.agBackupUrgentNow(id)
+		if urgentNow && !u {
+			continue
+		}
+		early = early || u
+		eligible = append(eligible, id)
+		if m := d.agBackupSetting(id).BackupMaxConcurrent; limit == 0 || m < limit {
+			limit = m
+		}
+	}
+	return eligible, limit, early
 }
 
 // --- tracker helpers for the backup account ---------------------------------------------
@@ -437,22 +480,15 @@ func (d *Daemon) agBackupClaim(ctx context.Context, daemonID string, claude, oth
 	if !primaryHeld || len(claude) == 0 || d.batchClaimUnsupported.Load() {
 		return claimTasksResult{}, false, nil
 	}
-	var eligible []string
-	limit := 0
-	for _, id := range claude {
-		if !d.agBackupUsable(id) {
-			continue
-		}
-		eligible = append(eligible, id)
-		if m := d.agBackupSetting(id).BackupMaxConcurrent; limit == 0 || m < limit {
-			limit = m
-		}
-	}
+	eligible, limit, early := d.agBackupEligible(claude, false)
 	st := d.agBackupStatusNow()
 	if len(eligible) == 0 || d.agQuotaAccountHold(st.Dir) != nil {
 		return claimTasksResult{}, false, nil
 	}
 	capNow, active := d.agPaceEvaluate(st.Dir, d.agQuotaAccountWindows(st.Dir), false, limit, d.agQuotaNow())
+	if early {
+		capNow = limit // backup_urgent_until: no pacing on the backup
+	}
 	room := capNow - active - d.agBackupPendingClaims()
 	if room > maxTasks {
 		room = maxTasks
@@ -470,6 +506,57 @@ func (d *Daemon) agBackupClaim(ctx context.Context, daemonID string, claude, oth
 	}
 	res, err := d.agQuotaSplitClaim(agWithMinPriority(ctx, filter), daemonID, eligible, other, room, maxTasks)
 	return res, true, err
+}
+
+// agBackupEarlyClaim claims urgent Claude issues onto the backup before the
+// primary is held, while a runtime's backup_urgent_until is still ahead: up to
+// backup_max_concurrent at once with no pacing ramp. agQuotaClaim then fills the
+// remaining slots as usual, so other work stays paced on the primary. It claims
+// nothing while the primary is held (agBackupClaim serves that) or the backup is.
+func (d *Daemon) agBackupEarlyClaim(ctx context.Context, daemonID string, runtimeIDs []string, maxTasks int) (claimTasksResult, error) {
+	var claude []string
+	for _, id := range runtimeIDs {
+		if d.agQuotaIsClaudeRuntime(id) {
+			claude = append(claude, id)
+		}
+	}
+	eligible, limit, _ := d.agBackupEligible(claude, true)
+	d.agBackupNoteUrgentMode(len(eligible) > 0)
+	if len(eligible) == 0 || maxTasks <= 0 || d.batchClaimUnsupported.Load() {
+		return claimTasksResult{}, nil
+	}
+	if _, hold := d.agQuotaDefaultHold(); hold != nil {
+		return claimTasksResult{}, nil
+	}
+	dir := d.agBackupStatusNow().Dir
+	if d.agQuotaAccountHold(dir) != nil {
+		return claimTasksResult{}, nil
+	}
+	room := min(limit-d.agBackupRunning(dir)-d.agBackupPendingClaims(), maxTasks)
+	if room <= 0 {
+		return claimTasksResult{}, nil
+	}
+	filter := make(map[string]string, len(eligible))
+	for _, id := range eligible {
+		filter[id] = agBackupUrgent
+	}
+	res, err := d.claimTasksWSFirst(agWithMinPriority(ctx, filter), daemonID, eligible, room)
+	if err == nil {
+		d.agPaceNoteClaimed(res.Tasks)
+	}
+	return res, err
+}
+
+// agBackupNoteUrgentMode logs when backup_urgent_until starts or stops applying.
+func (d *Daemon) agBackupNoteUrgentMode(on bool) {
+	b := &d.agBackup
+	b.mu.Lock()
+	changed := on != b.urgentMode
+	b.urgentMode = on
+	b.mu.Unlock()
+	if changed {
+		d.agQuotaLogger().Info("quota: urgent claude work goes to the backup account early", "on", on)
+	}
 }
 
 // --- environment swap --------------------------------------------------------------------

@@ -53,6 +53,8 @@ type agBackupClaimServer struct {
 	batches []map[string]any
 	legacy  []string
 	noBatch bool
+	// reply, when set, answers a batch claim (its body) instead of no tasks.
+	reply func(body map[string]any) string
 }
 
 func (s *agBackupClaimServer) bodies() []map[string]any {
@@ -82,7 +84,12 @@ func newAGBackupClaimServer(t *testing.T) *agBackupClaimServer {
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			s.mu.Lock()
 			s.batches = append(s.batches, body)
+			reply := s.reply
 			s.mu.Unlock()
+			if reply != nil {
+				w.Write([]byte(reply(body)))
+				return
+			}
 			w.Write([]byte(`{"tasks":[]}`))
 		case strings.HasSuffix(r.URL.Path, "/tasks/claim"):
 			s.mu.Lock()

@@ -1588,6 +1588,17 @@ the setting turned on from the runtime page, and a patched server (the claim fil
   takes a backup slot at the swap, held until its run is counted, so tasks claimed
   just before the hold cannot all move over. When the hold ends at the
   primary's reset, new tasks go back to the primary.
+- Urgent issues on the backup early: while a Claude runtime's
+  `backup_urgent_until` (set from the runtime page, normally to the primary's
+  weekly reset) is ahead and the backup is usable and not held, urgent issues go
+  to the backup before any hold. `agBackupEarlyClaim` runs first in `agQuotaClaim`:
+  an urgent-only claim for those runtimes with `max_tasks = backup_max_concurrent -
+  active on backup` (no pacing ramp), then the usual claim, paced on the primary,
+  for the slots left. The env swap moves any urgent task, including one the usual
+  claim picked, while a backup slot is free. During a hold the backup's claim also
+  uses `backup_max_concurrent` instead of its pacing room. The setting lapses on
+  its own; changes are logged (`quota: urgent claude work goes to the backup
+  account early`).
 - In-place resume: a run that saw `rejected` on the primary resumes on the backup
   with `--resume <this run's session>` and the prompt "You hit a usage limit and
   have been moved to another account; continue where you left off", only for an
@@ -1618,7 +1629,7 @@ the backup; a rejected resume is a normal quota failure.
 
 - Test prefix: `TestAGPatchBackup*` (`Detection`, `AckGates`, `EnvSwap`, `Claim`,
   `Report`, `AccountState`, `Pacing`, `ResumeInPlace`, `ResumeSessionAndPrompt`, `ConcurrentResumes`,
-  `SwapLimit`, `RunTaskSwap`, `NoIssueTaskStaysOnPrimary`, `SetupScript`,
+  `SwapLimit`, `RunTaskSwap`, `NoIssueTaskStaysOnPrimary`, `UrgentUntil`, `SetupScript`,
   `SetupLinksEverySpecItem`, `IdentityEdges`), plus the null-ack cases in
   `TestAGPatchBackupSetting*`. They use a test-created `claude` and a fake claim
   server; no installed CLI is used.
@@ -1626,10 +1637,12 @@ the backup; a rejected resume is a normal quota failure.
   - `server/internal/daemon/ag_quota_backup.go`, `ag_quota_backup_test.go`,
     `ag_quota_backup_run_test.go`, `ag_quota_backup_setup_test.go`,
     `ag_quota_backup_spec_test.go`, `ag_quota_backup_limit_test.go`,
-    `ag_quota_backup_org_test.go` (new), `ag_quota_backup_identity_test.go` (new)
+    `ag_quota_backup_org_test.go` (new), `ag_quota_backup_identity_test.go` (new),
+    `ag_quota_backup_urgent_test.go` (new)
   - `server/internal/daemon/ag_quota_report.go` (null ack disables; report fill),
     `ag_quota.go` (rejection note and slot release in the observer, one hook in
-    `agQuotaClaim`), `ag_handoff.go` (slot release in `agUntrackTask`)
+    `agQuotaClaim`, and `agQuotaClaim` split into the early urgent claim and
+    `agQuotaClaimPaced`), `ag_handoff.go` (slot release in `agUntrackTask`)
   - hooks: `daemon.go` (the `agBackup` field, `agApplyAck` in
     `handleHeartbeatActions`, `agApplyClaudeAccount` after the custom env,
     `agQuotaResumeOnBackup` after the fresh-session retry, `agBackupLoop` at start),

@@ -287,6 +287,34 @@ func (d *Daemon) agQuotaDefaultWindows() map[string]agQuotaWindow {
 // calling the server. Otherwise Claude runtimes may claim at most cap - active
 // tasks (see ag_quota_pace.go); the rest of the slots go to the other runtimes.
 func (d *Daemon) agQuotaClaim(ctx context.Context, daemonID string, runtimeIDs []string, maxTasks int) (claimTasksResult, error) {
+	early, err := d.agBackupEarlyClaim(ctx, daemonID, runtimeIDs, maxTasks) // AG patch: backup_urgent_until
+	if err != nil {
+		return early, err
+	}
+	n := 0
+	for _, t := range early.Tasks {
+		if t == nil {
+			break
+		}
+		n++
+	}
+	if n == 0 {
+		return d.agQuotaClaimPaced(ctx, daemonID, runtimeIDs, maxTasks)
+	}
+	if n >= maxTasks {
+		return early, nil
+	}
+	rest, err := d.agQuotaClaimPaced(ctx, daemonID, runtimeIDs, maxTasks-n)
+	if err != nil {
+		// The urgent tasks are already claimed server-side; dispatch them.
+		d.agQuotaLogger().Warn("quota: paced claim failed after an urgent backup claim", "error", err)
+		return early, nil
+	}
+	return agQuotaMergeClaims(early, rest), nil
+}
+
+// agQuotaClaimPaced is agQuotaClaim without the early urgent claim.
+func (d *Daemon) agQuotaClaimPaced(ctx context.Context, daemonID string, runtimeIDs []string, maxTasks int) (claimTasksResult, error) {
 	account, hold := d.agQuotaDefaultHold()
 	capNow, active := d.agPaceEvaluate(account, d.agQuotaDefaultWindows(), hold != nil, d.cfg.MaxConcurrentTasks, d.agQuotaNow())
 	if d.agPaceOff() {
