@@ -58,6 +58,7 @@ Newest first:
 | `ag/v0.7.1-ag.5` | `985104c1556012f8675911a3fcf7e44afff11e73` | `multica-web-ag:v0.7.1-ag.5` | `multica-backend-ag:v0.7.1-ag.5` | `dist/multica-v0.7.1-ag.5-darwin-arm64` | 2026-11-05 |
 | `ag/v0.7.1-ag.6` | `4e869772002a8696dfc96e512803700807a8852a` | `multica-web-ag:v0.7.1-ag.6` | `multica-backend-ag:v0.7.1-ag.6` | `dist/multica-v0.7.1-ag.6-darwin-arm64` | 2026-11-05 |
 | `ag/v0.7.1-ag.7` | `32953c629ff2f24cf99d2a81965c781569f4b383` | `multica-web-ag:v0.7.1-ag.7` | `multica-backend-ag:v0.7.1-ag.7` | `dist/multica-v0.7.1-ag.7-darwin-arm64` | 2026-11-06 |
+| `ag/v0.7.1-ag.8` | `e282400141904c27d5f7707e75981d47f4f6e498` | `multica-web-ag:v0.7.1-ag.8` | `multica-backend-ag:v0.7.1-ag.7` (unchanged) | `dist/multica-v0.7.1-ag.7-darwin-arm64` (unchanged) | 2026-11-06 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
@@ -68,6 +69,13 @@ does not.
 Notes, newest first. Notes for builds before `v0.7.0` are in git history
 (`git log -p -- ag-patches/PATCHES.md`).
 
+- **`v0.7.1-ag.8`**, web only: the Decisions page redesign. Compact rows beside
+  the selected card's detail, number-key and `j`/`k`/`z` shortcuts, and a
+  clicked card animating out of the queue into an Activity list with an undo
+  toast. Guard: 1006 views, 626 core and 293 Go patch tests passed. Deployed
+  2026-11-06 like `ag.3`: the image loaded into the self-host's VM as
+  `multica-web-ag:v0.7.1` and only the frontend recreated (`up -d --no-deps
+  frontend`). Backend, CLI, daemon and database did not change.
 - **`v0.7.1-ag.7`**: the Claude resume patches merged on GitHub (#39, #40, #41)
   and the Decision Desk line built locally since `ag.4`, in one branch. The 22
   local commits were rebased onto `origin/ag/v0.7.1` at `764bc43eb`; the only
