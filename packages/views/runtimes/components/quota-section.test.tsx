@@ -183,16 +183,16 @@ describe("AG patch: QuotaSection", () => {
   it("AG patch: reports a backup that is not found, and disables the setting", () => {
     renderSection(makeRuntime({ ...base, backup: backup({ detected: false, valid: false }) }));
     expect(screen.getByText("Not found")).toBeInTheDocument();
-    expect(screen.getByRole("switch")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("switch", { name: "Use backup account" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("spinbutton")).toBeDisabled();
   });
 
   it("AG patch: a disabled toggle does not save", async () => {
     const user = userEvent.setup();
     renderSection(makeRuntime({ ...base, backup: backup({ valid: false, reason: "not_logged_in" }) }));
-    await user.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("switch", { name: "Use backup account" }));
     expect(updateSettings).not.toHaveBeenCalled();
-    expect(screen.getByRole("switch")).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Use backup account" })).not.toBeChecked();
   });
 
   it("AG patch: reports an invalid backup with its reason, and disables the setting", () => {
@@ -208,7 +208,7 @@ describe("AG patch: QuotaSection", () => {
         makeRuntime({ ...base, backup: backup({ valid: false, reason }) }),
       );
       expect(screen.getByText(`Found but invalid · ${text}`)).toBeInTheDocument();
-      expect(screen.getByRole("switch")).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByRole("switch", { name: "Use backup account" })).toHaveAttribute("aria-disabled", "true");
       unmount();
     }
   });
@@ -216,37 +216,38 @@ describe("AG patch: QuotaSection", () => {
   it("AG patch: a ready backup enables the toggle but keeps the input off until it is on", () => {
     renderSection(makeRuntime(base));
     expect(screen.getByText("Ready")).toBeInTheDocument();
-    expect(screen.getByRole("switch")).not.toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("switch", { name: "Use backup account" })).not.toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("spinbutton")).toBeDisabled();
     expect(screen.getByText("Only urgent issues run on the backup.")).toBeInTheDocument();
   });
 
   it("AG patch: the input is enabled once the backup is on", () => {
     renderSection(makeRuntime({ ...base, backup: backup({ enabled: true, max_concurrent: 3 }) }));
-    expect(screen.getByRole("switch")).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Use backup account" })).toBeChecked();
     expect(screen.getByRole("spinbutton")).toBeEnabled();
     expect(screen.getByRole("spinbutton")).toHaveValue(3);
   });
 
   it("AG patch: a read-only viewer cannot change the setting", () => {
     renderSection(makeRuntime(base), false);
-    expect(screen.getByRole("switch")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("switch", { name: "Use backup account" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText("Read-only")).toBeInTheDocument();
   });
 
-  it("AG patch: toggling sends both fields", async () => {
+  it("AG patch: toggling sends all three fields", async () => {
     const user = userEvent.setup();
     renderSection(makeRuntime(base));
-    await user.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("switch", { name: "Use backup account" }));
     await waitFor(() =>
       expect(updateSettings).toHaveBeenCalledWith("rt-1", {
         backup_enabled: true,
         backup_max_concurrent: 2,
+        pace_off: false,
       }),
     );
   });
 
-  it("AG patch: committing the limit sends both fields", async () => {
+  it("AG patch: committing the limit sends all three fields", async () => {
     const user = userEvent.setup();
     renderSection(makeRuntime({ ...base, backup: backup({ enabled: true }) }));
     const input = screen.getByRole("spinbutton");
@@ -257,6 +258,7 @@ describe("AG patch: QuotaSection", () => {
       expect(updateSettings).toHaveBeenCalledWith("rt-1", {
         backup_enabled: true,
         backup_max_concurrent: 4,
+        pace_off: false,
       }),
     );
   });
@@ -296,11 +298,60 @@ describe("AG patch: QuotaSection", () => {
     await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
   });
 
+  it("AG patch: the pacing switch is on by default and turning it off saves pace_off with the backup setting", async () => {
+    const user = userEvent.setup();
+    renderSection(makeRuntime({ ...base, backup: backup({ enabled: true, max_concurrent: 3 }) }));
+    const pace = screen.getByRole("switch", { name: "Pace Claude runs" });
+    expect(pace).toBeChecked();
+    expect(screen.queryByText(/until the quota limit stops it/)).toBeNull();
+    await user.click(pace);
+    await waitFor(() =>
+      expect(updateSettings).toHaveBeenCalledWith("rt-1", {
+        backup_enabled: true,
+        backup_max_concurrent: 3,
+        pace_off: true,
+      }),
+    );
+  });
+
+  it("AG patch: an override shows the switch off with its note, and the backup toggle keeps it", async () => {
+    const user = userEvent.setup();
+    renderSection(
+      makeRuntime(base, {}, { backup_enabled: false, backup_max_concurrent: 2, pace_off: true }),
+    );
+    expect(screen.getByRole("switch", { name: "Pace Claude runs" })).not.toBeChecked();
+    expect(
+      screen.getByText("Off: Claude runs up to the max until the quota limit stops it."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("switch", { name: "Use backup account" }));
+    await waitFor(() =>
+      expect(updateSettings).toHaveBeenCalledWith("rt-1", {
+        backup_enabled: true,
+        backup_max_concurrent: 2,
+        pace_off: true,
+      }),
+    );
+  });
+
+  it("AG patch: the pacing switch works without a valid backup but not for a read-only viewer", () => {
+    renderSection(makeRuntime({ ...base, backup: backup({ detected: false, valid: false }) }));
+    expect(screen.getByRole("switch", { name: "Pace Claude runs" })).not.toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    cleanup();
+    renderSection(makeRuntime(base), false);
+    expect(screen.getByRole("switch", { name: "Pace Claude runs" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
   it("AG patch: the stored setting wins over the daemon's echo", () => {
     renderSection(
       makeRuntime(base, {}, { backup_enabled: true, backup_max_concurrent: 4 }),
     );
-    expect(screen.getByRole("switch")).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Use backup account" })).toBeChecked();
     expect(screen.getByRole("spinbutton")).toHaveValue(4);
   });
 
@@ -315,16 +366,16 @@ describe("AG patch: QuotaSection", () => {
     await waitFor(() => expect(toastError).toHaveBeenCalled());
     expect(toastError).toHaveBeenCalledWith("Couldn't save the backup setting");
     await waitFor(() => expect(input).toHaveValue(2));
-    expect(screen.getByRole("switch")).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Use backup account" })).toBeChecked();
   });
 
   it("AG patch: the toggle shows server state, not the click, when the save fails", async () => {
     updateSettings.mockRejectedValue(new Error("boom"));
     const user = userEvent.setup();
     renderSection(makeRuntime(base));
-    await user.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("switch", { name: "Use backup account" }));
     await waitFor(() => expect(toastError).toHaveBeenCalled());
-    expect(screen.getByRole("switch")).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Use backup account" })).not.toBeChecked();
   });
 
   it("AG patch: a window over 100% shows the real figure with a full bar", () => {
@@ -346,13 +397,13 @@ describe("AG patch: QuotaSection", () => {
     updateSettings.mockReturnValue(new Promise((resolve) => (finish = resolve)));
     const user = userEvent.setup();
     renderSection(makeRuntime(base));
-    await user.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("switch", { name: "Use backup account" }));
     await waitFor(() =>
-      expect(screen.getByRole("switch")).toHaveAttribute("aria-disabled", "true"),
+      expect(screen.getByRole("switch", { name: "Use backup account" })).toHaveAttribute("aria-disabled", "true"),
     );
     finish({ backup_enabled: true, backup_max_concurrent: 2 });
     await waitFor(() =>
-      expect(screen.getByRole("switch")).not.toHaveAttribute("aria-disabled", "true"),
+      expect(screen.getByRole("switch", { name: "Use backup account" })).not.toHaveAttribute("aria-disabled", "true"),
     );
   });
 
@@ -368,14 +419,14 @@ describe("AG patch: QuotaSection", () => {
       </QueryClientProvider>
     );
     const { unmount } = renderWithI18n(view);
-    await user.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("switch", { name: "Use backup account" }));
     await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(1));
     expect(invalidate.mock.calls[0]![0]).toEqual({ queryKey: ["runtimes", "ws-1"] });
     unmount();
 
     updateSettings.mockRejectedValue(new Error("boom"));
     renderWithI18n(view);
-    await user.click(screen.getByRole("switch"));
+    await user.click(screen.getByRole("switch", { name: "Use backup account" }));
     await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
   });
 });

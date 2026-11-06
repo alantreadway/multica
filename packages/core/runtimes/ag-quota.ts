@@ -42,6 +42,8 @@ export interface RuntimeQuota {
     /** The stored setting (`ag_settings`), else what the daemon last received. */
     setting: BackupSetting;
   };
+  /** Pacing is overridden: the stored `pace_off`, else the daemon's report. */
+  paceOff: boolean;
 }
 
 // Every field is optional with a default: a report from a newer daemon, or one
@@ -83,11 +85,14 @@ const quotaSchema = z.object({
       enabled: false,
       max_concurrent: 2,
     }),
+  pace_off: z.boolean().catch(false),
 });
 
 const settingsSchema = z.object({
   backup_enabled: z.boolean(),
   backup_max_concurrent: z.number().finite(),
+  // Absent before the pacing override existed.
+  pace_off: z.boolean().optional().catch(undefined),
 });
 
 const REASONS: readonly string[] = [
@@ -163,6 +168,7 @@ export function runtimeQuota(
           : "unknown",
       setting: { enabled, maxConcurrent: Math.round(maxConcurrent) },
     },
+    paceOff: stored?.pace_off ?? parsed.pace_off,
   };
 }
 
@@ -173,6 +179,8 @@ export interface QuotaSidebarState {
   holdUntil: Date | null;
   /** The most-limited online runtime whose Claude cap is below its max; null when none is. */
   paced: QuotaPaced | null;
+  /** Some online runtime has pacing overridden. */
+  paceOff: boolean;
 }
 
 export interface QuotaPaced {
@@ -194,6 +202,7 @@ export function quotaSidebarState(
   let backup = false;
   let holdUntil: Date | null = null;
   let paced: QuotaPaced | null = null;
+  let paceOff = false;
   for (const runtime of runtimes) {
     if (runtime.status !== "online") continue;
     const quota = runtimeQuota(runtime);
@@ -201,6 +210,11 @@ export function quotaSidebarState(
     if (quota.account === "backup") backup = true;
     if (quota.holdUntil && (!holdUntil || quota.holdUntil < holdUntil)) {
       holdUntil = quota.holdUntil;
+    }
+    // Its report can lag the saved override by one heartbeat; the override wins.
+    if (quota.paceOff) {
+      paceOff = true;
+      continue;
     }
     const { effectiveCap: cap, max } = quota;
     if (cap === null || max === null || max < 1 || cap >= max) continue;
@@ -220,7 +234,7 @@ export function quotaSidebarState(
       utilization: (window === "five_hour" ? quota.fiveHour : quota.sevenDay)?.utilization ?? null,
     };
   }
-  return { backup, holdUntil, paced };
+  return { backup, holdUntil, paced, paceOff };
 }
 
 const AG_REFRESH_ACTIONS: readonly unknown[] = ["quota", "drain", "ag_settings"];
@@ -234,7 +248,7 @@ export function isAGDaemonRefresh(payload: unknown): boolean {
   return AG_REFRESH_ACTIONS.includes((payload as { action?: unknown }).action);
 }
 
-/** Saves the backup setting; the caller awaits the server, nothing is optimistic. */
+/** Saves the backup and pacing settings; the caller awaits the server, nothing is optimistic. */
 export function useAGRuntimeSettings(wsId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -245,6 +259,7 @@ export function useAGRuntimeSettings(wsId: string) {
       runtimeId: string;
       backup_enabled: boolean;
       backup_max_concurrent: number;
+      pace_off: boolean;
     }) => api.updateAGRuntimeSettings(runtimeId, body),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: runtimeKeys.all(wsId) });

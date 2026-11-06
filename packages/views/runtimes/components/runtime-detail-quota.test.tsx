@@ -158,11 +158,11 @@ describe("AG patch: RuntimeDetail quota section", () => {
 
   it("AG patch: the owner can change the setting", () => {
     renderDetail(makeRuntime({ metadata: quota }));
-    expect(screen.getByRole("switch")).not.toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("switch", { name: "Use backup account" })).not.toHaveAttribute("aria-disabled", "true");
   });
 
   it("AG patch: a member who does not own the runtime cannot", () => {
     renderDetail(makeRuntime({ metadata: quota, owner_id: "someone-else" }));
-    expect(screen.getByRole("switch")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("switch", { name: "Use backup account" })).toHaveAttribute("aria-disabled", "true");
   });
 });

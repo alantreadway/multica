@@ -16,11 +16,11 @@ import { EMPTY_LIST_LABELS_RESPONSE, ListLabelsResponseSchema } from "./schemas"
 declare module "./client" {
   interface ApiClient {
     reorderLabels(data: ReorderLabelsRequest): Promise<ListLabelsResponse>;
-    // Backup account setting for a Claude runtime (see runtimes/ag-quota.ts).
+    // Backup account and pacing settings for a Claude runtime (see runtimes/ag-quota.ts).
     updateAGRuntimeSettings(
       runtimeId: string,
-      body: { backup_enabled: boolean; backup_max_concurrent: number },
-    ): Promise<{ backup_enabled: boolean; backup_max_concurrent: number }>;
+      body: { backup_enabled: boolean; backup_max_concurrent: number; pace_off: boolean },
+    ): Promise<{ backup_enabled: boolean; backup_max_concurrent: number; pace_off: boolean }>;
     // Live token rates of the current workspace (see runtimes/ag-token-rate.ts).
     listAGTokenRates(): Promise<AGTokenRate[]>;
     // Decision Desk (see decisions/ag-decisions.ts).

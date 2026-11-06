@@ -143,7 +143,8 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
   const runtimeName = (id: string) =>
     runtimes?.find((r) => r.id === id)?.name ?? t(($) => $.layout.agent_status.hover_tokens_unlisted);
 
-  // Backup wins over a hold, and a hold over pacing: each changes more of what runs.
+  // Backup wins over a hold, a hold over pacing, and pacing over a pacing override:
+  // each changes more of what runs.
   const paced = quota.paced;
   const quotaLabel = quota.backup
     ? t(($) => $.layout.agent_status.backup_urgent)
@@ -161,7 +162,9 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
                   : $.layout.agent_status.quota_paced_week,
               { cap: paced.cap, max: paced.max, percent: Math.round(paced.utilization * 100) },
             )
-        : null;
+        : quota.paceOff
+          ? t(($) => $.layout.agent_status.quota_pace_off)
+          : null;
 
   const trigger = (
     <SidebarMenuButton

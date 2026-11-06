@@ -86,6 +86,7 @@ describe("AG patch: runtimeQuota", () => {
         reason: "unknown",
         setting: { enabled: false, maxConcurrent: 2 },
       },
+      paceOff: false,
     });
   });
 
@@ -161,6 +162,30 @@ describe("AG patch: runtimeQuota", () => {
     expect(quota?.backup.setting).toEqual({ enabled: true, maxConcurrent: 4 });
   });
 
+  it("AG patch: pace_off comes from the stored setting, else the report, else false", () => {
+    expect(runtimeQuota(runtime({ ag_quota: report }))?.paceOff).toBe(false);
+    expect(runtimeQuota(runtime({ ag_quota: { ...report, pace_off: true } }))?.paceOff).toBe(true);
+    // A setting saved before the override existed has no pace_off: the report decides.
+    expect(
+      runtimeQuota(
+        runtime({
+          ag_quota: { ...report, pace_off: true },
+          ag_settings: { backup_enabled: false, backup_max_concurrent: 2 },
+        }),
+      )?.paceOff,
+    ).toBe(true);
+    // Right after a save the stored value wins over the lagging report.
+    expect(
+      runtimeQuota(
+        runtime({
+          ag_quota: { ...report, pace_off: true },
+          ag_settings: { backup_enabled: false, backup_max_concurrent: 2, pace_off: false },
+        }),
+      )?.paceOff,
+    ).toBe(false);
+    expect(runtimeQuota(runtime({ ag_quota: { ...report, pace_off: "yes" } }))?.paceOff).toBe(false);
+  });
+
   it("AG patch: a malformed stored setting falls back to the echo", () => {
     const quota = runtimeQuota(
       runtime({ ag_quota: report, ag_settings: { backup_enabled: "yes" } }),
@@ -174,11 +199,17 @@ describe("AG patch: quotaSidebarState", () => {
 
   it("AG patch: nothing to show without reports", () => {
     const now = new Date("2026-10-18T19:00:00Z");
-    expect(quotaSidebarState([], now)).toEqual({ backup: false, holdUntil: null, paced: null });
+    expect(quotaSidebarState([], now)).toEqual({
+      backup: false,
+      holdUntil: null,
+      paced: null,
+      paceOff: false,
+    });
     expect(quotaSidebarState([runtime({}), runtime({ ag_quota: report })], now)).toEqual({
       backup: false,
       holdUntil: new Date("2026-10-18T21:10:00Z"),
       paced: { cap: 3, max: 5, window: "five_hour", utilization: 0.84 },
+      paceOff: false,
     });
   });
 
@@ -202,7 +233,7 @@ describe("AG patch: quotaSidebarState", () => {
       quotaSidebarState([
         runtime({ ag_quota: { account: "backup", hold: { until: "2026-10-18T21:10:00Z" } } }, "offline"),
       ]),
-    ).toEqual({ backup: false, holdUntil: null, paced: null });
+    ).toEqual({ backup: false, holdUntil: null, paced: null, paceOff: false });
   });
 
   const paced = (cap: number, max: number, five: number, fiveResets: string, week: number) =>
@@ -234,6 +265,15 @@ describe("AG patch: quotaSidebarState", () => {
     expect(
       quotaSidebarState([paced(2, 5, 0.9, "2026-11-06T16:00:00Z", 0.91)], at).paced?.window,
     ).toBe("five_hour");
+  });
+
+  it("AG patch: a pacing override replaces that runtime's paced line, even before its report catches up", () => {
+    const lagging = runtime({
+      ag_quota: (paced(1, 5, 0.3, "2026-11-06T16:00:00Z", 0.92).metadata as { ag_quota: object }).ag_quota,
+      ag_settings: { backup_enabled: false, backup_max_concurrent: 2, pace_off: true },
+    });
+    expect(quotaSidebarState([lagging], at)).toMatchObject({ paced: null, paceOff: true });
+    expect(quotaSidebarState([paced(1, 5, 0.3, "2026-11-06T16:00:00Z", 0.92)], at).paceOff).toBe(false);
   });
 
   it("AG patch: shows nothing at full speed and picks the most-limited runtime", () => {

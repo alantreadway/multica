@@ -5,8 +5,8 @@ import { ApiClient } from "../api/client";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("AG patch: updateAGRuntimeSettings", () => {
-  it("AG patch: PUTs both fields to the runtime's ag-settings endpoint and returns the stored setting", async () => {
-    const stored = { backup_enabled: true, backup_max_concurrent: 3 };
+  it("AG patch: PUTs all three fields to the runtime's ag-settings endpoint and returns the stored setting", async () => {
+    const stored = { backup_enabled: true, backup_max_concurrent: 3, pace_off: true };
     const fetch = vi
       .fn()
       .mockResolvedValue(new Response(JSON.stringify(stored), { status: 200 }));
@@ -35,6 +35,7 @@ describe("AG patch: updateAGRuntimeSettings", () => {
       new ApiClient("https://api.example.test").updateAGRuntimeSettings("rt-9", {
         backup_enabled: true,
         backup_max_concurrent: 2,
+        pace_off: false,
       }),
     ).rejects.toBeTruthy();
   });

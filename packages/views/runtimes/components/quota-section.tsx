@@ -142,12 +142,13 @@ function QuotaBody({
 
   const editable = canEdit && quota.backup.valid && !save.isPending;
 
-  const submit = (next: { enabled: boolean; maxConcurrent: number }) => {
+  const submit = (next: { enabled: boolean; maxConcurrent: number; paceOff?: boolean }) => {
     save.mutate(
       {
         runtimeId: runtime.id,
         backup_enabled: next.enabled,
         backup_max_concurrent: next.maxConcurrent,
+        pace_off: next.paceOff ?? quota.paceOff,
       },
       {
         onError: () => {
@@ -200,6 +201,32 @@ function QuotaBody({
           )}
         </div>
       )}
+
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-3">
+          <label htmlFor={`ag-pace-${runtime.id}`} className="text-caption">
+            {t(($) => $.runtimes.quota.pace)}
+          </label>
+          <Switch
+            id={`ag-pace-${runtime.id}`}
+            size="sm"
+            checked={!quota.paceOff}
+            disabled={!canEdit || save.isPending}
+            onCheckedChange={(checked) =>
+              submit({
+                enabled: setting.enabled,
+                maxConcurrent: setting.maxConcurrent,
+                paceOff: !checked,
+              })
+            }
+          />
+        </div>
+        {quota.paceOff && (
+          <p className="text-caption text-warning">
+            {t(($) => $.runtimes.quota.pace_off_note)}
+          </p>
+        )}
+      </div>
 
       <div className="space-y-2 border-t pt-3">
         <div className="flex items-center justify-between gap-2 text-caption">

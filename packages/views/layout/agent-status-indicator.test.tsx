@@ -447,6 +447,18 @@ describe("AG patch: AgentStatusIndicator", () => {
       );
     });
 
+    it("AG patch: shows a pacing override instead of the paced line", () => {
+      renderIndicator([
+        makeRuntime({
+          metadata: {
+            ...pacedReport(0.3, "2099-01-01T00:00:00Z"),
+            ag_settings: { backup_enabled: false, backup_max_concurrent: 2, pace_off: true },
+          },
+        }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent("Claude pacing off");
+    });
+
     it("AG patch: a hold wins over pacing", () => {
       renderIndicator([
         makeRuntime({

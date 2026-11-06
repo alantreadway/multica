@@ -1656,7 +1656,11 @@ that carries `metadata.ag_quota`: both windows (5-hour, 7-day) as a bar with the
 utilisation and reset time, the current cap ("Running up to 3 of 5") and any
 hold ("On hold until 21:10"), then the backup account: status (not found, found
 but invalid with the reason, or ready), a switch, the `backup_max_concurrent`
-input and one help line ("Only urgent issues run on the backup."). The switch
+input and one help line ("Only urgent issues run on the backup."). Above the
+backup block a "Pace Claude runs" switch, on by default, saves `pace_off` when
+turned off and then shows one warning line ("Off: Claude runs up to the max
+until the quota limit stops it."); it needs edit rights but not a valid backup.
+Every save sends all three fields. The switch
 and input are disabled unless the backup is valid, the input also while the
 switch is off, and both for anyone who cannot edit the runtime. Saves go to
 `PUT /api/runtimes/{id}/ag-settings` with both fields; the form awaits the server
@@ -1671,7 +1675,9 @@ window's can). Failing both, while an online runtime's Claude cap is below its
 max, it shows the pace ("Claude paced: 1 of 5 · weekly 91%", the most-limited
 runtime; the 5-hour window's utilisation instead when that window is at 80% or
 more and not expired, which is when it can pace). Backup wins over a hold, and a
-hold over pacing. The row then links to Runtimes. It reads the
+hold over pacing. With pacing overridden it shows "Claude pacing off" instead
+of that runtime's paced line, from the stored setting, so it shows before the
+daemon's next report. The row then links to Runtimes. It reads the
 same cached runtime list as the drain line: no new request.
 
 The saved setting is read from `metadata.ag_settings`, which the PUT writes at
@@ -1699,7 +1705,8 @@ Frontend only: rollback is switching the web image back.
   - `packages/views/layout/agent-status-indicator.tsx`, `agent-status-indicator.test.tsx`
   - `packages/views/locales/*/ag.json` (`runtimes.quota`,
     `layout.agent_status.backup_urgent`, `quota_hold`, `quota_paced_week`,
-    `quota_paced_session`, `quota_paced_unknown`), `locales/ag-quota.test.ts` (new)
+    `quota_paced_session`, `quota_paced_unknown`, `quota_pace_off`; `runtimes.quota.pace`,
+    `pace_off_note`), `locales/ag-quota.test.ts` (new)
 
 - Upstream:
   - Status: `fork-only`. Needs the quota report and settings patch above.
