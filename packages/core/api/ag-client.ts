@@ -20,8 +20,18 @@ declare module "./client" {
     // Backup account and pacing settings for a Claude runtime (see runtimes/ag-quota.ts).
     updateAGRuntimeSettings(
       runtimeId: string,
-      body: { backup_enabled: boolean; backup_max_concurrent: number; pace_off: boolean },
-    ): Promise<{ backup_enabled: boolean; backup_max_concurrent: number; pace_off: boolean }>;
+      body: {
+        backup_enabled: boolean;
+        backup_max_concurrent: number;
+        pace_off: boolean;
+        backup_urgent_until?: string;
+      },
+    ): Promise<{
+      backup_enabled: boolean;
+      backup_max_concurrent: number;
+      pace_off: boolean;
+      backup_urgent_until?: string;
+    }>;
     // Live token rates of the current workspace (see runtimes/ag-token-rate.ts).
     listAGTokenRates(): Promise<AGTokenRate[]>;
     // Decision Desk (see decisions/ag-decisions.ts).

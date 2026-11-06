@@ -19,6 +19,8 @@ const QUOTA_STRINGS: Record<string, readonly string[]> = {
   backup_enable: [],
   backup_urgent_only: [],
   backup_max: [],
+  backup_urgent_now: [],
+  backup_urgent_now_note: ["{{time}}"],
   save_failed: [],
 };
 const REASONS = ["not_logged_in", "same_account", "check_failed", "unknown"];
@@ -28,6 +30,7 @@ const SIDEBAR: Record<string, readonly string[]> = {
   quota_paced_week: ["{{cap}}", "{{max}}", "{{percent}}"],
   quota_paced_session: ["{{cap}}", "{{max}}", "{{percent}}"],
   quota_paced_unknown: ["{{cap}}", "{{max}}"],
+  quota_urgent_backup: ["{{time}}"],
 };
 
 type Bundle = {

@@ -1680,7 +1680,11 @@ input and one help line ("Only urgent issues run on the backup."). Above the
 backup block a "Pace Claude runs" switch, on by default, saves `pace_off` when
 turned off and then shows one warning line ("Off: Claude runs up to the max
 until the quota limit stops it."); it needs edit rights but not a valid backup.
-Every save sends all three fields. The switch
+While the backup is on, an "Urgent issues on the backup now" switch saves
+`backup_urgent_until` as the primary's weekly reset (it is disabled without a
+future one), shows "Until <time>: no pacing, up to the max above." while that time
+is ahead, and sends `""` when switched off. Every save sends the three other
+fields; `backup_urgent_until` only from that switch, so the server keeps it. The switch
 and input are disabled unless the backup is valid, the input also while the
 switch is off, and both for anyone who cannot edit the runtime. Saves go to
 `PUT /api/runtimes/{id}/ag-settings` with both fields; the form awaits the server
@@ -1695,7 +1699,8 @@ window's can). Failing both, while an online runtime's Claude cap is below its
 max, it shows the pace ("Claude paced: 1 of 5 · weekly 91%", the most-limited
 runtime; the 5-hour window's utilisation instead when that window is at 80% or
 more and not expired, which is when it can pace). Backup wins over a hold, and a
-hold over pacing. With pacing overridden it shows "Claude pacing off" instead
+hold over pacing. While a stored `backup_urgent_until` is ahead (backup enabled and
+valid) it shows "Urgent on backup until <time>" after a hold and before pacing. With pacing overridden it shows "Claude pacing off" instead
 of that runtime's paced line, from the stored setting, so it shows before the
 daemon's next report. The row then links to Runtimes. It reads the
 same cached runtime list as the drain line: no new request.
@@ -1725,8 +1730,9 @@ Frontend only: rollback is switching the web image back.
   - `packages/views/layout/agent-status-indicator.tsx`, `agent-status-indicator.test.tsx`
   - `packages/views/locales/*/ag.json` (`runtimes.quota`,
     `layout.agent_status.backup_urgent`, `quota_hold`, `quota_paced_week`,
-    `quota_paced_session`, `quota_paced_unknown`, `quota_pace_off`; `runtimes.quota.pace`,
-    `pace_off_note`), `locales/ag-quota.test.ts` (new)
+    `quota_paced_session`, `quota_paced_unknown`, `quota_pace_off`, `quota_urgent_backup`;
+    `runtimes.quota.pace`, `pace_off_note`, `backup_urgent_now`, `backup_urgent_now_note`),
+    `locales/ag-quota.test.ts` (new)
 
 - Upstream:
   - Status: `fork-only`. Needs the quota report and settings patch above.

@@ -87,6 +87,7 @@ describe("AG patch: runtimeQuota", () => {
         setting: { enabled: false, maxConcurrent: 2 },
       },
       paceOff: false,
+      backupUrgentUntil: null,
     });
   });
 
@@ -204,12 +205,14 @@ describe("AG patch: quotaSidebarState", () => {
       holdUntil: null,
       paced: null,
       paceOff: false,
+      urgentOnBackupUntil: null,
     });
     expect(quotaSidebarState([runtime({}), runtime({ ag_quota: report })], now)).toEqual({
       backup: false,
       holdUntil: new Date("2026-10-18T21:10:00Z"),
       paced: { cap: 3, max: 5, window: "five_hour", utilization: 0.84 },
       paceOff: false,
+      urgentOnBackupUntil: null,
     });
   });
 
@@ -233,7 +236,7 @@ describe("AG patch: quotaSidebarState", () => {
       quotaSidebarState([
         runtime({ ag_quota: { account: "backup", hold: { until: "2026-10-18T21:10:00Z" } } }, "offline"),
       ]),
-    ).toEqual({ backup: false, holdUntil: null, paced: null, paceOff: false });
+    ).toEqual({ backup: false, holdUntil: null, paced: null, paceOff: false, urgentOnBackupUntil: null });
   });
 
   const paced = (cap: number, max: number, five: number, fiveResets: string, week: number) =>
@@ -274,6 +277,21 @@ describe("AG patch: quotaSidebarState", () => {
     });
     expect(quotaSidebarState([lagging], at)).toMatchObject({ paced: null, paceOff: true });
     expect(quotaSidebarState([paced(1, 5, 0.3, "2026-11-06T16:00:00Z", 0.92)], at).paceOff).toBe(false);
+  });
+
+  it("AG patch: urgent-on-backup shows while backup_urgent_until is ahead and the backup is enabled and valid", () => {
+    const withUrgent = (until: string, enabled = true, valid = true) =>
+      runtime({
+        ag_quota: { backup: { detected: true, valid } },
+        ag_settings: { backup_enabled: enabled, backup_max_concurrent: 2, backup_urgent_until: until },
+      });
+    expect(quotaSidebarState([withUrgent("2026-11-07T06:00:00Z")], at).urgentOnBackupUntil).toEqual(
+      new Date("2026-11-07T06:00:00Z"),
+    );
+    expect(quotaSidebarState([withUrgent("2026-11-06T14:00:00Z")], at).urgentOnBackupUntil).toBeNull();
+    expect(quotaSidebarState([withUrgent("2026-11-07T06:00:00Z", false)], at).urgentOnBackupUntil).toBeNull();
+    expect(quotaSidebarState([withUrgent("2026-11-07T06:00:00Z", true, false)], at).urgentOnBackupUntil).toBeNull();
+    expect(runtimeQuota(withUrgent("not a time"))?.backupUrgentUntil).toBeNull();
   });
 
   it("AG patch: shows nothing at full speed and picks the most-limited runtime", () => {

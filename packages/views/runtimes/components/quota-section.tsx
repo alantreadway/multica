@@ -141,14 +141,26 @@ function QuotaBody({
   }, [setting.maxConcurrent]);
 
   const editable = canEdit && quota.backup.valid && !save.isPending;
+  const now = new Date();
+  const urgentUntil =
+    quota.backupUrgentUntil && quota.backupUrgentUntil > now ? quota.backupUrgentUntil : null;
+  // Switching it on lasts until the primary's weekly reset, so it needs one.
+  const weeklyReset =
+    quota.sevenDay?.resetsAt && quota.sevenDay.resetsAt > now ? quota.sevenDay.resetsAt : null;
 
-  const submit = (next: { enabled: boolean; maxConcurrent: number; paceOff?: boolean }) => {
+  const submit = (next: {
+    enabled: boolean;
+    maxConcurrent: number;
+    paceOff?: boolean;
+    urgentUntil?: string;
+  }) => {
     save.mutate(
       {
         runtimeId: runtime.id,
         backup_enabled: next.enabled,
         backup_max_concurrent: next.maxConcurrent,
         pace_off: next.paceOff ?? quota.paceOff,
+        ...(next.urgentUntil !== undefined && { backup_urgent_until: next.urgentUntil }),
       },
       {
         onError: () => {
@@ -276,6 +288,35 @@ function QuotaBody({
             className="h-7 w-20 text-caption"
           />
         </div>
+        {setting.enabled && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor={`ag-backup-urgent-${runtime.id}`} className="text-caption">
+                {t(($) => $.runtimes.quota.backup_urgent_now)}
+              </label>
+              <Switch
+                id={`ag-backup-urgent-${runtime.id}`}
+                size="sm"
+                checked={urgentUntil !== null}
+                disabled={!editable || (urgentUntil === null && weeklyReset === null)}
+                onCheckedChange={(checked) =>
+                  submit({
+                    enabled: setting.enabled,
+                    maxConcurrent: setting.maxConcurrent,
+                    urgentUntil: checked && weeklyReset ? weeklyReset.toISOString() : "",
+                  })
+                }
+              />
+            </div>
+            {urgentUntil && (
+              <p className="text-caption text-warning">
+                {t(($) => $.runtimes.quota.backup_urgent_now_note, {
+                  time: formatHoldUntil(urgentUntil, locale),
+                })}
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

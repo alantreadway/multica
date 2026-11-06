@@ -333,6 +333,74 @@ describe("AG patch: QuotaSection", () => {
     );
   });
 
+  describe("AG patch: urgent issues on the backup now", () => {
+    const weeklyReset = new Date(Date.now() + 14 * 3600_000);
+    weeklyReset.setMilliseconds(0);
+    const withWeek = (resetsAt: string | null) => ({
+      ...base,
+      windows: { ...base.windows, seven_day: { utilization: 0.95, resets_at: resetsAt } },
+      backup: backup({ enabled: true }),
+    });
+    const name = "Urgent issues on the backup now";
+
+    it("AG patch: switching it on saves backup_urgent_until as the weekly reset", async () => {
+      const user = userEvent.setup();
+      renderSection(makeRuntime(withWeek(weeklyReset.toISOString())));
+      const urgent = screen.getByRole("switch", { name });
+      expect(urgent).not.toBeChecked();
+      await user.click(urgent);
+      await waitFor(() =>
+        expect(updateSettings).toHaveBeenCalledWith("rt-1", {
+          backup_enabled: true,
+          backup_max_concurrent: 2,
+          pace_off: false,
+          backup_urgent_until: weeklyReset.toISOString(),
+        }),
+      );
+    });
+
+    it("AG patch: while on it shows its end, and switching it off clears it", async () => {
+      const user = userEvent.setup();
+      renderSection(
+        makeRuntime(withWeek(weeklyReset.toISOString()), {}, {
+          backup_enabled: true,
+          backup_max_concurrent: 2,
+          backup_urgent_until: weeklyReset.toISOString(),
+        }),
+      );
+      const urgent = screen.getByRole("switch", { name });
+      expect(urgent).toBeChecked();
+      expect(screen.getByText(/no pacing, up to the max above/)).toBeInTheDocument();
+      await user.click(urgent);
+      await waitFor(() =>
+        expect(updateSettings).toHaveBeenCalledWith("rt-1", {
+          backup_enabled: true,
+          backup_max_concurrent: 2,
+          pace_off: false,
+          backup_urgent_until: "",
+        }),
+      );
+    });
+
+    it("AG patch: a past value shows it off, and with no weekly reset it cannot be switched on", () => {
+      renderSection(
+        makeRuntime(withWeek(null), {}, {
+          backup_enabled: true,
+          backup_max_concurrent: 2,
+          backup_urgent_until: new Date(Date.now() - 60_000).toISOString(),
+        }),
+      );
+      const urgent = screen.getByRole("switch", { name });
+      expect(urgent).not.toBeChecked();
+      expect(urgent).toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("AG patch: it is hidden while the backup is off", () => {
+      renderSection(makeRuntime({ ...withWeek(weeklyReset.toISOString()), backup: backup({}) }));
+      expect(screen.queryByRole("switch", { name })).toBeNull();
+    });
+  });
+
   it("AG patch: the pacing switch works without a valid backup but not for a read-only viewer", () => {
     renderSection(makeRuntime({ ...base, backup: backup({ detected: false, valid: false }) }));
     expect(screen.getByRole("switch", { name: "Pace Claude runs" })).not.toHaveAttribute(

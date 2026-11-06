@@ -89,6 +89,8 @@
       "backup_enable": "Use backup account",
       "backup_urgent_only": "Only urgent issues run on the backup.",
       "backup_max": "Max concurrent",
+      "backup_urgent_now": "Urgent issues on the backup now",
+      "backup_urgent_now_note": "Until {{time}}: no pacing, up to the max above.",
       "save_failed": "Couldn't save the backup setting"
     }
   },
@@ -114,6 +116,7 @@
       "quota_paced_session": "Claude paced: {{cap}} of {{max}} · 5-hour {{percent}}%",
       "quota_paced_unknown": "Claude paced: {{cap}} of {{max}}",
       "quota_pace_off": "Claude pacing off",
+      "quota_urgent_backup": "Urgent on backup until {{time}}",
       "tokens": "↓ {{input}}/s in · ↑ {{output}}/s out",
       "tokens_unknown": "— tokens/s",
       "hover_tokens_header": "Tokens per second · last 60s",

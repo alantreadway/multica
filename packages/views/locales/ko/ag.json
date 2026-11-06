@@ -88,6 +88,8 @@
       "backup_enable": "백업 계정 사용",
       "backup_urgent_only": "백업 계정에서는 긴급 태스크만 실행됩니다.",
       "backup_max": "최대 동시 실행",
+      "backup_urgent_now": "긴급 태스크를 지금 백업 계정에서 실행",
+      "backup_urgent_now_note": "{{time}}까지: 속도 조절 없이 위의 최대 동시 실행 수까지 실행합니다.",
       "save_failed": "백업 설정을 저장하지 못했습니다"
     }
   },
@@ -112,6 +114,7 @@
       "quota_paced_session": "Claude 속도 제한: {{max}}개 중 {{cap}}개 · 5시간 {{percent}}%",
       "quota_paced_unknown": "Claude 속도 제한: {{max}}개 중 {{cap}}개",
       "quota_pace_off": "Claude 속도 조절 꺼짐",
+      "quota_urgent_backup": "긴급 태스크 백업 계정 사용 · {{time}}까지",
       "tokens": "↓ 입력 {{input}}/초 · ↑ 출력 {{output}}/초",
       "tokens_unknown": "— 토큰/초",
       "hover_tokens_header": "초당 토큰 · 최근 60초",

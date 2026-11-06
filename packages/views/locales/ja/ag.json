@@ -88,6 +88,8 @@
       "backup_enable": "バックアップアカウントを使用",
       "backup_urgent_only": "バックアップでは緊急のタスクのみ実行されます。",
       "backup_max": "最大同時実行数",
+      "backup_urgent_now": "緊急のタスクを今すぐバックアップで実行",
+      "backup_urgent_now_note": "{{time}} まで: ペース調整なしで、上記の最大同時実行数まで実行します。",
       "save_failed": "バックアップ設定を保存できませんでした"
     }
   },
@@ -112,6 +114,7 @@
       "quota_paced_session": "Claude 制限中: {{max}} 件中 {{cap}} 件 · 5 時間 {{percent}}%",
       "quota_paced_unknown": "Claude 制限中: {{max}} 件中 {{cap}} 件",
       "quota_pace_off": "Claude のペース調整オフ",
+      "quota_urgent_backup": "緊急はバックアップで実行 · {{time}} まで",
       "tokens": "↓ 入力 {{input}}/秒 · ↑ 出力 {{output}}/秒",
       "tokens_unknown": "— トークン/秒",
       "hover_tokens_header": "毎秒トークン数 · 直近 60 秒",

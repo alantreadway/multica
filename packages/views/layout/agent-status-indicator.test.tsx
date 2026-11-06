@@ -459,6 +459,23 @@ describe("AG patch: AgentStatusIndicator", () => {
       expect(screen.getByTestId("agent-status-quota")).toHaveTextContent("Claude pacing off");
     });
 
+    it("AG patch: urgent-on-backup replaces the paced line until backup_urgent_until", () => {
+      const report = pacedReport(0.3, "2099-01-01T00:00:00Z").ag_quota;
+      renderIndicator([
+        makeRuntime({
+          metadata: {
+            ag_quota: { ...report, backup: { detected: true, valid: true } },
+            ag_settings: {
+              backup_enabled: true,
+              backup_max_concurrent: 2,
+              backup_urgent_until: "2099-01-03T06:00:00Z",
+            },
+          },
+        }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(/^Urgent on backup until /);
+    });
+
     it("AG patch: a hold wins over pacing", () => {
       renderIndicator([
         makeRuntime({

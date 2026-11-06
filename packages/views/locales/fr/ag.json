@@ -89,6 +89,8 @@
       "backup_enable": "Utiliser le compte de secours",
       "backup_urgent_only": "Seules les tâches urgentes s'exécutent sur le compte de secours.",
       "backup_max": "Simultanéité max.",
+      "backup_urgent_now": "Tâches urgentes sur le compte de secours dès maintenant",
+      "backup_urgent_now_note": "Jusqu'à {{time}} : sans ralentissement, jusqu'à la simultanéité max. ci-dessus.",
       "save_failed": "Impossible d'enregistrer le réglage du compte de secours"
     }
   },
@@ -114,6 +116,7 @@
       "quota_paced_session": "Claude ralenti : {{cap}} sur {{max}} · 5 h {{percent}} %",
       "quota_paced_unknown": "Claude ralenti : {{cap}} sur {{max}}",
       "quota_pace_off": "Ralentissement Claude désactivé",
+      "quota_urgent_backup": "Urgent sur le compte de secours jusqu'à {{time}}",
       "tokens": "↓ {{input}}/s entrée · ↑ {{output}}/s sortie",
       "tokens_unknown": "— tokens/s",
       "hover_tokens_header": "Tokens par seconde · 60 dernières s",

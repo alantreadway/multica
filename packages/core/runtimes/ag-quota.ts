@@ -44,6 +44,8 @@ export interface RuntimeQuota {
   };
   /** Pacing is overridden: the stored `pace_off`, else the daemon's report. */
   paceOff: boolean;
+  /** Stored `backup_urgent_until`: urgent issues go to the backup until then. May be past. */
+  backupUrgentUntil: Date | null;
 }
 
 // Every field is optional with a default: a report from a newer daemon, or one
@@ -93,6 +95,7 @@ const settingsSchema = z.object({
   backup_max_concurrent: z.number().finite(),
   // Absent before the pacing override existed.
   pace_off: z.boolean().optional().catch(undefined),
+  backup_urgent_until: z.string().optional().catch(undefined),
 });
 
 const REASONS: readonly string[] = [
@@ -169,6 +172,7 @@ export function runtimeQuota(
       setting: { enabled, maxConcurrent: Math.round(maxConcurrent) },
     },
     paceOff: stored?.pace_off ?? parsed.pace_off,
+    backupUrgentUntil: toDate(stored?.backup_urgent_until),
   };
 }
 
@@ -181,6 +185,8 @@ export interface QuotaSidebarState {
   paced: QuotaPaced | null;
   /** Some online runtime has pacing overridden. */
   paceOff: boolean;
+  /** The latest future `backup_urgent_until` across online runtimes; null when none. */
+  urgentOnBackupUntil: Date | null;
 }
 
 export interface QuotaPaced {
@@ -203,10 +209,21 @@ export function quotaSidebarState(
   let holdUntil: Date | null = null;
   let paced: QuotaPaced | null = null;
   let paceOff = false;
+  let urgentOnBackupUntil: Date | null = null;
   for (const runtime of runtimes) {
     if (runtime.status !== "online") continue;
     const quota = runtimeQuota(runtime);
     if (!quota) continue;
+    const urgent = quota.backupUrgentUntil;
+    if (
+      urgent &&
+      urgent > now &&
+      quota.backup.setting.enabled &&
+      quota.backup.valid &&
+      (!urgentOnBackupUntil || urgent > urgentOnBackupUntil)
+    ) {
+      urgentOnBackupUntil = urgent;
+    }
     if (quota.account === "backup") backup = true;
     if (quota.holdUntil && (!holdUntil || quota.holdUntil < holdUntil)) {
       holdUntil = quota.holdUntil;
@@ -234,7 +251,7 @@ export function quotaSidebarState(
       utilization: (window === "five_hour" ? quota.fiveHour : quota.sevenDay)?.utilization ?? null,
     };
   }
-  return { backup, holdUntil, paced, paceOff };
+  return { backup, holdUntil, paced, paceOff, urgentOnBackupUntil };
 }
 
 const AG_REFRESH_ACTIONS: readonly unknown[] = ["quota", "drain", "ag_settings"];
@@ -260,6 +277,8 @@ export function useAGRuntimeSettings(wsId: string) {
       backup_enabled: boolean;
       backup_max_concurrent: number;
       pace_off: boolean;
+      /** Omitted keeps the stored value; "" clears it. */
+      backup_urgent_until?: string;
     }) => api.updateAGRuntimeSettings(runtimeId, body),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: runtimeKeys.all(wsId) });
