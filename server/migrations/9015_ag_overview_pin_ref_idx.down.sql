@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS ag_overview_pin_workspace_ref_idx;

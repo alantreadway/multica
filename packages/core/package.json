@@ -76,6 +76,8 @@
     "./runtimes": "./runtimes/index.ts",
     "./decisions/ag-decisions": "./decisions/ag-decisions.ts",
     "./decisions/ag-decisions-queries": "./decisions/ag-decisions-queries.ts",
+    "./overview/ag-overview": "./overview/ag-overview.ts",
+    "./overview/ag-overview-queries": "./overview/ag-overview-queries.ts",
     "./runtimes/ag-drain": "./runtimes/ag-drain.ts",
     "./runtimes/ag-quota": "./runtimes/ag-quota.ts",
     "./runtimes/ag-token-rate": "./runtimes/ag-token-rate.ts",

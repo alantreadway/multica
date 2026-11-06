@@ -250,5 +250,11 @@ cleared_ag_decision_engine AS (
 ),
 cleared_ag_decision_intents AS (
     DELETE FROM ag_decision_intent WHERE workspace_id = $1
+),
+cleared_ag_overview_pins AS (
+    DELETE FROM ag_overview_pin WHERE workspace_id = $1
+),
+cleared_ag_overview_forecasts AS (
+    DELETE FROM ag_overview_forecast WHERE workspace_id = $1
 )
 DELETE FROM workspace WHERE workspace.id = $1;

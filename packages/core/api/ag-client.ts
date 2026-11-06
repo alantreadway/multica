@@ -10,6 +10,7 @@ import {
   type AGDecisionList,
 } from "../decisions/ag-decisions";
 import { parseAGTokenRateList, type AGTokenRate } from "../runtimes/ag-token-rate";
+import { parseAGOverview, parseAGOverviewPin, type AGOverview, type AGOverviewPin } from "../overview/ag-overview";
 import { parseWithFallback } from "./schema";
 import { EMPTY_LIST_LABELS_RESPONSE, ListLabelsResponseSchema } from "./schemas";
 
@@ -28,6 +29,10 @@ declare module "./client" {
     getAGDecisionCount(): Promise<number>;
     createAGDecisionIntent(cardId: string, intent: AGDecisionIntentInput): Promise<void>;
     cancelAGDecisionIntent(intentId: string): Promise<void>;
+    // Overview dashboard (see overview/ag-overview.ts).
+    getAGOverview(): Promise<AGOverview>;
+    createAGOverviewPin(ref: string): Promise<AGOverviewPin | null>;
+    deleteAGOverviewPin(pinId: string): Promise<void>;
   }
 }
 
@@ -45,7 +50,10 @@ type AgApiMethodName =
   | "listAGDecisions"
   | "getAGDecisionCount"
   | "createAGDecisionIntent"
-  | "cancelAGDecisionIntent";
+  | "cancelAGDecisionIntent"
+  | "getAGOverview"
+  | "createAGOverviewPin"
+  | "deleteAGOverviewPin";
 
 const agApiMethods: Pick<ApiClient, AgApiMethodName> & ThisType<ApiClient> = {
   async reorderLabels(data) {
@@ -86,6 +94,20 @@ const agApiMethods: Pick<ApiClient, AgApiMethodName> & ThisType<ApiClient> = {
 
   async cancelAGDecisionIntent(intentId) {
     await clientFetch<unknown>(this, `/api/ag/decisions/intents/${intentId}`, { method: "DELETE" });
+  },
+
+  async getAGOverview() {
+    return parseAGOverview(await clientFetch<unknown>(this, `/api/ag/overview`));
+  },
+
+  async createAGOverviewPin(ref) {
+    return parseAGOverviewPin(
+      await clientFetch<unknown>(this, `/api/ag/overview/pins`, { method: "POST", body: JSON.stringify({ ref }) }),
+    );
+  },
+
+  async deleteAGOverviewPin(pinId) {
+    await clientFetch<unknown>(this, `/api/ag/overview/pins/${encodeURIComponent(pinId)}`, { method: "DELETE" });
   },
 };
 

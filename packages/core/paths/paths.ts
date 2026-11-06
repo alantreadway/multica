@@ -57,6 +57,7 @@ function workspaceScoped(slug: string) {
     memberDetail: (id: string) => `${ws}/members/${encode(id)}`,
     squads: () => `${ws}/squads`,
     squadDetail: (id: string) => `${ws}/squads/${encode(id)}`,
+    overview: () => `${ws}/overview`, // AG patch: Overview
     inbox: () => `${ws}/inbox`,
     decisions: () => `${ws}/decisions`, // AG patch: Decision Desk
     chat: () => `${ws}/chat`,

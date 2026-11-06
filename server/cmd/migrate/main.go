@@ -145,6 +145,8 @@ var concurrentIndexCleanups = map[string]string{
 	"9010_ag_decision_intent_one_active_idx":                    "ag_decision_intent_one_active_idx",
 	"9011_ag_decision_intent_claim_idx":                         "ag_decision_intent_claim_idx",
 	"9012_ag_decision_intent_card_idx":                          "ag_decision_intent_card_idx",
+	"9015_ag_overview_pin_ref_idx":                              "ag_overview_pin_workspace_ref_idx",
+	"9017_ag_overview_forecast_day_idx":                         "ag_overview_forecast_day_idx",
 	"594_agent_task_process_cleanup_index":                      "idx_agent_task_queue_process_cleanup",
 	"563_search_index_change_changed_at_index":                  "idx_search_index_change_changed_at",
 	"562_search_index_change_workspace_index":                   "idx_search_index_change_workspace_xid",

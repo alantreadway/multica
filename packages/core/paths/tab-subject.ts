@@ -80,6 +80,8 @@ export function parseTabSubject(url: string): TabSubject {
       return id ? { kind: "issue", id } : { kind: "page", page: "issues" };
     case "my-issues":
       return { kind: "page", page: "myIssues" };
+    case "overview": // AG patch: Overview
+      return { kind: "page", page: "overview" };
     case "decisions": // AG patch: Decision Desk
       return { kind: "page", page: "decisions" };
     case "projects":
