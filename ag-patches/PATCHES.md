@@ -1461,7 +1461,9 @@ next patch ("Backup Claude account failover"); this patch alone reports
 - Endpoint: gated by `canEditRuntime`; Claude runtimes only (400 otherwise);
   `backup_enabled` required, `backup_max_concurrent` 1..100 and 2 when unset
   (400 outside the range), `pace_off` keeps the stored value when omitted (so a
-  desktop app that predates it, saving the backup form, cannot clear it); publishes `daemon:register` with `action: "ag_settings"`
+  desktop app that predates it, saving the backup form, cannot clear it), and so
+  does `backup_urgent_until` (RFC 3339, stored as UTC; `""` clears it; 400 unless
+  it is in the next 8 days); publishes `daemon:register` with `action: "ag_settings"`
   only when the stored value changed. It is its own handler, not a field on
   `UpdateAgentRuntimeRequest`.
 - Daemon: `handleHeartbeatActions` stores the ack's setting per runtime. A

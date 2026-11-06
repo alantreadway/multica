@@ -6,6 +6,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/multica-ai/multica/server/internal/agquota"
@@ -21,7 +22,13 @@ type agRuntimeSettingsRequest struct {
 	// PaceOff keeps the stored value when omitted, so a client that predates it
 	// (an installed desktop app saving the backup form) cannot clear it.
 	PaceOff *bool `json:"pace_off"`
+	// BackupUrgentUntil is kept when omitted, as PaceOff is; "" clears it.
+	BackupUrgentUntil *string `json:"backup_urgent_until"`
 }
+
+// agBackupUrgentMaxAhead bounds backup_urgent_until: the primary's weekly reset
+// is at most seven days away.
+const agBackupUrgentMaxAhead = 8 * 24 * time.Hour
 
 // agRuntimeIsClaude reports whether the runtime speaks the Claude protocol.
 func agRuntimeIsClaude(provider string) bool {
@@ -75,6 +82,18 @@ func (h *Handler) UpdateAGRuntimeSettings(w http.ResponseWriter, r *http.Request
 		settings.PaceOff = *req.PaceOff
 	} else if stored := agquota.SettingsFromMetadata(rt.Metadata); stored != nil {
 		settings.PaceOff = stored.PaceOff
+	}
+	if req.BackupUrgentUntil != nil {
+		if raw := *req.BackupUrgentUntil; raw != "" {
+			until, err := time.Parse(time.RFC3339, raw)
+			if now := time.Now(); err != nil || !until.After(now) || until.After(now.Add(agBackupUrgentMaxAhead)) {
+				writeError(w, http.StatusBadRequest, "backup_urgent_until must be an RFC 3339 time within the next 8 days")
+				return
+			}
+			settings.BackupUrgentUntil = until.UTC().Format(time.RFC3339)
+		}
+	} else if stored := agquota.SettingsFromMetadata(rt.Metadata); stored != nil {
+		settings.BackupUrgentUntil = stored.BackupUrgentUntil
 	}
 	if settings.BackupMaxConcurrent < 1 || settings.BackupMaxConcurrent > agquota.MaxBackupMaxConcurrent {
 		writeError(w, http.StatusBadRequest, "backup_max_concurrent must be between 1 and 100")

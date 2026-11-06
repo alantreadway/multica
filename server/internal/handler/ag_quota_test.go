@@ -215,6 +215,33 @@ func TestAGPatchRuntimeSettings(t *testing.T) {
 		}
 	})
 
+	t.Run("AG patch: backup_urgent_until is stored as UTC, kept when omitted, cleared by an empty string, and bounded", func(t *testing.T) {
+		runtimeID := createRuntimeLocalSkillTestRuntime(t, testUserID)
+		until := time.Now().Add(14 * time.Hour).Truncate(time.Second)
+		w := agQuotaPutSettings(testUserID, runtimeID, map[string]any{"backup_enabled": true, "backup_urgent_until": until.In(time.FixedZone("BST", 3600)).Format(time.RFC3339)})
+		if w.Code != http.StatusOK {
+			t.Fatalf("PUT = %d %s", w.Code, w.Body)
+		}
+		want := until.UTC().Format(time.RFC3339)
+		if s := agquota.ParseSettings(agDrainMetadata(t, runtimeID)[agquota.SettingsKey]); s == nil || s.BackupUrgentUntil != want {
+			t.Fatalf("stored setting = %+v, want backup_urgent_until %s", s, want)
+		}
+		// An older client saving only the backup form keeps it.
+		agQuotaPutSettings(testUserID, runtimeID, map[string]any{"backup_enabled": true, "backup_max_concurrent": 3})
+		if s := agquota.ParseSettings(agDrainMetadata(t, runtimeID)[agquota.SettingsKey]); s == nil || s.BackupUrgentUntil != want {
+			t.Fatalf("stored setting after an omitting PUT = %+v", s)
+		}
+		for _, bad := range []string{"tomorrow", time.Now().Add(-time.Minute).Format(time.RFC3339), time.Now().Add(9 * 24 * time.Hour).Format(time.RFC3339)} {
+			if w := agQuotaPutSettings(testUserID, runtimeID, map[string]any{"backup_enabled": true, "backup_urgent_until": bad}); w.Code != http.StatusBadRequest {
+				t.Fatalf("PUT backup_urgent_until %q = %d, want 400", bad, w.Code)
+			}
+		}
+		agQuotaPutSettings(testUserID, runtimeID, map[string]any{"backup_enabled": true, "backup_urgent_until": ""})
+		if s := agquota.ParseSettings(agDrainMetadata(t, runtimeID)[agquota.SettingsKey]); s == nil || s.BackupUrgentUntil != "" {
+			t.Fatalf("stored setting after clearing = %+v", s)
+		}
+	})
+
 	t.Run("AG patch: an unset limit defaults to 2 and a repeat PUT does not rewrite the row", func(t *testing.T) {
 		runtimeID := createRuntimeLocalSkillTestRuntime(t, testUserID)
 		var resp protocol.AGRuntimeSettings

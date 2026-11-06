@@ -65,4 +65,8 @@ type AGRuntimeSettings struct {
 	// PaceOff overrides Claude pacing: the daemon claims up to its max. A quota
 	// hold still applies.
 	PaceOff bool `json:"pace_off"`
+	// BackupUrgentUntil (RFC 3339) sends urgent Claude issues to the backup
+	// account before the primary is held, at backup_max_concurrent with no
+	// pacing, until that time. The UI sets it to the primary's weekly reset.
+	BackupUrgentUntil string `json:"backup_urgent_until,omitempty"`
 }
