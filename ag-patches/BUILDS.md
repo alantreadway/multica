@@ -63,6 +63,7 @@ Newest first:
 | `ag/v0.7.1-ag.10` | `692b25e75313cf20784a2dc39e6de847474645d0` | `multica-web-ag:v0.7.1-ag.10` | `multica-backend-ag:v0.7.1-ag.10` | `dist/multica-v0.7.1-ag.10-darwin-arm64` | 2026-11-06 |
 | `ag/v0.7.1-ag.11` | `fe9b98e6e70aaa065216b88a95bd451d87a19c69` | `multica-web-ag:v0.7.1-ag.10` (unchanged, retagged `ag.11`) | `multica-backend-ag:v0.7.1-ag.10` (unchanged, retagged `ag.11`) | `dist/multica-v0.7.1-ag.11-darwin-arm64` | 2026-11-06 |
 | `ag/v0.7.1-ag.12` | `dfb1ca24591e55a21d322a58abab57214986bce8` | `multica-web-ag:v0.7.1-ag.12` | `multica-backend-ag:v0.7.1-ag.12` | `dist/multica-v0.7.1-ag.12-darwin-arm64` | 2026-11-06 |
+| `ag/v0.7.1-ag.13` | `69c86a82fcc28349594c1d82188b5cf31227db4b` | `multica-web-ag:v0.7.1-ag.13` | `multica-backend-ag:v0.7.1-ag.13` | `dist/multica-v0.7.1-ag.13-darwin-arm64` | 2026-11-06 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
@@ -73,6 +74,14 @@ does not.
 Notes, newest first. Notes for builds before `v0.7.0` are in git history
 (`git log -p -- ag-patches/PATCHES.md`).
 
+- **`v0.7.1-ag.13`**: urgent issues on the backup before a hold. An "Urgent issues
+  on the backup now" switch in the quota card's backup block stores
+  `backup_urgent_until` (the primary's weekly reset); until then the daemon claims
+  urgent issues onto the backup first, at `backup_max_concurrent` with no pacing,
+  and the rest of the claim stays paced on the primary. The sidebar shows "Urgent
+  on backup until <time>". Guard: 1024 views, 645 core and 297 Go patch tests
+  passed; full Go suite: the five known upstream failures only. No migrations.
+  Deployed 2026-11-06; the daemon handed over `.b` to `.a`.
 - **`v0.7.1-ag.12`**: the Overview dashboard (patch 28): an `Overview` page
   above Inbox with what runs now, the queue, what waits on you, units in a state
   longer than their p90, and pinned work trees split into known scope (stage
