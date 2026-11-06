@@ -1657,7 +1657,11 @@ The sidebar status row (`agent-status-indicator.tsx`) gets one more line while a
 online runtime is on the backup account ("Backup account · urgent only") or, if
 none is, held ("Claude on hold until 21:10", earliest end across runtimes, local
 time, with the weekday and date when the hold ends on another day, as the weekly
-window's can). Backup wins when both apply. The row then links to Runtimes. It reads the
+window's can). Failing both, while an online runtime's Claude cap is below its
+max, it shows the pace ("Claude paced: 1 of 5 · weekly 91%", the most-limited
+runtime; the 5-hour window's utilisation instead when that window is at 80% or
+more and not expired, which is when it can pace). Backup wins over a hold, and a
+hold over pacing. The row then links to Runtimes. It reads the
 same cached runtime list as the drain line: no new request.
 
 The saved setting is read from `metadata.ag_settings`, which the PUT writes at
@@ -1684,7 +1688,8 @@ Frontend only: rollback is switching the web image back.
     `connect-remote-dialog.tsx` (one import, one guard line)
   - `packages/views/layout/agent-status-indicator.tsx`, `agent-status-indicator.test.tsx`
   - `packages/views/locales/*/ag.json` (`runtimes.quota`,
-    `layout.agent_status.backup_urgent`, `quota_hold`), `locales/ag-quota.test.ts` (new)
+    `layout.agent_status.backup_urgent`, `quota_hold`, `quota_paced_week`,
+    `quota_paced_session`, `quota_paced_unknown`), `locales/ag-quota.test.ts` (new)
 
 - Upstream:
   - Status: `fork-only`. Needs the quota report and settings patch above.

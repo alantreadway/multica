@@ -422,6 +422,47 @@ describe("AG patch: AgentStatusIndicator", () => {
       }
     });
 
+    const pacedReport = (five: number, fiveResets: string) =>
+      quota({
+        effective_cap: 1,
+        max: 5,
+        windows: {
+          five_hour: { utilization: five, resets_at: fiveResets },
+          seven_day: { utilization: 0.91, resets_at: "2099-01-03T06:00:00Z" },
+        },
+      });
+
+    it("AG patch: shows weekly pacing and links to Runtimes", () => {
+      renderIndicator([makeRuntime({ metadata: pacedReport(0.3, "2099-01-01T00:00:00Z") })]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        "Claude paced: 1 of 5 · weekly 91%",
+      );
+      expect(screen.getByRole("link")).toHaveAttribute("href", "/acme/runtimes");
+    });
+
+    it("AG patch: names the 5-hour window once it is over its knee", () => {
+      renderIndicator([makeRuntime({ metadata: pacedReport(0.86, "2099-01-01T00:00:00Z") })]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        "Claude paced: 1 of 5 · 5-hour 86%",
+      );
+    });
+
+    it("AG patch: a hold wins over pacing", () => {
+      renderIndicator([
+        makeRuntime({
+          metadata: {
+            ag_quota: {
+              ...pacedReport(0.3, "2099-01-01T00:00:00Z").ag_quota,
+              hold: { until: at(21, 10) },
+            },
+          },
+        }),
+      ]);
+      expect(screen.getByTestId("agent-status-quota")).toHaveTextContent(
+        "Claude on hold until 21:10",
+      );
+    });
+
     it("AG patch: ignores an offline runtime's stale report", () => {
       renderIndicator([
         makeRuntime({ status: "offline", metadata: quota({ account: "backup" }) }),

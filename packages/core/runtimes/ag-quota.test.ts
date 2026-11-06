@@ -173,10 +173,13 @@ describe("AG patch: quotaSidebarState", () => {
   const held = (until: string) => runtime({ ag_quota: { hold: { until } } });
 
   it("AG patch: nothing to show without reports", () => {
-    expect(quotaSidebarState([])).toEqual({ backup: false, holdUntil: null });
-    expect(quotaSidebarState([runtime({}), runtime({ ag_quota: report })])).toEqual(
-      { backup: false, holdUntil: new Date("2026-10-18T21:10:00Z") },
-    );
+    const now = new Date("2026-10-18T19:00:00Z");
+    expect(quotaSidebarState([], now)).toEqual({ backup: false, holdUntil: null, paced: null });
+    expect(quotaSidebarState([runtime({}), runtime({ ag_quota: report })], now)).toEqual({
+      backup: false,
+      holdUntil: new Date("2026-10-18T21:10:00Z"),
+      paced: { cap: 3, max: 5, window: "five_hour", utilization: 0.84 },
+    });
   });
 
   it("AG patch: flags a runtime on the backup account", () => {
@@ -199,7 +202,48 @@ describe("AG patch: quotaSidebarState", () => {
       quotaSidebarState([
         runtime({ ag_quota: { account: "backup", hold: { until: "2026-10-18T21:10:00Z" } } }, "offline"),
       ]),
-    ).toEqual({ backup: false, holdUntil: null });
+    ).toEqual({ backup: false, holdUntil: null, paced: null });
+  });
+
+  const paced = (cap: number, max: number, five: number, fiveResets: string, week: number) =>
+    runtime({
+      ag_quota: {
+        effective_cap: cap,
+        max,
+        windows: {
+          five_hour: { utilization: five, resets_at: fiveResets },
+          seven_day: { utilization: week, resets_at: "2026-11-07T06:00:00Z" },
+        },
+      },
+    });
+  const at = new Date("2026-11-06T14:15:00Z");
+
+  it("AG patch: a cap below max is paced by the weekly window under the 5-hour knee", () => {
+    expect(quotaSidebarState([paced(1, 5, 0.3, "2026-11-06T16:00:00Z", 0.91)], at).paced).toEqual({
+      cap: 1,
+      max: 5,
+      window: "seven_day",
+      utilization: 0.91,
+    });
+  });
+
+  it("AG patch: an expired 5-hour window over the knee does not name it", () => {
+    expect(
+      quotaSidebarState([paced(2, 5, 0.9, "2026-10-30T19:40:00Z", 0.91)], at).paced?.window,
+    ).toBe("seven_day");
+    expect(
+      quotaSidebarState([paced(2, 5, 0.9, "2026-11-06T16:00:00Z", 0.91)], at).paced?.window,
+    ).toBe("five_hour");
+  });
+
+  it("AG patch: shows nothing at full speed and picks the most-limited runtime", () => {
+    expect(quotaSidebarState([paced(5, 5, 0.3, "2026-11-06T16:00:00Z", 0.5)], at).paced).toBeNull();
+    expect(
+      quotaSidebarState(
+        [paced(3, 5, 0.3, "2026-11-06T16:00:00Z", 0.9), paced(1, 4, 0.3, "2026-11-06T16:00:00Z", 0.95)],
+        at,
+      ).paced,
+    ).toMatchObject({ cap: 1, max: 4 });
   });
 });
 

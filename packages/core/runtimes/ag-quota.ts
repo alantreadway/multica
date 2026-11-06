@@ -171,14 +171,29 @@ export interface QuotaSidebarState {
   backup: boolean;
   /** The earliest hold end across online runtimes; null when none is held. */
   holdUntil: Date | null;
+  /** The most-limited online runtime whose Claude cap is below its max; null when none is. */
+  paced: QuotaPaced | null;
 }
+
+export interface QuotaPaced {
+  cap: number;
+  max: number;
+  /** The window pacing is most likely following: the 5-hour one from its 80% knee, else the weekly one. */
+  window: "five_hour" | "seven_day";
+  /** That window's utilisation, 0..1; null when the daemon has not reported it. */
+  utilization: number | null;
+}
+
+const SESSION_PACE_KNEE = 0.8;
 
 /** What the sidebar shows. Offline runtimes are skipped: their keys are stale. */
 export function quotaSidebarState(
   runtimes: readonly Pick<AgentRuntime, "status" | "metadata">[],
+  now: Date = new Date(),
 ): QuotaSidebarState {
   let backup = false;
   let holdUntil: Date | null = null;
+  let paced: QuotaPaced | null = null;
   for (const runtime of runtimes) {
     if (runtime.status !== "online") continue;
     const quota = runtimeQuota(runtime);
@@ -187,8 +202,25 @@ export function quotaSidebarState(
     if (quota.holdUntil && (!holdUntil || quota.holdUntil < holdUntil)) {
       holdUntil = quota.holdUntil;
     }
+    const { effectiveCap: cap, max } = quota;
+    if (cap === null || max === null || max < 1 || cap >= max) continue;
+    if (paced && cap / max >= paced.cap / paced.max) continue;
+    // An expired 5-hour window no longer constrains the daemon.
+    const session = quota.fiveHour;
+    const sessionPaced =
+      session?.utilization != null &&
+      session.utilization >= SESSION_PACE_KNEE &&
+      session.resetsAt !== null &&
+      session.resetsAt > now;
+    const window = sessionPaced ? "five_hour" : "seven_day";
+    paced = {
+      cap,
+      max,
+      window,
+      utilization: (window === "five_hour" ? quota.fiveHour : quota.sevenDay)?.utilization ?? null,
+    };
   }
-  return { backup, holdUntil };
+  return { backup, holdUntil, paced };
 }
 
 const AG_REFRESH_ACTIONS: readonly unknown[] = ["quota", "drain", "ag_settings"];

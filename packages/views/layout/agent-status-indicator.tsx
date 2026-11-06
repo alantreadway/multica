@@ -143,14 +143,25 @@ export function AgentStatusIndicator({ wsId }: { wsId: string | undefined }) {
   const runtimeName = (id: string) =>
     runtimes?.find((r) => r.id === id)?.name ?? t(($) => $.layout.agent_status.hover_tokens_unlisted);
 
-  // Backup wins over a hold: it is the state that changes what runs.
+  // Backup wins over a hold, and a hold over pacing: each changes more of what runs.
+  const paced = quota.paced;
   const quotaLabel = quota.backup
     ? t(($) => $.layout.agent_status.backup_urgent)
     : quota.holdUntil
       ? t(($) => $.layout.agent_status.quota_hold, {
           time: formatHoldUntil(quota.holdUntil, locale),
         })
-      : null;
+      : paced
+        ? paced.utilization === null
+          ? t(($) => $.layout.agent_status.quota_paced_unknown, { cap: paced.cap, max: paced.max })
+          : t(
+              ($) =>
+                paced.window === "five_hour"
+                  ? $.layout.agent_status.quota_paced_session
+                  : $.layout.agent_status.quota_paced_week,
+              { cap: paced.cap, max: paced.max, percent: Math.round(paced.utilization * 100) },
+            )
+        : null;
 
   const trigger = (
     <SidebarMenuButton
