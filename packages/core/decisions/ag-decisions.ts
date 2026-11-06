@@ -306,3 +306,34 @@ export function agDecisionBatchActions(
     .filter((action) => action.batch && ready.every((card) => card.actions.some((a) => a.id === action.id && a.batch)))
     .map((action) => ({ action, cards: ready }));
 }
+
+/**
+ * Where a card sits on the page: in the queue waiting for a decision, back for a retry after a click that did not
+ * work, or in Activity once a click is under way or has worked.
+ */
+export type AGDecisionPlace = "queue" | "retry" | "activity";
+
+export function agDecisionPlace(card: AGDecisionCard): AGDecisionPlace {
+  const status = visibleAGDecisionIntent(card)?.status;
+  if (!status) return "queue";
+  return status === "pending" || status === "running" || status === "succeeded" ? "activity" : "retry";
+}
+
+const LINE_LABEL = /^([A-Z][A-Za-z ]{1,15}):\s+(\S.*)$/;
+
+/** "Status: PR ready" as a label and its value. The engine writes lines as prose, so one without a short leading label stays prose. */
+export function splitAGDecisionLine(line: string): { label: string; value: string } | null {
+  const match = LINE_LABEL.exec(line);
+  return match ? { label: match[1] as string, value: match[2] as string } : null;
+}
+
+/** An answer to an agent's question: the engine offers each of the agent's options as a `reply:<letter>` action. */
+export const isAGDecisionOption = (action: AGDecisionAction) => action.id.startsWith("reply:");
+
+/** A card's actions in shortcut order: the agent's options, then the recommended action, then the rest as the engine sent them. */
+export function agDecisionKeyedActions(card: AGDecisionCard): AGDecisionAction[] {
+  const options = card.actions.filter(isAGDecisionOption);
+  const rest = card.actions.filter((action) => !isAGDecisionOption(action));
+  const recommended = rest.filter((action) => action.id === card.recommendedAction);
+  return [...options, ...recommended, ...rest.filter((action) => action.id !== card.recommendedAction)];
+}

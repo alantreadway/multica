@@ -38,13 +38,18 @@ export function subscribeAGDecisions(ws: WSClient, qc: QueryClient): () => void 
   });
 }
 
-/** Waits for the server: the card shows Queued only once the intent exists. */
+/**
+ * Waits for the server to accept the intent, but not for the refetch: the page moves the card out of the queue as soon
+ * as the intent exists, and the refetch then shows its status.
+ */
 export function useCreateAGDecisionIntent() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ cardId, intent }: { cardId: string; intent: AGDecisionIntentInput }) =>
       api.createAGDecisionIntent(cardId, intent),
-    onSettled: () => qc.invalidateQueries({ queryKey: agDecisionKeys.all() }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: agDecisionKeys.all() });
+    },
   });
 }
 

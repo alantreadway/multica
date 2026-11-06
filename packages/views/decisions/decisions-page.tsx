@@ -1,53 +1,39 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useDefaultLayout } from "react-resizable-panels";
 import {
-  agDecisionBatchActions,
   agDecisionCardIsActionable,
+  agDecisionKeyedActions,
   countAGDecisionsByWaitingOn,
   groupAGDecisionCards,
   isAGDecisionEngineStale,
   isAGDecisionWorkerOffline,
-  visibleAGDecisionIntent,
   WAITING_ON_ALAN,
-  type AGDecisionAction,
   type AGDecisionCard,
-  type AGDecisionChipTone,
 } from "@multica/core/decisions/ag-decisions";
-import {
-  agDecisionListOptions,
-  useCancelAGDecisionIntent,
-  useCreateAGDecisionIntent,
-} from "@multica/core/decisions/ag-decisions-queries";
+import { agDecisionListOptions } from "@multica/core/decisions/ag-decisions-queries";
 import { useWorkspaceId } from "@multica/core/hooks";
-import { Badge } from "@multica/ui/components/ui/badge";
+import { isEditableShortcutTarget, isPortalLayerShortcutTarget } from "@multica/core/shortcuts";
+import { isImeComposing } from "@multica/core/utils";
 import { Button } from "@multica/ui/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@multica/ui/components/ui/dialog";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@multica/ui/components/ui/resizable";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
-import { Textarea } from "@multica/ui/components/ui/textarea";
+import { useIsCompact } from "@multica/ui/hooks/use-mobile";
 import { cn } from "@multica/ui/lib/utils";
 import { useTimeAgo } from "../i18n/use-time-ago";
 import { useT } from "../i18n";
 import { IssuePeekHost } from "../issues/components/issue-peek";
-import { useIssuePeekActions } from "../issues/surface/peek-context";
 import { PAGE_GUTTER, PAGE_TOOLBAR, PageHeader } from "../layout/page-header";
+import { DecisionDetail } from "./decision-detail";
+import { DecisionList } from "./decision-list";
+import { useDecisionActions } from "./use-decision-actions";
 
 const CLOCK_TICK_MS = 30_000;
-
-const CHIP_TONE: Record<AGDecisionChipTone, string> = {
-  neutral: "",
-  good: "text-success",
-  warn: "text-warning",
-  bad: "text-destructive",
-};
+const LIST_DEFAULT_SIZE = 280;
+const LIST_MIN_SIZE = 240;
+const LIST_MAX_SIZE = 420;
 
 function useWaitingOnLabel() {
   const { t } = useT("ag");
@@ -70,316 +56,11 @@ function useWaitingOnLabel() {
   };
 }
 
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
-/** The second tap: why it needs one, the text it needs, or why the recommendation was not taken. */
-function ActionDialog({
-  title,
-  action,
-  reasons,
-  onCancel,
-  onConfirm,
-}: {
-  title: string;
-  action: AGDecisionAction;
-  reasons: string[];
-  onCancel: () => void;
-  onConfirm: (input: { note: string; overrideReason: string }) => Promise<void>;
-}) {
-  const { t } = useT("ag");
-  const [note, setNote] = useState("");
-  const [overrideReason, setOverrideReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const missingNote = Boolean(action.note?.required) && !note.trim();
-
-  const submit = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      await onConfirm({ note, overrideReason });
-    } catch (e) {
-      setError(errorText(e));
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onCancel()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          {action.confirm && <DialogDescription>{action.confirm}</DialogDescription>}
-        </DialogHeader>
-        {action.note && (
-          <Textarea
-            value={note}
-            placeholder={action.note.placeholder}
-            aria-label={action.note.placeholder || action.label}
-            onChange={(event) => setNote(event.target.value)}
-          />
-        )}
-        {reasons.length > 0 && (
-          <div role="group" aria-label={t(($) => $.decisions.actions.override_reason)} className="flex flex-col gap-1.5">
-            <p className="text-caption text-muted-foreground">{t(($) => $.decisions.actions.override_reason)}</p>
-            <div className="flex flex-wrap gap-1">
-              {reasons.map((reason) => (
-                <Button
-                  key={reason}
-                  size="xs"
-                  variant={reason === overrideReason ? "brand" : "outline"}
-                  aria-pressed={reason === overrideReason}
-                  onClick={() => setOverrideReason(reason === overrideReason ? "" : reason)}
-                >
-                  {reason}
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
-        {error && (
-          <p role="alert" className="text-destructive">
-            {t(($) => $.decisions.actions.queue_error, { message: error })}
-          </p>
-        )}
-        <DialogFooter>
-          <Button variant="ghost" disabled={busy} onClick={onCancel}>
-            {t(($) => $.decisions.actions.back)}
-          </Button>
-          <Button variant="brand" disabled={busy || missingNote} onClick={() => void submit()}>
-            {t(($) => $.decisions.actions.confirm)}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function IntentStatus({ card }: { card: AGDecisionCard }) {
-  const { t } = useT("ag");
-  const cancel = useCancelAGDecisionIntent();
-  const intent = visibleAGDecisionIntent(card);
-  if (!intent) return null;
-  const action = card.actions.find((a) => a.id === intent.actionId)?.label ?? intent.actionId;
-  switch (intent.status) {
-    case "pending":
-      return (
-        <div role="status" className="flex items-center gap-2 text-muted-foreground">
-          <span>{t(($) => $.decisions.actions.queued, { action })}</span>
-          <Button size="xs" variant="ghost" disabled={cancel.isPending} onClick={() => cancel.mutate(intent.id)}>
-            {t(($) => $.decisions.actions.cancel)}
-          </Button>
-        </div>
-      );
-    case "running":
-      return (
-        <p role="status" className="text-muted-foreground">
-          {t(($) => $.decisions.actions.working, { action })}
-        </p>
-      );
-    case "succeeded":
-      return (
-        <p role="status" className="break-words text-success">
-          {intent.message || action}
-        </p>
-      );
-    case "refused":
-      return (
-        <p role="alert" className="break-words text-warning">
-          {t(($) => $.decisions.actions.not_done, { message: intent.message })}
-        </p>
-      );
-    case "expired":
-      return (
-        <p role="alert" className="break-words text-warning">
-          {intent.message || t(($) => $.decisions.actions.expired)}
-        </p>
-      );
-    default:
-      return (
-        <p role="alert" className="break-words text-destructive">
-          {t(($) => $.decisions.actions.failed, { message: intent.message })}
-        </p>
-      );
-  }
-}
-
-function CardActions({ card }: { card: AGDecisionCard }) {
-  const { t } = useT("ag");
-  const create = useCreateAGDecisionIntent();
-  const [open, setOpen] = useState<AGDecisionAction | null>(null);
-  const [error, setError] = useState("");
-  if (!agDecisionCardIsActionable(card) || card.actions.length === 0) return null;
-
-  const send = (action: AGDecisionAction, note = "", overrideReason = "") =>
-    create.mutateAsync({
-      cardId: card.id,
-      intent: { revision: card.revision, action_id: action.id, note, override_reason: overrideReason },
-    });
-  const reasonsFor = (action: AGDecisionAction) =>
-    card.recommendedAction && action.id !== card.recommendedAction ? card.overrideReasons : [];
-  const click = (action: AGDecisionAction) => {
-    setError("");
-    if (action.confirm || action.note || reasonsFor(action).length > 0) setOpen(action);
-    else send(action).catch((e: unknown) => setError(errorText(e)));
-  };
-
-  return (
-    <>
-      <div className="flex flex-wrap gap-1.5">
-        {card.actions.map((action) => (
-          <Button
-            key={action.id}
-            size="sm"
-            variant={action.primary ? "brand" : "outline"}
-            disabled={create.isPending}
-            onClick={() => click(action)}
-          >
-            {action.label}
-          </Button>
-        ))}
-      </div>
-      {error && (
-        <p role="alert" className="break-words text-destructive">
-          {t(($) => $.decisions.actions.queue_error, { message: error })}
-        </p>
-      )}
-      {open && (
-        <ActionDialog
-          title={open.label}
-          action={open}
-          reasons={reasonsFor(open)}
-          onCancel={() => setOpen(null)}
-          onConfirm={async ({ note, overrideReason }) => {
-            await send(open, note, overrideReason);
-            setOpen(null);
-          }}
-        />
-      )}
-    </>
-  );
-}
-
-function GroupBatchActions({ cards }: { cards: AGDecisionCard[] }) {
-  const { t } = useT("ag");
-  const create = useCreateAGDecisionIntent();
-  const [open, setOpen] = useState<{ action: AGDecisionAction; cards: AGDecisionCard[] } | null>(null);
-  const batches = agDecisionBatchActions(cards);
-  if (batches.length === 0) return null;
-
-  const run = async ({ action, cards: targets }: { action: AGDecisionAction; cards: AGDecisionCard[] }) => {
-    const results = await Promise.allSettled(
-      targets.map((card) =>
-        create.mutateAsync({
-          cardId: card.id,
-          intent: { revision: card.revision, action_id: action.id, note: "", override_reason: "" },
-        }),
-      ),
-    );
-    const failed = results.filter((result) => result.status === "rejected").length;
-    if (failed > 0) {
-      throw new Error(t(($) => $.decisions.actions.batch_partial, { failed, total: targets.length }));
-    }
-    setOpen(null);
-  };
-
-  return (
-    <>
-      {batches.map((batch) => (
-        <Button key={batch.action.id} size="xs" variant="outline" onClick={() => setOpen(batch)}>
-          {t(($) => $.decisions.actions.batch_title, { action: batch.action.label, total: batch.cards.length })}
-        </Button>
-      ))}
-      {open && (
-        <ActionDialog
-          title={t(($) => $.decisions.actions.batch_title, { action: open.action.label, total: open.cards.length })}
-          action={open.action}
-          reasons={[]}
-          onCancel={() => setOpen(null)}
-          onConfirm={() => run(open)}
-        />
-      )}
-    </>
-  );
-}
-
-function DecisionCardRow({ card }: { card: AGDecisionCard }) {
-  const { t } = useT("ag");
-  const timeAgo = useTimeAgo();
-  const peek = useIssuePeekActions();
-  const heading = card.title || card.issueRef || card.cardType;
-
-  return (
-    <li className="flex flex-col gap-1.5 border-b px-1 py-3 last:border-b-0">
-      <div className="flex min-w-0 items-center gap-2">
-        {card.issueId && card.issueRef && (
-          <Button
-            variant="link"
-            size="xs"
-            className="h-auto shrink-0 p-0 text-caption"
-            onClick={() => peek?.open(card.issueId as string)}
-          >
-            {card.issueRef}
-          </Button>
-        )}
-        <span className="min-w-0 flex-1 truncate font-medium">{heading}</span>
-        {card.waitingSince && (
-          <span className="shrink-0 text-caption text-muted-foreground">
-            {t(($) => $.decisions.waiting, { time: timeAgo(card.waitingSince as string) })}
-          </span>
-        )}
-      </div>
-      {card.chips.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {card.chips.map((chip, n) => (
-            <Badge key={`${chip.label}-${n}`} variant="outline" className={CHIP_TONE[chip.tone]}>
-              {chip.label}
-            </Badge>
-          ))}
-        </div>
-      )}
-      {card.lines.map((line, n) => (
-        <p key={n} className="break-words text-muted-foreground">
-          {line}
-        </p>
-      ))}
-      {card.bullets.length > 0 && (
-        <ul className="list-disc pl-4 text-muted-foreground">
-          {card.bullets.map((bullet, n) => (
-            <li key={n} className="break-words">
-              {bullet}
-            </li>
-          ))}
-        </ul>
-      )}
-      {card.recommended && (
-        <p className="break-words">{t(($) => $.decisions.recommended, { action: card.recommended })}</p>
-      )}
-      {card.blockers.length > 0 && (
-        <p className="break-words text-caption text-muted-foreground">
-          {t(($) => $.decisions.blocked, { reason: card.blockers.join("; ") })}
-        </p>
-      )}
-      {card.links.length > 0 && (
-        <div className="flex flex-wrap gap-3">
-          {card.links.map((link) => (
-            <a
-              key={link.url}
-              href={link.url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-caption text-muted-foreground underline underline-offset-2 hover:text-foreground"
-            >
-              {link.label}
-            </a>
-          ))}
-        </div>
-      )}
-      <IntentStatus card={card} />
-      <CardActions card={card} />
-    </li>
-  );
-}
+/** The card after `id` in `order`, else the one before it: where the eye goes once `id` leaves the list. */
+const neighbourOf = (order: readonly AGDecisionCard[], id: string) => {
+  const at = order.findIndex((card) => card.id === id);
+  return at < 0 ? null : (order[at + 1] ?? order[at - 1] ?? null);
+};
 
 export function DecisionsPage() {
   const { t } = useT("ag");
@@ -387,8 +68,12 @@ export function DecisionsPage() {
   const timeAgo = useTimeAgo();
   const label = useWaitingOnLabel();
   const wsId = useWorkspaceId();
+  const isCompact = useIsCompact();
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "multica_ag_decisions_layout" });
   const { data, isPending, isError } = useQuery(agDecisionListOptions(wsId));
   const [holder, setHolder] = useState(WAITING_ON_ALAN);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [compactDetail, setCompactDetail] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -397,14 +82,97 @@ export function DecisionsPage() {
   }, []);
 
   const cards = useMemo(() => data?.cards ?? [], [data]);
-  const holders = useMemo(() => countAGDecisionsByWaitingOn(cards), [cards]);
-  const groups = useMemo(
-    () => groupAGDecisionCards(cards.filter((card) => card.waitingOn === holder)),
-    [cards, holder],
-  );
+  // Read by onSent, which runs after the click that changed the list.
+  const queueRef = useRef<AGDecisionCard[]>([]);
+  const actions = useDecisionActions({
+    wsId,
+    onSent: (card) => {
+      setSelectedId(neighbourOf(queueRef.current, card.id)?.id ?? null);
+      setCompactDetail(false);
+    },
+  });
+
+  const placed = cards.map((card) => ({ card, place: actions.placeOf(card) }));
+  const holders = countAGDecisionsByWaitingOn(placed.filter((p) => p.place !== "activity").map((p) => p.card));
+  const mine = placed.filter((p) => p.card.waitingOn === holder);
+  const retry = mine.filter((p) => p.place === "retry").map((p) => p.card);
+  const groups = groupAGDecisionCards(mine.filter((p) => p.place === "queue").map((p) => p.card));
+  const activity = placed.filter((p) => p.place === "activity").map((p) => p.card);
+  const queue = [...retry, ...groups.flatMap((group) => group.cards)];
+  queueRef.current = queue;
+  const navigable = [...queue, ...activity];
+  const selected = navigable.find((card) => card.id === selectedId) ?? queue[0] ?? null;
+
   const lastSyncAt = data?.lastSyncAt ?? null;
   const stale = isAGDecisionEngineStale(lastSyncAt, now);
   const workerOffline = lastSyncAt !== null && isAGDecisionWorkerOffline(data?.workerSeenAt ?? null, now);
+
+  const select = (id: string) => {
+    setSelectedId(id);
+    setCompactDetail(true);
+  };
+
+  // J/K move, 1-9 act on the open card, Z undoes the last send. Read through a ref so the listener is attached once.
+  const keys = useRef<(event: KeyboardEvent) => void>(() => {});
+  keys.current = (event) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.repeat || isImeComposing(event)) return;
+    if (isEditableShortcutTarget(event.target) || isPortalLayerShortcutTarget(event.target) || actions.dialogOpen) return;
+    const key = event.key.toLowerCase();
+    const at = selected ? navigable.indexOf(selected) : -1;
+    if (key === "j" || key === "k") {
+      const next = navigable[key === "j" ? at + 1 : Math.max(at - 1, 0)];
+      if (!next) return;
+      event.preventDefault();
+      setSelectedId(next.id);
+    } else if (key === "z") {
+      event.preventDefault();
+      actions.undoLast();
+    } else if (/^[1-9]$/.test(key) && selected && agDecisionCardIsActionable(selected)) {
+      const action = agDecisionKeyedActions(selected)[Number(key) - 1];
+      if (!action) return;
+      event.preventDefault();
+      actions.request(selected, action);
+    }
+  };
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => keys.current(event);
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const emptyText = holder === WAITING_ON_ALAN ? t(($) => $.decisions.empty) : t(($) => $.decisions.nothing_here);
+  const notice = isPending ? null : isError ? (
+    <p role="alert" className="text-muted-foreground">
+      {t(($) => $.decisions.load_error)}
+    </p>
+  ) : !lastSyncAt ? (
+    <p className="text-muted-foreground">{t(($) => $.decisions.never_synced)}</p>
+  ) : null;
+
+  // Keyed by holder: switching tabs swaps the list, it does not animate cards out of it.
+  const list = (
+    <DecisionList
+      key={holder}
+      retry={retry}
+      groups={groups}
+      activity={activity}
+      selectedId={selected?.id ?? null}
+      onSelect={select}
+      departingAction={actions.departingAction}
+      onUndo={actions.undo}
+    />
+  );
+  const detail = selected ? (
+    <DecisionDetail
+      key={selected.id}
+      card={selected}
+      busy={actions.busy}
+      onAction={(action) => actions.request(selected, action)}
+      onBack={isCompact ? () => setCompactDetail(false) : undefined}
+    />
+  ) : (
+    <div className="flex h-full items-center justify-center p-6 text-muted-foreground">{emptyText}</div>
+  );
 
   return (
     <IssuePeekHost>
@@ -417,21 +185,32 @@ export function DecisionsPage() {
             </span>
           )}
         </PageHeader>
-        <div className={cn(PAGE_TOOLBAR, "justify-start")}>
+        <div className={cn(PAGE_TOOLBAR, "justify-start gap-1 border-b")}>
           {holders.map(({ waitingOn, count }) => (
             <Button
               key={waitingOn}
               size="sm"
               variant={waitingOn === holder ? "brand" : "ghost"}
               aria-pressed={waitingOn === holder}
-              onClick={() => setHolder(waitingOn)}
+              onClick={() => {
+                setHolder(waitingOn);
+                setSelectedId(null);
+              }}
             >
-              {label(waitingOn)} {count}
+              {label(waitingOn)}{" "}
+              <span
+                className={cn(
+                  "rounded-full px-1.5 text-caption tabular-nums",
+                  waitingOn === holder ? "bg-brand-foreground/20" : "bg-muted text-muted-foreground",
+                )}
+              >
+                {count}
+              </span>
             </Button>
           ))}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className={cn(PAGE_GUTTER, "flex flex-col gap-4 pb-6")}>
+        {(stale || workerOffline || notice) && (
+          <div className={cn(PAGE_GUTTER, "flex flex-col gap-1 border-b py-2")}>
             {stale && lastSyncAt && (
               <p role="status" className="text-warning">
                 {t(($) => $.decisions.stale, { time: timeAgo(lastSyncAt) })}
@@ -442,36 +221,41 @@ export function DecisionsPage() {
                 {t(($) => $.decisions.actions.worker_offline)}
               </p>
             )}
-            {isPending && <Skeleton className="h-24 w-full" />}
-            {isError && <p role="alert" className="text-muted-foreground">{t(($) => $.decisions.load_error)}</p>}
-            {!isPending && !isError && !lastSyncAt && (
-              <p className="text-muted-foreground">{t(($) => $.decisions.never_synced)}</p>
-            )}
-            {!isPending && !isError && lastSyncAt && groups.length === 0 && (
-              <p className="text-muted-foreground">
-                {holder === WAITING_ON_ALAN ? t(($) => $.decisions.empty) : t(($) => $.decisions.nothing_here)}
-              </p>
-            )}
-            {groups.map((group) => (
-              <section key={group.name} aria-label={group.name || undefined}>
-                <div className="flex flex-wrap items-center gap-2">
-                  {group.name && (
-                    <h2 className="text-caption font-medium text-muted-foreground">
-                      {group.name} ({group.cards.length})
-                    </h2>
-                  )}
-                  <GroupBatchActions cards={group.cards} />
-                </div>
-                <ul>
-                  {group.cards.map((card) => (
-                    <DecisionCardRow key={card.id} card={card} />
-                  ))}
-                </ul>
-              </section>
-            ))}
+            {notice}
           </div>
-        </div>
+        )}
+        {isPending ? (
+          <div className={cn(PAGE_GUTTER, "py-4")}>
+            <Skeleton className="h-24 w-full" />
+          </div>
+        ) : isCompact ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            {compactDetail && selected ? detail : queue.length + activity.length > 0 ? list : detail}
+          </div>
+        ) : (
+          <ResizablePanelGroup
+            orientation="horizontal"
+            className="min-h-0 flex-1"
+            defaultLayout={defaultLayout}
+            onLayoutChanged={onLayoutChanged}
+          >
+            <ResizablePanel
+              id="list"
+              defaultSize={LIST_DEFAULT_SIZE}
+              minSize={LIST_MIN_SIZE}
+              maxSize={LIST_MAX_SIZE}
+              groupResizeBehavior="preserve-pixel-size"
+            >
+              <div className="h-full border-r">{list}</div>
+            </ResizablePanel>
+            <ResizableHandle />
+            <ResizablePanel id="detail" minSize="40%">
+              {detail}
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        )}
       </div>
+      {actions.dialog}
     </IssuePeekHost>
   );
 }

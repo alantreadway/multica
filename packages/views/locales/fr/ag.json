@@ -170,7 +170,23 @@
       "override_reason": "Pourquoi pas la recommandation ?",
       "batch_title": "{{action}} : {{total}} cartes",
       "batch_partial": "{{failed}} sur {{total}} n'ont pas pu être mises en file.",
-      "worker_offline": "Le worker ne tourne pas. Les actions l'attendent et expirent après 15 minutes."
+      "worker_offline": "Le worker ne tourne pas. Les actions l'attendent et expirent après 15 minutes.",
+      "undo": "Annuler",
+      "queued_toast": "{{action}} en file pour {{ref}}",
+      "too_late": "Trop tard pour annuler : le worker a commencé."
+    },
+    "needs_retry": "À revoir",
+    "activity": "Activité",
+    "keys": {
+      "move": "déplacer",
+      "act": "agir",
+      "undo": "annuler"
+    },
+    "status": {
+      "queued": "En file",
+      "not_done": "Non effectué",
+      "failed": "Échec",
+      "expired": "Expiré"
     }
   }
 }

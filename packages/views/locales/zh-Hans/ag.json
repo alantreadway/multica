@@ -168,7 +168,23 @@
       "override_reason": "为什么不采用推荐操作?",
       "batch_title": "{{action}}:{{total}} 张卡片",
       "batch_partial": "{{total}} 项中有 {{failed}} 项无法加入队列。",
-      "worker_offline": "worker 未运行。操作会等待它,并在 15 分钟后过期。"
+      "worker_offline": "worker 未运行。操作会等待它,并在 15 分钟后过期。",
+      "undo": "撤销",
+      "queued_toast": "{{ref}}:{{action}} 已加入队列",
+      "too_late": "来不及撤销:worker 已开始执行。"
+    },
+    "needs_retry": "需要再看一下",
+    "activity": "动态",
+    "keys": {
+      "move": "移动",
+      "act": "操作",
+      "undo": "撤销"
+    },
+    "status": {
+      "queued": "排队中",
+      "not_done": "未执行",
+      "failed": "失败",
+      "expired": "已过期"
     }
   }
 }

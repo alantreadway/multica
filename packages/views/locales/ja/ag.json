@@ -168,7 +168,23 @@
       "override_reason": "推奨を選ばない理由は?",
       "batch_title": "{{action}}: {{total}} 件",
       "batch_partial": "{{total}} 件中 {{failed}} 件をキューに追加できませんでした。",
-      "worker_offline": "ワーカーが停止しています。アクションは待機し、15 分で期限切れになります。"
+      "worker_offline": "ワーカーが停止しています。アクションは待機し、15 分で期限切れになります。",
+      "undo": "元に戻す",
+      "queued_toast": "{{ref}}: {{action}} をキューに追加しました",
+      "too_late": "元に戻せません: ワーカーが開始しています。"
+    },
+    "needs_retry": "再確認が必要",
+    "activity": "アクティビティ",
+    "keys": {
+      "move": "移動",
+      "act": "実行",
+      "undo": "元に戻す"
+    },
+    "status": {
+      "queued": "待機中",
+      "not_done": "未実行",
+      "failed": "失敗",
+      "expired": "期限切れ"
     }
   }
 }

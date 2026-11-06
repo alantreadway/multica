@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   agDecisionBatchActions,
   agDecisionCardIsActionable,
+  agDecisionKeyedActions,
+  agDecisionPlace,
   countAGDecisionsByWaitingOn,
   ENGINE_STALE_AFTER_MS,
   groupAGDecisionCards,
@@ -10,6 +12,7 @@ import {
   isAGDecisionWorkerOffline,
   parseAGDecisionCount,
   parseAGDecisionList,
+  splitAGDecisionLine,
   visibleAGDecisionIntent,
   WORKER_OFFLINE_AFTER_MS,
   type AGDecisionCard,
@@ -241,10 +244,40 @@ describe("actions", () => {
     expect(agDecisionBatchActions([a, withIntent("pending")])).toEqual([]);
   });
 
+  it("places a card in the queue, back for a retry, or in Activity by its visible intent", () => {
+    expect(agDecisionPlace(firstCard({}))).toBe("queue");
+    expect(agDecisionPlace(withIntent("cancelled"))).toBe("queue");
+    expect(agDecisionPlace(withIntent("succeeded", 1))).toBe("queue");
+    for (const status of ["pending", "running", "succeeded"]) expect(agDecisionPlace(withIntent(status))).toBe("activity");
+    for (const status of ["refused", "failed", "expired"]) expect(agDecisionPlace(withIntent(status))).toBe("retry");
+  });
+
+  it("orders a card's actions for shortcuts: options, the recommendation, then the rest", () => {
+    const card = firstCard({
+      actions: [{ id: "park", label: "Snooze" }, { id: "approve", label: "Approve" }, { id: "reply", label: "Reply" }, { id: "reply:a", label: "(a) Keep" }],
+      recommended_action: "approve",
+    });
+    expect(agDecisionKeyedActions(card).map((action) => action.id)).toEqual(["reply:a", "approve", "park", "reply"]);
+  });
+
   it("calls a worker offline when never seen or quiet too long", () => {
     const now = Date.parse("2026-11-01T01:00:00Z");
     expect(isAGDecisionWorkerOffline(null, now)).toBe(true);
     expect(isAGDecisionWorkerOffline(new Date(now - WORKER_OFFLINE_AFTER_MS - 1).toISOString(), now)).toBe(true);
     expect(isAGDecisionWorkerOffline(new Date(now - 1000).toISOString(), now)).toBe(false);
+  });
+});
+
+describe("splitAGDecisionLine", () => {
+  it("splits a short leading label from its value", () => {
+    expect(splitAGDecisionLine("Status: PR ready — merged latest")).toEqual({ label: "Status", value: "PR ready — merged latest" });
+    expect(splitAGDecisionLine("Do next: Review PR #8971")).toEqual({ label: "Do next", value: "Review PR #8971" });
+  });
+
+  it("keeps prose, a long label or a lowercase start as prose", () => {
+    expect(splitAGDecisionLine("#8953 by lsjroberts: 1588 lines")).toBeNull();
+    expect(splitAGDecisionLine("note: lower case")).toBeNull();
+    expect(splitAGDecisionLine("A label that runs far too long: value")).toBeNull();
+    expect(splitAGDecisionLine("Status:")).toBeNull();
   });
 });

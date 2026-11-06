@@ -2098,8 +2098,10 @@ The design and later phases are in
   never reads the CLI's token, and refuses input with no card list. `decisions
   claim` and `decisions result <id>` are the worker's two calls.
 - Web: `packages/core/decisions/` (parser, queries, mutations),
-  `packages/views/decisions/` (page: action buttons, second-tap and note dialogs,
-  override reasons, group batches, the intent's state, a worker-offline warning), web and desktop routes, the reserved slug `decisions`, and one-line
+  `packages/views/decisions/` (page: a list of compact rows beside the selected
+  card's detail, action buttons with number-key shortcuts and `j`/`k`/`z`,
+  second-tap and note dialogs, override reasons, group batches, clicked cards
+  moving to an Activity list with an undo toast, a worker-offline warning), web and desktop routes, the reserved slug `decisions`, and one-line
   hooks in the sidebar, paths, route icons, tab subjects, diagnostics buckets and
   search palette.
 - **Upstream**

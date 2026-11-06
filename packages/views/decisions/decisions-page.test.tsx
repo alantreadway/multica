@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type {
   AGDecisionAction,
@@ -100,12 +100,12 @@ describe("DecisionsPage", () => {
       cards: [card({}), card({ id: "c2", waitingOn: "author", title: "Their turn", issueRef: "MAG-2" })],
     });
 
-    expect(await screen.findByText("Fix axis")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Fix axis" })).toBeTruthy();
     expect(screen.queryByText("Their turn")).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Author 1" }));
 
-    expect(screen.getByText("Their turn")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Their turn" })).toBeTruthy();
     expect(screen.queryByText("Fix axis")).toBeNull();
   });
 
@@ -118,6 +118,17 @@ describe("DecisionsPage", () => {
     expect(items.map((item) => item.textContent)).toEqual(
       expect.arrayContaining(["Ships per-module files", "Raises the target"]),
     );
+  });
+
+  it("shows labelled lines as fields and the rest as prose", async () => {
+    renderPage({ workerSeenAt: recent(), lastSyncAt: recent(),
+      cards: [card({ lines: ["Status: PR ready", "#8953 by someone: 12 lines"] })],
+    });
+
+    const term = await screen.findByText("Status");
+    expect(term.tagName).toBe("DT");
+    expect(screen.getByText("PR ready").tagName).toBe("DD");
+    expect(screen.getByText("#8953 by someone: 12 lines").tagName).toBe("P");
   });
 
   it("opens the issue peek from the card's reference", async () => {
@@ -192,18 +203,20 @@ describe("DecisionsPage", () => {
     });
 
     it("offers override reasons only when leaving the recommendation", async () => {
-      renderPage(
-        list([
-          card({
-            actions: [action("merge", { primary: true }), action("park")],
-            recommendedAction: "merge",
-            overrideReasons: ["Too big"],
-          }),
-        ]),
-      );
+      const recommending = list([
+        card({
+          actions: [action("merge", { primary: true }), action("park")],
+          recommendedAction: "merge",
+          overrideReasons: ["Too big"],
+        }),
+      ]);
+      const first = renderPage(recommending);
       await userEvent.click(await screen.findByRole("button", { name: "merge" }));
       expect(mockCreate).toHaveBeenCalledWith(...sent({ action_id: "merge" }));
-      await userEvent.click(screen.getByRole("button", { name: "park" }));
+      first.unmount();
+
+      renderPage(recommending);
+      await userEvent.click(await screen.findByRole("button", { name: "park" }));
       await userEvent.click(screen.getByRole("button", { name: "Too big" }));
       await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
       expect(mockCreate).toHaveBeenLastCalledWith(...sent({ override_reason: "Too big" }));
@@ -218,11 +231,66 @@ describe("DecisionsPage", () => {
       expect(screen.getByRole("button", { name: "Confirm" })).toBeTruthy();
     });
 
-    it("hides the buttons while queued, and can cancel", async () => {
+    it("lists a queued card under Activity without its buttons, and can undo it", async () => {
       renderPage(list([card({ actions: [action("park")], latestIntent: intent("pending") })]));
-      await userEvent.click(await screen.findByRole("button", { name: "Cancel" }));
-      expect(mockCancel.mock.calls[0]?.[0]).toBe("in1");
+      const activity = await screen.findByRole("region", { name: "Activity" });
+      expect(within(activity).getByText("Queued: park")).toBeTruthy();
       expect(screen.queryByRole("button", { name: "park" })).toBeNull();
+      await userEvent.click(within(activity).getByRole("button", { name: "Undo" }));
+      expect(mockCancel.mock.calls[0]?.[0]).toBe("in1");
+    });
+
+    it("moves a sent card out of the queue and opens the next one", async () => {
+      renderPage(
+        list([
+          card({ id: "c1", actions: [action("park")] }),
+          card({ id: "c2", title: "Next up", issueRef: "MAG-2", rank: 2, actions: [action("park")] }),
+        ]),
+      );
+      await userEvent.click(await screen.findByRole("button", { name: "park" }));
+      expect(mockCreate).toHaveBeenCalledWith(...sent({}));
+      expect(await screen.findByRole("heading", { name: "Next up" })).toBeTruthy();
+      const activity = screen.getByRole("region", { name: "Activity" });
+      expect(within(activity).getByText("Queued: park")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "You 1" })).toBeTruthy();
+    });
+
+    it("moves with J and K, and acts with a number key", async () => {
+      renderPage(
+        list([
+          card({ id: "c1", actions: [action("park")] }),
+          card({ id: "c2", title: "Next up", rank: 2, actions: [action("close"), action("park")], recommendedAction: "park" }),
+        ]),
+      );
+      await screen.findByRole("heading", { name: "Fix axis" });
+      await userEvent.keyboard("j");
+      expect(screen.getByRole("heading", { name: "Next up" })).toBeTruthy();
+      await userEvent.keyboard("k");
+      expect(screen.getByRole("heading", { name: "Fix axis" })).toBeTruthy();
+      await userEvent.keyboard("j1");
+      expect(mockCreate).toHaveBeenCalledWith("c2", { revision: 1, action_id: "park", note: "", override_reason: "" });
+    });
+
+    it("offers an agent's options as numbered choices", async () => {
+      renderPage(
+        list([
+          card({
+            cardType: "agent_question",
+            actions: [action("reply:a", { label: "(a) Keep it" }), action("reply", { note: { required: true, placeholder: "Your reply" } })],
+            recommendedAction: "reply:a",
+          }),
+        ]),
+      );
+      const option = await screen.findByRole("button", { name: "(a) Keep it" });
+      expect(option.getAttribute("aria-keyshortcuts")).toBe("1");
+      await userEvent.click(option);
+      expect(mockCreate).toHaveBeenCalledWith(...sent({ action_id: "reply:a" }));
+    });
+
+    it("brings a refused card back under Needs another look", async () => {
+      renderPage(list([card({ actions: [action("park")], latestIntent: intent("refused", "The PR has a new head.") })]));
+      const retry = await screen.findByRole("region", { name: "Needs another look" });
+      expect(within(retry).getByText("Not done")).toBeTruthy();
     });
 
     it("shows a refusal and keeps the buttons to try again", async () => {

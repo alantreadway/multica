@@ -168,7 +168,23 @@
       "override_reason": "為什麼不採用建議操作?",
       "batch_title": "{{action}}:{{total}} 張卡片",
       "batch_partial": "{{total}} 項中有 {{failed}} 項無法加入佇列。",
-      "worker_offline": "worker 未執行。操作會等待它,並在 15 分鐘後過期。"
+      "worker_offline": "worker 未執行。操作會等待它,並在 15 分鐘後過期。",
+      "undo": "復原",
+      "queued_toast": "{{ref}}:{{action}} 已加入佇列",
+      "too_late": "來不及復原:worker 已開始執行。"
+    },
+    "needs_retry": "需要再確認",
+    "activity": "動態",
+    "keys": {
+      "move": "移動",
+      "act": "操作",
+      "undo": "復原"
+    },
+    "status": {
+      "queued": "排隊中",
+      "not_done": "未執行",
+      "failed": "失敗",
+      "expired": "已過期"
     }
   }
 }

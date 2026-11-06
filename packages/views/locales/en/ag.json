@@ -170,7 +170,23 @@
       "override_reason": "Why not the recommendation?",
       "batch_title": "{{action}}: {{total}} cards",
       "batch_partial": "{{failed}} of {{total}} could not be queued.",
-      "worker_offline": "The worker is not running. Actions wait for it, and expire after 15 minutes."
+      "worker_offline": "The worker is not running. Actions wait for it, and expire after 15 minutes.",
+      "undo": "Undo",
+      "queued_toast": "{{action}} queued for {{ref}}",
+      "too_late": "Too late to undo: the worker has started."
+    },
+    "needs_retry": "Needs another look",
+    "activity": "Activity",
+    "keys": {
+      "move": "move",
+      "act": "act",
+      "undo": "undo"
+    },
+    "status": {
+      "queued": "Queued",
+      "not_done": "Not done",
+      "failed": "Failed",
+      "expired": "Expired"
     }
   }
 }

@@ -360,8 +360,7 @@ report: close; agent question: its parsed options, a free reply; parked: unpark.
 go through `jiraTransition`, so job 1's colleague-comment hold applies.
 
 What phase 2 leaves out. A click is Alan's decision, so it does not require `aiw-tiny` to pass: a PR that fails it needs
-a second tap showing why, and the click is logged with `blocked_by`. Keyboard shortcuts (`j`/`k`, number keys), per-row
-report fixes and `Wake holder` are not built. A question already replied to stays on Alan's tab until the agent answers
+a second tap showing why, and the click is logged with `blocked_by`. Per-row report fixes and `Wake holder` are not built. A question already replied to stays on Alan's tab until the agent answers
 or clears `needs-decision`, showing only a free reply. An agent's `(a)`/`(b)` lines are not always alternatives
 (MAG-916 uses them for two separate questions), so picking one posts that one line.
 
