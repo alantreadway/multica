@@ -687,6 +687,8 @@ type Daemon struct {
 	agQuota agQuotaState // AG patch: Claude quota tracker and hold (see ag_quota.go)
 	agPace  agPaceState  // AG patch: Claude pacing (see ag_quota_pace.go)
 
+	agProbe agProviderProbeState // AG patch: provider probe (see ag_provider_probe.go)
+
 	agSettings agSettingsState // AG patch: runtime backup setting (see ag_quota_report.go)
 	agBackup   agBackupState   // AG patch: backup Claude account (see ag_quota_backup.go)
 
@@ -5428,6 +5430,16 @@ func (d *Daemon) runBatchPoller(pollerCtx, parentCtx context.Context, sem *agTas
 			continue
 		}
 		slots := append([]int{slot}, drainAvailableSlots(sem, d.cfg.MaxConcurrentTasks-1)...)
+
+		// AG patch: provider probe. Claim nothing while the AI provider is
+		// unreachable, so queued runs keep their attempts. Not under claimMu.
+		if !d.agProviderGate(pollerCtx) { // AG patch: provider probe
+			releaseSlots(slots)
+			if err := sleepWithContextOrWakeup(pollerCtx, d.cfg.PollInterval, wakeup); err != nil {
+				return
+			}
+			continue
+		}
 
 		// Auto-update barrier: refuse to claim while an update prepares to roll
 		// the process (paired with the re-check in tryAutoUpdate).
