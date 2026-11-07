@@ -70,6 +70,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 26 | Claude sessions resume across worktree directories (daemon) | `candidate` | [#9731](https://github.com/multica-ai/multica/issues/9731) / [#9734](https://github.com/multica-ai/multica/pull/9734) (merged in v0.8.0; the cherry-pick), no overlap for the wider rule | Good for the wider rule: it closes a gap in #9734 | Low | Offer the wider rule after the rebase onto v0.8.0, if asked. |
 | 27 | Claude stable worktree path for resumed sessions (daemon) | `fork-only` | none for issue worktrees; [#9707](https://github.com/multica-ai/multica/pull/9707) (open, unreviewed on 2026-11-05) does the same for autopilot workdirs and adds a server query | Low: Claude Code's cwd-keyed transcript and our cache cost | Low | None. Review at the rebase if #9707 merges: it touches the same GC and reuse code. |
 | 28 | Overview dashboard (backend + web) | `fork-only` | none found | Low: built around one person's pinned JIRA epics and the Decision Desk | Very low | None. |
+| 29 | Reject `--until-status` on the issue's own done or closed status (backend) | `candidate` | none found (searched 2026-11-06) | High: a bug fix; the rule is accepted and then can never fire | Medium-high | File a Bug Report and open the PR straight away. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -2212,6 +2213,38 @@ never acts on anything. The design and the options it was chosen from are in
 - **Upstream**
   - Status: `fork-only`.
   - Fit: built around one person's pinned epics and the Decision Desk.
+
+### Reject --until-status on the issue's own done or closed status (backend)
+
+Closing an issue disables all of its wakeups in the same transaction as the close,
+so a wakeup on an issue with an `issue_field` condition on `status` whose value is
+in the done or closed category (`done`, `cancelled` or a custom status in either
+category) can never fire. Server and CLI accepted the rule, so the caller believed
+a wakeup was registered; it showed as disabled at the close with `fire_count: 0`.
+
+- `validateCondition` (the `status` branch) resolves the status's category with
+  `issuestatus.CategoryWithError` and rejects a done or closed category with
+  `badCondition`, an `ErrWakeupInput` 400. The message names the working form:
+  register on another open issue (usually the parent) with `--until-issue <this
+  issue> --until-issue-state done|ended` (`ended` alone for a closed status). A
+  catalog read error is returned as is, so no rule is created; an unknown status
+  keeps the `unknown status` rejection.
+- The CLI needs no change: the 400 body is shown by `FormatError` and the exit code
+  is non-zero. A test covers that.
+- `multica-platform/references/issues.md` adds a sentence to the bullet saying
+  closing disables the issue's wakeups (the file is at its 500-line budget).
+- Stored rules are not migrated or touched. `--until-issue` and wakeups on other
+  issues behave as before.
+- Files:
+  - `server/internal/service/issue_wakeup_condition.go` (`validateCondition`)
+  - `server/internal/service/builtin_skills/multica-platform/references/issues.md`
+  - `server/internal/service/ag_wakeup_closing_status_test.go` (new, `TestAGPatchWakeupCondition*`)
+  - `server/cmd/multica/ag_issue_wakeup_closing_status_test.go` (new, `TestAGPatchIssueWakeup*`)
+
+- **Upstream**
+  - Status: `candidate`. A plain bug fix; nothing is proposed yet.
+  - Overlap: none found (searched 2026-11-06).
+  - Fit: rejects a rule that can never fire; no change to what valid rules do.
 
 ## Tooling (not a patch)
 
