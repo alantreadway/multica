@@ -90,6 +90,7 @@ type HealthResponse struct {
 	agDrainHealth                         // AG patch: draining, drain_started_at, idle
 	agHandoffHealth                       // AG patch: handoff, max_concurrent_tasks, active_task_ids
 	agQuotaHealth                         // AG patch: quota, claude_quota
+	agProviderHealth                      // AG patch: provider_reachable, provider_unreachable_since
 }
 
 type healthWorkspace struct {
@@ -370,6 +371,7 @@ func (d *Daemon) healthHandler(startedAt time.Time) http.HandlerFunc {
 			agDrainHealth:       d.agDrainHealth(),
 			agHandoffHealth:     d.agHandoffHealth(),
 			agQuotaHealth:       d.agQuotaHealth(),
+			agProviderHealth:    d.agProviderHealth(), // AG patch: provider probe
 		}
 		if reporter, ok := d.repoCache.(interface{ Activity() repocache.Activity }); ok {
 			activity := reporter.Activity()

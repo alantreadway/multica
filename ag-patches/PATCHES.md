@@ -71,6 +71,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 27 | Claude stable worktree path for resumed sessions (daemon) | `fork-only` | none for issue worktrees; [#9707](https://github.com/multica-ai/multica/pull/9707) (open, unreviewed on 2026-11-05) does the same for autopilot workdirs and adds a server query | Low: Claude Code's cwd-keyed transcript and our cache cost | Low | None. Review at the rebase if #9707 merges: it touches the same GC and reuse code. |
 | 28 | Overview dashboard (backend + web) | `fork-only` | none found | Low: built around one person's pinned JIRA epics and the Decision Desk | Very low | None. |
 | 29 | Reject `--until-status` on the issue's own done or closed status (backend) | `candidate` | none found (searched 2026-11-06) | High: a bug fix; the rule is accepted and then can never fire | Medium-high | File a Bug Report and open the PR straight away. |
+| 30 | Provider reachability probe before claim (daemon) | `fork-only` | none found (searched 2026-11-07) | Low: a guard for our retry chain on a flaky home network | Very low | None. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -2255,6 +2256,52 @@ a wakeup was registered; it showed as disabled at the close with `fire_count: 0`
   - Status: `candidate`. A plain bug fix; nothing is proposed yet.
   - Overlap: none found (searched 2026-11-06).
   - Fit: rejects a rule that can never fire; no change to what valid rules do.
+
+### Provider reachability probe before claim (daemon)
+
+The daemon talks to the server on localhost, so a DNS or network outage did not
+stop it claiming runs: each claimed run failed on its first provider call and the
+`provider_network` retry chain spent its attempts. Before it claims, the batch
+poller now checks a cached reachability probe of the AI provider. While the
+provider is unreachable the poller releases its slots, sleeps `PollInterval`
+(wakeup-aware) and tries again, with no claim call to the server, so queued runs
+keep their attempts. Tasks already running are not touched.
+
+- Probe: a DNS lookup of the target host, then an HTTPS `HEAD` to the target URL,
+  both inside one timeout. The lookup is skipped when a proxy applies to the URL
+  (the proxy resolves the name). Redirects are not followed.
+- Reachable = DNS resolved and the request completed with any HTTP status (401,
+  403, 404 and 5xx included). Unreachable = DNS failure, connect or TLS error, or
+  timeout. Probe disabled = fail open. While unreachable = fail closed.
+- The result is cached for the TTL and concurrent callers share one in-flight
+  probe. The probe runs in the poller before `tryEnterClaim()`, never under
+  `claimMu`, and shutdown cancels it. A probe cut short by shutdown records
+  nothing.
+- One target for the whole daemon, so the gate applies to every runtime. Per-provider
+  targets are not supported.
+- Logs only transitions: one `Warn` when it goes down (target, error), one `Info`
+  when it comes back (target, how long it was down).
+- `/health` gains `provider_reachable` and `provider_unreachable_since` (RFC 3339,
+  only while down). Both are omitted when the probe is disabled or has not run yet.
+- Config (daemon env, read in `config.go`; invalid values fail daemon start):
+  - `MULTICA_AG_PROVIDER_PROBE_URL`: default `https://api.anthropic.com`. `off` or
+    empty disables the probe. Otherwise it must be an absolute http(s) URL.
+  - `MULTICA_AG_PROVIDER_PROBE_TTL`: default `30s`. `0` probes every cycle.
+  - `MULTICA_AG_PROVIDER_PROBE_TIMEOUT`: default `5s`. Must be positive.
+- Test prefix: `TestAGPatchProviderProbe` / `AG patch:`
+- Files:
+  - `server/internal/daemon/ag_provider_probe.go` (new)
+  - `server/internal/daemon/ag_provider_probe_test.go` (new)
+  - `server/internal/daemon/daemon.go` (`agProbe` field; the gate in `runBatchPoller`
+    before `tryEnterClaim()`)
+  - `server/internal/daemon/config.go` (three `Config` fields and the env read)
+  - `server/internal/daemon/health.go` (`/health` fields)
+
+- **Upstream**
+  - Status: `fork-only`.
+  - Overlap: none found (searched 2026-11-07).
+  - Fit: a claim guard tied to our retry chain and the Anthropic endpoint; upstream
+    has no equivalent and it is not on `VISION.md`'s path.
 
 ## Tooling (not a patch)
 
