@@ -11,11 +11,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -558,33 +560,40 @@ func hasProxyEnv() bool {
 	return perr != nil || proxy != nil
 }
 
+// agProbeHealthJSON reads /health through the real handler, so a dropped embed
+// or a dropped field in the response literal fails the test.
+func agProbeHealthJSON(t *testing.T, d *Daemon) map[string]any {
+	t.Helper()
+	if d.workspaces == nil {
+		d.workspaces = map[string]*workspaceState{}
+	}
+	rec := httptest.NewRecorder()
+	d.healthHandler(time.Now()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/health status = %d", rec.Code)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode health: %v", err)
+	}
+	return raw
+}
+
 func TestAGPatchProviderProbeHealth(t *testing.T) {
-	t.Run("AG patch: provider probe health JSON flattens into /health", func(t *testing.T) {
+	t.Run("AG patch: provider probe /health fields track down, still down and recovery", func(t *testing.T) {
 		d, now := newAGProbeTestDaemon("https://provider.test", func(context.Context, string) error { return errors.New("down") })
-		marshal := func() map[string]any {
-			b, err := json.Marshal(HealthResponse{agProviderHealth: d.agProviderHealth()})
-			if err != nil {
-				t.Fatal(err)
-			}
-			var m map[string]any
-			if err := json.Unmarshal(b, &m); err != nil {
-				t.Fatal(err)
-			}
-			return m
-		}
 
 		// Before the first probe: fields omitted.
-		m := marshal()
-		if _, ok := m["provider_reachable"]; ok {
-			t.Fatalf("provider_reachable present before any probe: %v", m)
-		}
-		if _, ok := m["provider_unreachable_since"]; ok {
-			t.Fatalf("provider_unreachable_since present before any probe: %v", m)
+		m := agProbeHealthJSON(t, d)
+		for _, k := range []string{"provider_reachable", "provider_unreachable_since"} {
+			if _, ok := m[k]; ok {
+				t.Fatalf("%s present before any probe: %v", k, m)
+			}
 		}
 
 		down := *now
 		d.agProviderGate(context.Background())
-		m = marshal()
+		m = agProbeHealthJSON(t, d)
 		if m["provider_reachable"] != false {
 			t.Fatalf("provider_reachable = %v, want false", m["provider_reachable"])
 		}
@@ -595,14 +604,14 @@ func TestAGPatchProviderProbeHealth(t *testing.T) {
 		// Still down on a later probe: "since" keeps the first failure time.
 		*now = now.Add(31 * time.Second)
 		d.agProviderGate(context.Background())
-		if got := marshal()["provider_unreachable_since"]; got != down.UTC().Format(time.RFC3339) {
+		if got := agProbeHealthJSON(t, d)["provider_unreachable_since"]; got != down.UTC().Format(time.RFC3339) {
 			t.Fatalf("provider_unreachable_since moved to %v on a repeat failure", got)
 		}
 
 		d.agProbe.probeFn = func(context.Context, string) error { return nil }
 		*now = now.Add(31 * time.Second)
 		d.agProviderGate(context.Background())
-		m = marshal()
+		m = agProbeHealthJSON(t, d)
 		if m["provider_reachable"] != true {
 			t.Fatalf("provider_reachable = %v after recovery, want true", m["provider_reachable"])
 		}
@@ -611,15 +620,120 @@ func TestAGPatchProviderProbeHealth(t *testing.T) {
 		}
 	})
 
-	t.Run("AG patch: provider probe health is omitted while disabled", func(t *testing.T) {
-		d, _ := newAGProbeTestDaemon("", func(context.Context, string) error { return errors.New("down") })
-		d.agProviderGate(context.Background())
-		b, err := json.Marshal(HealthResponse{agProviderHealth: d.agProviderHealth()})
+	t.Run("AG patch: provider probe /health omits the fields while disabled", func(t *testing.T) {
+		for _, target := range []string{"", "off"} {
+			d, _ := newAGProbeTestDaemon(target, func(context.Context, string) error { return errors.New("down") })
+			if target == "off" {
+				d.cfg.AGProviderProbeURL = "" // config.go normalises "off" to empty
+			}
+			d.agProviderGate(context.Background())
+			m := agProbeHealthJSON(t, d)
+			for k := range m {
+				if strings.HasPrefix(k, "provider_") {
+					t.Fatalf("disabled probe (%q) leaked %s: %v", target, k, m)
+				}
+			}
+		}
+	})
+}
+
+// The proxy branch of agHTTPProbe depends on http.ProxyFromEnvironment, which
+// reads the environment once per process. These cases therefore re-exec the
+// test binary with a controlled environment and run agHTTPProbe in the child.
+const agProbeChildEnv = "AG_PROBE_CHILD_TARGET"
+
+func TestAGPatchProviderProbeChild(t *testing.T) {
+	target := os.Getenv(agProbeChildEnv)
+	if target == "" {
+		t.Skip("helper for the re-exec cases below")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := agHTTPProbe(ctx, target); err != nil {
+		fmt.Fprintln(os.Stderr, "PROBE_ERROR:", err)
+		os.Exit(3)
+	}
+	fmt.Fprintln(os.Stderr, "PROBE_OK")
+	os.Exit(0)
+}
+
+// agProbeRunChild runs agHTTPProbe(target) in a fresh process whose proxy
+// environment is exactly env (inherited proxy settings are dropped).
+func agProbeRunChild(t *testing.T, target string, env ...string) (output string, err error) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAGPatchProviderProbeChild$", "-test.v")
+	for _, kv := range os.Environ() {
+		k := strings.ToUpper(strings.SplitN(kv, "=", 2)[0])
+		if k == "HTTP_PROXY" || k == "HTTPS_PROXY" || k == "NO_PROXY" || k == "ALL_PROXY" || k == "REQUEST_METHOD" {
+			continue
+		}
+		cmd.Env = append(cmd.Env, kv)
+	}
+	cmd.Env = append(cmd.Env, agProbeChildEnv+"="+target)
+	cmd.Env = append(cmd.Env, env...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func TestAGPatchProviderProbeProxy(t *testing.T) {
+	const unresolvable = "http://ag-probe-test.invalid/"
+
+	t.Run("AG patch: provider probe skips local DNS when a proxy applies and counts the proxy's answer as reachable", func(t *testing.T) {
+		var hits atomic.Int64
+		var gotMethod, gotHost atomic.Value
+		proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits.Add(1)
+			gotMethod.Store(r.Method)
+			gotHost.Store(r.Host)
+			w.WriteHeader(http.StatusForbidden) // any status counts as reachable
+		}))
+		defer proxy.Close()
+
+		out, err := agProbeRunChild(t, unresolvable, "HTTP_PROXY="+proxy.URL)
+		if err != nil || !strings.Contains(out, "PROBE_OK") {
+			t.Fatalf("probe through the proxy failed: %v\n%s", err, out)
+		}
+		if hits.Load() != 1 {
+			t.Fatalf("proxy hits = %d, want 1", hits.Load())
+		}
+		if gotMethod.Load() != http.MethodHead || gotHost.Load() != "ag-probe-test.invalid" {
+			t.Fatalf("proxy saw %v %v, want HEAD ag-probe-test.invalid", gotMethod.Load(), gotHost.Load())
+		}
+	})
+
+	t.Run("AG patch: provider probe through a dead proxy is unreachable", func(t *testing.T) {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(b), "provider_") {
-			t.Fatalf("disabled probe leaked fields: %s", b)
+		addr := ln.Addr().String()
+		ln.Close()
+		out, err := agProbeRunChild(t, unresolvable, "HTTP_PROXY=http://"+addr)
+		if err == nil || !strings.Contains(out, "PROBE_ERROR") {
+			t.Fatalf("dead proxy counted as reachable: %v\n%s", err, out)
+		}
+		if strings.Contains(out, "dns lookup") {
+			t.Fatalf("local DNS ran although a proxy applies:\n%s", out)
+		}
+	})
+
+	t.Run("AG patch: provider probe does local DNS when NO_PROXY exempts the target", func(t *testing.T) {
+		var hits atomic.Int64
+		proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1) }))
+		defer proxy.Close()
+		out, err := agProbeRunChild(t, unresolvable, "HTTP_PROXY="+proxy.URL, "NO_PROXY=.invalid")
+		if err == nil || !strings.Contains(out, "dns lookup") {
+			t.Fatalf("want a DNS failure for an exempt target, got %v\n%s", err, out)
+		}
+		if hits.Load() != 0 {
+			t.Fatalf("proxy hit %d times for an exempt target", hits.Load())
+		}
+	})
+
+	t.Run("AG patch: provider probe without a proxy fails an unresolvable host at DNS", func(t *testing.T) {
+		out, err := agProbeRunChild(t, unresolvable)
+		if err == nil || !strings.Contains(out, "dns lookup") {
+			t.Fatalf("want a DNS failure with no proxy, got %v\n%s", err, out)
 		}
 	})
 }
