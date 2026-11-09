@@ -83,13 +83,20 @@ Newest first:
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
-`multica`. Since `v0.7.1-ag.1` a deploy is `ag-patches/deploy-selfhost.sh`
-(README, "Deploy to the self-host"); a note below says only what the script
-does not.
+`multica`. Since `v0.8.1-ag.1` the images and the Linux CLI are built on Bastion
+by home-sysadmin's `scripts/multica-ag/deploy.sh` (README, "Deploy to the
+self-host"); `v0.7.1` builds used `ag-patches/deploy-selfhost.sh` against the
+retired Mac stack. A note below says only what the script does not.
 
 Notes, newest first. Notes for builds before `v0.7.0` are in git history
 (`git log -p -- ag-patches/PATCHES.md`).
 
+- **`v0.8.1-ag.1`**: rebase onto upstream `v0.8.1`, first deploy to Bastion with
+  `deploy.sh`. Upstream's v0.8.0 app rail replaced the sidebar, so the agent
+  status row sits at the foot of the Work, Team and Autopilots panels, Overview
+  and Decisions are rail icons, and the tree view's choices are in the Display
+  panel (PATCHES.md has the per-patch detail). All fork strings gained `es`.
+  The apply drained 2 running tasks before the daemon swap (about 6 minutes).
 - **`v0.7.1-ag.13`**: urgent issues on the backup before a hold. An "Urgent issues
   on the backup now" switch in the quota card's backup block stores
   `backup_urgent_until` (the primary's weekly reset); until then the daemon claims

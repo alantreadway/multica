@@ -76,9 +76,10 @@ when you are done. `colima delete agbuild --data --force` removes it with its
 data disk; a plain `colima delete` keeps the disk, and the space with it.
 
 Run the guard tests alone with `ag-patches/test.sh`. Its Go half bind-mounts
-`server/` into a container, and the self-host's `colima` VM does not mount
-`~/git`, so locally run it as `DOCKER_CONTEXT=colima-agbuild ag-patches/test.sh`;
-otherwise it fails with `go.mod file not found`. CI runs the same script on
+`server/` into a container, and the default `colima` VM does not mount `~/git`
+(it fails with `go.mod file not found`). `lib.sh` therefore sets
+`DOCKER_CONTEXT=colima-agbuild` for every script that sources it whenever that
+context exists and `DOCKER_CONTEXT` is unset; start the VM first. CI runs the same script on
 PRs into `ag/**` (`.github/workflows/ag-patches.yml`), after fetching the base
 tag from upstream, since the fork carries no `v*` tags.
 
@@ -156,9 +157,9 @@ Since 2026-11 the self-host runs on Bastion: the server in home-sysadmin's
 "Upgrade"):
 
 ```sh
-~/git/home-sysadmin/scripts/multica-ag/deploy.sh v0.7.1-ag.14 ag/v0.7.1   # build on Bastion, pin, commit
+~/git/home-sysadmin/scripts/multica-ag/deploy.sh vX-ag.N ag/vX   # build on Bastion, pin, commit
 # /bastion-push from ~/git/home-sysadmin
-~/git/home-sysadmin/scripts/multica-ag/deploy.sh --apply v0.7.1-ag.14     # dump, server, daemon CLI swap
+~/git/home-sysadmin/scripts/multica-ag/deploy.sh --apply vX-ag.N  # dump, server, daemon CLI swap
 ```
 
 It builds both images and the linux/amd64 CLI on Bastion from the given
@@ -167,11 +168,17 @@ revision, so the `agbuild` VM is not needed for a deploy. The Mac CLI
 exists (`ag-patches/build-cli.sh`). `ag-patches/deploy-selfhost.sh` deployed to
 the retired Colima stack and now only points here.
 
-`ag-patches/selfhost-check.sh` is read-only; run it whenever something looks
-off. It shows the running images, the latest migrations, the health endpoints,
-recent GitHub poll failures and whether the backend reaches `api.github.com`,
-the daemon, and whether either launchd label is stuck respawning. It exits 1 on
-any FAIL.
+`deploy.sh` builds with upstream's `Dockerfile.web` as is; Bastion has the
+memory, so it does not need `build-web.sh`'s heap setting (see "Build").
+Claude Code's auto mode treats both `deploy.sh` steps as a production deploy
+and blocks them unless allowed, so an agent asks you to run them.
+
+`ag-patches/selfhost-check.sh` is read-only; run it after every deploy and
+whenever something looks off. Over ssh to Bastion (settings from home-sysadmin's
+`scripts/multica-ag/lib.sh`) it shows the containers against the compose pin,
+the latest migrations, the health endpoints and backend commit, backend
+`ERR` lines, GitHub polling, the daemon and its restart-loop hold, and the Mac
+CLI version. It exits 1 on any FAIL.
 
 ## Switch the self-host to the patched frontend
 
@@ -677,13 +684,13 @@ each patch's commit in turn.
 
 ## Rebase onto a new upstream tag
 
-For a new upstream tag `vX`, from the current patch branch `ag/v0.7.1`:
+For a new upstream tag `vX`, from the current patch branch `ag/v0.8.1`:
 
 0. Start from what is pushed. `git fetch origin`, then compare
-   `git rev-list --left-right --count ag/v0.7.1...origin/ag/v0.7.1` (local-only,
+   `git rev-list --left-right --count ag/v0.8.1...origin/ag/v0.8.1` (local-only,
    then origin-only). Fast-forward to origin
-   (`git switch ag/v0.7.1 && git merge --ff-only origin/ag/v0.7.1`), and list
-   what only the local branch has: `git log --oneline origin/ag/v0.7.1..ag/v0.7.1`.
+   (`git switch ag/v0.8.1 && git merge --ff-only origin/ag/v0.8.1`), and list
+   what only the local branch has: `git log --oneline origin/ag/v0.8.1..ag/v0.8.1`.
    Each such commit ships only through a PR first; don't carry it into the
    rebase unasked.
 1. Fetch upstream tags: `git fetch upstream --tags`.
@@ -700,13 +707,24 @@ For a new upstream tag `vX`, from the current patch branch `ag/v0.7.1`:
    it, drop the patch's commit in step 5 and delete its `PATCHES.md` entry.
    Otherwise refresh its **Upstream** line. Log the check under "Upstream
    checks" in `BUILDS.md`.
-4. Create the new branch: `git switch -c ag/vX ag/v0.7.1`.
+   Also run `git cherry -v vX ag/v0.8.1`: a `-` line is a commit whose change
+   is already in `vX` (an upstream fix the fork carried early). Drop it in
+   step 5 too.
+4. Squash outstanding fixups in place first, on the old base:
+   `git rebase -i --autosquash v0.8.1`, then check `git diff ORIG_HEAD HEAD` is
+   empty. Autosquash can move a fixup ahead of a later patch it depends on;
+   resolving that against the old base is easy, against `vX` it is not. Then
+   create the new branch: `git switch -c ag/vX ag/v0.8.1`.
 5. Replay the patches, squashing any outstanding fixups on the way:
-   `git rebase -i --autosquash --onto vX v0.7.1`. Delete the line of any patch
-   dropped in step 3. The rebase replays about 25 commits, one per patch, so a
+   `git rebase -i --onto vX v0.8.1`. Delete (or mark `drop`) the line of any
+   patch dropped in step 3; match on the subject, since the todo's hash
+   abbreviation can differ from `git log --oneline`'s. Gauge the port first
+   with `git diff --stat v0.8.1 vX -- packages/views`: when upstream
+   restructured a surface a patch hooks into (v0.8.0 replaced the sidebar with
+   an app rail), the patch is ported, not merged. The rebase replays about 25 commits, one per patch, so a
    conflict stops on the patch that caused it. Recorded resolutions replay
    through rerere; check each one before you `git add` it. Afterwards the tree
-   must equal `git merge-tree --write-tree ag/v0.7.1 vX` plus your conflict
+   must equal `git merge-tree --write-tree ag/v0.8.1 vX` plus your conflict
    fixes and any dropped patches; diff the two to check.
 6. Resolve conflicts. The web patches concentrate in `swimlane-view.tsx`, and the
    daemon patch hooks into `daemon.go`, `health.go`, `auto_update.go` and
@@ -733,12 +751,20 @@ For a new upstream tag `vX`, from the current patch branch `ag/v0.7.1`:
    When it finds failures of named tests it prints them as lines to paste.
    Run a suspected flake a few more times and note how often it fails.
 8. Run `ag-patches/test.sh`, then `ag-patches/test-go-full.sh`, since the guard
-   skips the DB-backed tests. Only the known upstream failures may fail.
-9. Build: `ag-patches/build-web.sh --rev 1`, `ag-patches/build-cli.sh --rev 1` and
-   `ag-patches/build-backend.sh --rev 1`.
-10. Deploy: `ag-patches/deploy-selfhost.sh vX-ag.1 --dry-run`, then without
-   `--dry-run` (see "Deploy to the self-host"). It upgrades the self-host to
-   `vX`: backend first, then web, then the daemon's CLI.
+   skips the DB-backed tests. Only the known upstream failures may fail. If
+   many DB-backed tests fail at once, check `agbuild`'s disk first
+   (`docker --context colima-agbuild system df`); `docker volume prune` and
+   `docker builder prune` clear leftovers without touching the named Go caches
+   in use.
+9. Build the Mac CLI: `ag-patches/build-cli.sh --rev 1 --skip-tests` (the guard
+   ran in step 8). The deploy builds both images and the Linux CLI on Bastion,
+   so `build-web.sh` and `build-backend.sh` are only needed to try an image
+   locally.
+10. Deploy (see "Deploy to the self-host"): `deploy.sh vX-ag.1 ag/vX`,
+   `/bastion-push` from `~/git/home-sysadmin`, `deploy.sh --apply vX-ag.1`,
+   then `ag-patches/selfhost-check.sh`. `--apply` dumps the database,
+   recreates the server, then waits for the daemon's running tasks before it
+   swaps the CLI.
 11. Update `PATCHES.md` (files per patch, upstream status) and `BUILDS.md`
    (base tag and commit, the build's row and a note).
 12. Tag the built commit and push the branch and the tag:

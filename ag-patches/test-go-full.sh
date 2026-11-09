@@ -59,7 +59,9 @@ redis="$id-redis"
 runner="$id-go"
 
 cleanup() {
-  docker rm -f "$runner" "$pg" "$redis" >/dev/null 2>&1 || true
+  # -v: the postgres and redis images declare volumes, and each run would
+  # otherwise leave two anonymous ones behind (they filled agbuild's disk).
+  docker rm -fv "$runner" "$pg" "$redis" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT

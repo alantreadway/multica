@@ -1,5 +1,13 @@
 # Shared by build-web.sh, build-backend.sh, build-cli.sh and test.sh. Source it; do not run it.
 
+# Docker work goes to the agbuild Colima VM when it exists: the default `colima`
+# VM does not mount ~/git (bind mounts fail with "go.mod file not found") and is
+# too small for the web build. An explicit DOCKER_CONTEXT wins; CI has neither.
+if [ -z "${DOCKER_CONTEXT:-}" ] && command -v docker >/dev/null 2>&1 \
+  && docker context inspect colima-agbuild >/dev/null 2>&1; then
+  export DOCKER_CONTEXT=colima-agbuild
+fi
+
 # ag_prepare <script-name> <artifact> [args...]
 # Parses --rev and --skip-tests into $rev and $skip_tests, moves to the repo
 # root, checks the tree is clean and on a patch branch ag/<tag>, and sets $tag
