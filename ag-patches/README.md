@@ -554,11 +554,19 @@ the default profile and the same Multica login and workspace as Bastion
   instead of failing over.
 - **Checkouts.** Agents cut worktrees from a `local_directory` checkout's local
   HEAD, so the laptop needs dedicated checkouts that nobody edits by hand, not
-  `~/git`: clone each repo under `~/multica-git/`, register each as a
-  `local_directory` resource for the laptop's daemon id, and keep them
+  `~/git`: clone each repo under `~/multica-git/` from its `~/git` copy
+  (`git clone ~/git/<repo> …` hardlinks the object store, so only the working
+  tree costs disk; then `remote set-url origin` back to GitHub), register each as a
+  `local_directory` resource for the laptop's daemon id
+  (`multica-ag project resource add <project> --type local_directory --daemon-id
+  <id> --local-path ~/multica-git/<repo> --execution-mode worktree`), and keep them
   fast-forwarded with `ag-ff-checkouts` pointed at them
   (`AG_FF_CONFIG=<repos.conf listing ~/multica-git/...>`). A project with no
   laptop entry runs on the laptop without a local checkout.
+- **Order.** The server accepts a `worktree` resource only for a daemon that has
+  registered, so start the laptop daemon once by hand *without*
+  `MULTICA_AG_POOL` (no agent is bound to it, so it claims nothing), add the
+  resources, stop it, then load the plist.
 - **Agent caps.** An agent's own `max_concurrent_tasks` caps it across both
   machines; set it to 5 for an agent that should use every slot.
 
