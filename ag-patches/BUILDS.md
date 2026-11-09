@@ -79,6 +79,7 @@ Newest first:
 | `ag/v0.7.1-ag.11` | `fe9b98e6e70aaa065216b88a95bd451d87a19c69` | `multica-web-ag:v0.7.1-ag.10` (unchanged, retagged `ag.11`) | `multica-backend-ag:v0.7.1-ag.10` (unchanged, retagged `ag.11`) | `dist/multica-v0.7.1-ag.11-darwin-arm64` | 2026-11-06 |
 | `ag/v0.7.1-ag.12` | `dfb1ca24591e55a21d322a58abab57214986bce8` | `multica-web-ag:v0.7.1-ag.12` | `multica-backend-ag:v0.7.1-ag.12` | `dist/multica-v0.7.1-ag.12-darwin-arm64` | 2026-11-06 |
 | `ag/v0.7.1-ag.13` | `69c86a82fcc28349594c1d82188b5cf31227db4b` | `multica-web-ag:v0.7.1-ag.13` | `multica-backend-ag:v0.7.1-ag.13` | `dist/multica-v0.7.1-ag.13-darwin-arm64` | 2026-11-06 |
+| `ag/v0.8.1-ag.1` | `e1d5132a17f5caf8fdaa8cd2fc58917cebcaecef` | `multica-web-ag:v0.8.1-ag.1` | `multica-backend-ag:v0.8.1-ag.1` | `dist/multica-v0.8.1-ag.1-darwin-arm64` | 2026-11-09 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
