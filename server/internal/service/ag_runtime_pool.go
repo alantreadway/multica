@@ -9,7 +9,8 @@ package service
 //
 // Without a pool every helper here is a no-op and the claim path is upstream's:
 // ListAGPooledRuntimeIDs returns nothing, the context carries no set, and
-// ClaimAgentTask gets NULL pool arrays.
+// ClaimAgentTask gets NULL pool arrays. An agent pinned to its runtime
+// (agpool.Pinned) gets the same treatment while its runtime stays pooled.
 
 import (
 	"context"
@@ -115,10 +116,12 @@ func (s *TaskService) agPoolAppendCandidates(ctx context.Context, runtimeIDs []p
 	return out
 }
 
-// agPoolClaimAllowed reports whether claimer may claim for an agent bound to
-// home: claimer is pooled in this poll and a peer of home.
-func (s *TaskService) agPoolClaimAllowed(ctx context.Context, qtx *db.Queries, home, claimer pgtype.UUID) bool {
-	if !agpool.From(ctx).Has(claimer) || !home.Valid {
+// agPoolClaimAllowed reports whether claimer may claim for agent, which is
+// bound to another runtime (its home): the agent is not pinned to its runtime,
+// claimer is pooled in this poll and claimer is a peer of home.
+func (s *TaskService) agPoolClaimAllowed(ctx context.Context, qtx *db.Queries, agent db.Agent, claimer pgtype.UUID) bool {
+	home := agent.RuntimeID
+	if !agpool.From(ctx).Has(claimer) || !home.Valid || agpool.Pinned(agent.RuntimeConfig) {
 		return false
 	}
 	ok, err := qtx.AGRuntimesArePoolPeers(ctx, db.AGRuntimesArePoolPeersParams{RuntimeID: home, OtherID: claimer})

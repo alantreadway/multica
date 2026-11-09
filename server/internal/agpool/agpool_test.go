@@ -56,3 +56,37 @@ func TestAGPatchRuntimePoolContextSet(t *testing.T) {
 		t.Fatal("AG patch: set membership wrong")
 	}
 }
+
+func TestAGPatchRuntimePoolPinned(t *testing.T) {
+	for in, want := range map[string]bool{
+		`{"ag_pool_pinned": true}`:                       true,
+		`{"model_override": "x", "ag_pool_pinned":true}`: true,
+		`{"ag_pool_pinned": false}`:                      false,
+		`{"ag_pool_pinned": "true"}`:                     false,
+		`{"ag_pool_pinned": 1}`:                          false,
+		`{}`:                                             false,
+		`null`:                                           false,
+		``:                                               false,
+		`[true]`:                                         false,
+		`not json`:                                       false,
+	} {
+		if got := Pinned([]byte(in)); got != want {
+			t.Errorf("AG patch: Pinned(%s) = %v, want %v", in, got, want)
+		}
+	}
+}
+
+func TestAGPatchRuntimePoolSetPinned(t *testing.T) {
+	got := SetPinned(nil, true)
+	if got[PinnedKey] != true || len(got) != 1 {
+		t.Fatalf("AG patch: SetPinned(nil, true) = %v", got)
+	}
+	got = SetPinned(map[string]any{"model_override": "x", PinnedKey: true}, false)
+	if _, ok := got[PinnedKey]; ok || got["model_override"] != "x" {
+		t.Fatalf("AG patch: SetPinned(..., false) = %v", got)
+	}
+	out, _ := json.Marshal(SetPinned(map[string]any{"model_override": "x"}, true))
+	if !Pinned(out) {
+		t.Fatalf("AG patch: SetPinned output %s is not Pinned", out)
+	}
+}

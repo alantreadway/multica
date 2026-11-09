@@ -42,6 +42,7 @@ const listAGPoolClaimCandidates = `-- name: ListAGPoolClaimCandidates :many
 SELECT atq.id, atq.agent_id, atq.issue_id, atq.status, atq.priority, atq.dispatched_at, atq.started_at, atq.completed_at, atq.result, atq.error, atq.created_at, atq.context, atq.runtime_id, atq.session_id, atq.work_dir, atq.trigger_comment_id, atq.chat_session_id, atq.autopilot_run_id, atq.attempt, atq.max_attempts, atq.parent_task_id, atq.failure_reason, atq.trigger_summary, atq.force_fresh_session, atq.is_leader_task, atq.wait_reason, atq.initiator_user_id, atq.handoff_note, atq.prepare_lease_expires_at, atq.squad_id, atq.runtime_mcp_overlay, atq.escalation_for_task_id, atq.fire_at, atq.originator_user_id, atq.runtime_connected_apps, atq.coalesced_comment_ids, atq.delivered_comment_ids, atq.chat_input_task_id, atq.chat_finalize_deferred_at, atq.originator_source, atq.delegated_from_task_id, atq.retry_of_task_id, atq.rerun_of_task_id, atq.rule_version_id, atq.trigger_evidence_kind, atq.trigger_evidence_ref_id, atq.accountable_user_id, atq.session_rollout_missing, atq.retired_session_id, atq.quick_actions_disabled, atq.regenerate_quick_actions_for, atq.branch_name, atq.durable_work_dir, atq.channel_context_revision, atq.comment_thread_id, atq.cancelled_by_type, atq.cancelled_by_id, atq.cancelled_by_name, atq.issue_snapshot, atq.workflow_step, ag_c.id AS claimer_runtime_id
 FROM agent_task_queue atq
 JOIN agent a ON a.id = atq.agent_id AND a.runtime_id = atq.runtime_id
+ AND NOT COALESCE(a.runtime_config->'ag_pool_pinned' = 'true'::jsonb, false)
 JOIN agent_runtime ag_h ON ag_h.id = atq.runtime_id
 JOIN agent_runtime ag_c
   ON ag_c.id = ANY($1::uuid[])
@@ -73,6 +74,7 @@ type ListAGPoolClaimCandidatesRow struct {
 // claim loop uses it in place of the task's runtime_id. Mirrors the wakeup and
 // urgent-filter predicates of ListQueuedClaimCandidatesByRuntimes (the filter
 // keyed by the claimer); ClaimAgentTask re-checks everything, affinity included.
+// A pinned agent's tasks are not offered.
 func (q *Queries) ListAGPoolClaimCandidates(ctx context.Context, arg ListAGPoolClaimCandidatesParams) ([]ListAGPoolClaimCandidatesRow, error) {
 	rows, err := q.db.Query(ctx, listAGPoolClaimCandidates, arg.RuntimeIds, arg.AgClaimFilter)
 	if err != nil {
@@ -197,6 +199,8 @@ SELECT atq.id,
        )::boolean AS held
 FROM agent_task_queue atq
 JOIN agent_runtime ag_c ON ag_c.id = $4::uuid
+JOIN agent a ON a.id = atq.agent_id
+ AND NOT COALESCE(a.runtime_config->'ag_pool_pinned' = 'true'::jsonb, false)
 WHERE atq.agent_id = $5::uuid
   AND atq.status = 'queued'
   AND (
@@ -235,7 +239,8 @@ type ListAGPoolClaimTasksRow struct {
 // agent's last finished run on that issue ran on a different peer that
 // finished within @affinity_window_secs, is online, is not draining and is
 // below its runtime cap (when it has one). Runs in the claim transaction,
-// under the agent row lock.
+// under the agent row lock. No rows for a pinned agent: nothing via the pool
+// and nothing held, so its home claims as upstream.
 func (q *Queries) ListAGPoolClaimTasks(ctx context.Context, arg ListAGPoolClaimTasksParams) ([]ListAGPoolClaimTasksRow, error) {
 	rows, err := q.db.Query(ctx, listAGPoolClaimTasks,
 		arg.AffinityTaskAgeSecs,
@@ -315,6 +320,11 @@ WHERE id = ANY($1::uuid[])
 //
 // The peer predicate is repeated in each query (and in the two stale-dispatch
 // reclaims in agent.sql); keep the copies identical.
+//
+// An agent whose runtime_config has "ag_pool_pinned": true (agpool.PinnedKey)
+// is out of the pool: ListAGPoolClaimCandidates and ListAGPoolClaimTasks skip
+// it, so only its own runtime claims its tasks, as upstream. Its runtime stays
+// pooled for other agents.
 // =====================
 // The runtimes of a claim poll that are in a pool. Empty for a daemon without
 // one, and the claim path then skips every other pool query.
@@ -369,6 +379,7 @@ RETURNING t.id, t.agent_id, t.issue_id, t.status, t.priority, t.dispatched_at, t
 // claim) lands on the claimer. There it is claimable by nobody (the claim
 // fences on the agent's runtime) and a deferred row would only promote once the
 // claimer is back online. Scoped to the pools of the polling runtimes.
+// Pinned agents are included: home is the only runtime that may claim them.
 func (q *Queries) RehomeAGPoolPendingTasks(ctx context.Context, runtimeIds []pgtype.UUID) ([]AgentTaskQueue, error) {
 	rows, err := q.db.Query(ctx, rehomeAGPoolPendingTasks, runtimeIds)
 	if err != nil {

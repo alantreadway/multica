@@ -2349,6 +2349,22 @@ and alternatives: `ag-patches/POOLED-DAEMONS-INVESTIGATION.md`, option (b).
   so a peer starts a fresh session (fails safe). `PriorWorkDir` from the other
   machine is passed through; the daemon reuses it only if it exists locally
   with this agent's and issue's markers, so a foreign path is ignored.
+- **Pinned agents:** an agent whose `runtime_config` has `"ag_pool_pinned": true`
+  (JSON `true` only) is out of the pool, for agents that must run on one machine
+  (a macOS sysadmin on the laptop, a Linux one on the server). Only its own
+  runtime claims its tasks, as upstream; the runtime stays pooled for every other
+  agent. `ListAGPoolClaimCandidates` skips its tasks, `ListAGPoolClaimTasks`
+  returns no rows for it (nothing via the pool, nothing held for a peer, so its
+  home claims at once), and `agPoolClaimAllowed` refuses it, so `claimTask`
+  reports `runtime_mismatch` for a peer's stale candidate. Re-homing still moves
+  its stray pending rows home. A run a peer already claimed before the pin
+  finishes there (delivery rechecks and stale-dispatch reclaims are unchanged).
+  Set it with `multica agent update <agent> --ag-pool-pinned` (`=false`
+  unpins); the flag merges the key into the agent's current `runtime_config`,
+  which the server otherwise replaces wholesale. Stored in `runtime_config`
+  rather than a column: no migration, no change to the generated `Agent` row
+  type or upstream's agent queries, and the API round-trips the key untouched
+  (the web UI only edits `runtime_config` for OpenClaw agents).
 - **Without a pool** the behaviour is upstream's: `ListAGPooledRuntimeIDs`
   returns nothing, the pool arrays are NULL and every hook short-circuits. The
   only extra cost is one peer lookup by primary key per
@@ -2360,11 +2376,15 @@ and alternatives: `ag-patches/POOLED-DAEMONS-INVESTIGATION.md`, option (b).
   same workspace, same provider and profile). A longer
   `MULTICA_RUNTIME_RECONNECT_GRACE` on the server (20 to 30 minutes) keeps a
   sleeping laptop's runtime from being torn down between lid closes.
-- Test prefix: `TestAGPatchRuntimePool` / `AG patch:`. The `agpool` and daemon
-  ones run in `ag-patches/test.sh`; the service and handler ones need Postgres
+- Test prefix: `TestAGPatchRuntimePool` / `AG patch:`. The `agpool`, CLI and
+  daemon ones run in `ag-patches/test.sh`; the service and handler ones need Postgres
   (`ag-patches/test-go-full.sh`).
 - Files:
-  - `server/internal/agpool/` (new: `agpool.go`, `agpool_test.go`)
+  - `server/internal/agpool/` (new: `agpool.go`, `agpool_test.go`; `Pinned`,
+    `SetPinned`)
+  - `server/cmd/multica/ag_agent_pool_pin.go`, `ag_agent_pool_pin_test.go` (new:
+    `--ag-pool-pinned` on `agent update`); `cmd_agent.go` (hook: one call in
+    `runAgentUpdate`)
   - `server/pkg/db/queries/ag_runtime_pool.sql`,
     `server/pkg/db/generated/ag_runtime_pool.sql.go` (new)
   - `server/pkg/db/queries/agent.sql`, `server/pkg/db/generated/agent.sql.go`

@@ -764,6 +764,9 @@ func runAgentUpdate(cmd *cobra.Command, args []string) error {
 		}
 		body["runtime_config"] = rc
 	}
+	if err := agApplyPoolPinnedFlag(cmd, client, args[0], body); err != nil { // AG patch: runtime pool
+		return err
+	}
 	if cmd.Flags().Changed("custom-args") {
 		v, _ := cmd.Flags().GetString("custom-args")
 		ca, err := parseCustomArgs(v)
