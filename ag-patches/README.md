@@ -528,6 +528,68 @@ Point the launchd plist back at `/opt/homebrew/bin/multica` and run
 so no run is cut off. Nothing on the backend or in the database changed. Keep
 the old binary in `dist/` until the new one has run for a while.
 
+## Laptop pool member
+
+A second daemon on the work laptop shares Bastion's queue through the runtime
+pool patch (`PATCHES.md`, "Runtime pool across daemons"): both declare
+`MULTICA_AG_POOL=alan`, agents stay bound to their Bastion runtimes, and either
+machine claims. The laptop runs 3 slots next to Bastion's 2; "Laptop taper"
+below empties it before the lid closes. Background:
+[`POOLED-DAEMONS-INVESTIGATION.md`](./POOLED-DAEMONS-INVESTIGATION.md).
+
+Peers must share workspace, owner, provider and profile, so the laptop uses
+the default profile and the same Multica login and workspace as Bastion
+(`~/.multica/config.json`, server `https://<bastion tailnet name>:8446`).
+
+### Before the first start
+
+- **Daemon id.** The laptop must get its own `~/.multica/daemon.id`, created
+  on first start. Bastion's id came from this Mac; never copy it back. Check
+  `~/.multica/daemon.id` does not exist, or differs from Bastion's, before
+  loading the plist.
+- **Claude login.** The laptop daemon uses this Mac's own `claude` login (the
+  same Anthropic account as Bastion's, logged in separately). Never copy a
+  login between machines. Pacing then counts both machines' use against one
+  account, which is conservative. Without `~/.claude-backup` a quota hit holds
+  instead of failing over.
+- **Checkouts.** Agents cut worktrees from a `local_directory` checkout's local
+  HEAD, so the laptop needs dedicated checkouts that nobody edits by hand, not
+  `~/git`: clone each repo under `~/multica-git/`, register each as a
+  `local_directory` resource for the laptop's daemon id, and keep them
+  fast-forwarded with `ag-ff-checkouts` pointed at them
+  (`AG_FF_CONFIG=<repos.conf listing ~/multica-git/...>`). A project with no
+  laptop entry runs on the laptop without a local checkout.
+- **Agent caps.** An agent's own `max_concurrent_tasks` caps it across both
+  machines; set it to 5 for an agent that should use every slot.
+
+### Install
+
+```sh
+install -m 0755 dist/multica-<version>-darwin-arm64 ~/.local/bin/multica-ag   # deploy.sh does this
+sed -e "s#__HOME__#$HOME#g" -e "s#__NODE_BIN__#$(dirname "$(command -v node)")#g" \
+  ag-patches/uk.blogic.multica-daemon.plist > ~/Library/LaunchAgents/uk.blogic.multica-daemon.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/uk.blogic.multica-daemon.plist
+multica-ag daemon status
+```
+
+The log is `~/Library/Logs/multica-daemon.log`. The runtime card for the laptop
+appears beside Bastion's. Then install the taper job ("Laptop taper").
+
+To swap the binary: `multica-ag daemon drain --wait`, install the new binary,
+then `launchctl kickstart -k gui/$(id -u)/uk.blogic.multica-daemon`. The
+two-label reload script above is not needed: the pool lets Bastion take
+everything while the laptop restarts.
+
+### Uninstall
+
+```sh
+multica-ag daemon drain --wait
+launchctl bootout gui/$(id -u)/uk.blogic.multica-daemon
+rm ~/Library/LaunchAgents/uk.blogic.multica-daemon.plist
+```
+
+The laptop's runtime rows stay, offline; agents never were bound to them.
+
 ## Laptop taper
 
 The laptop daemon stops claiming before Alan leaves and is idle by the time the

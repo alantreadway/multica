@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Laptop pool member daemon (see ag-patches/README.md, "Laptop pool member").
+     Template: replace __HOME__ with your home directory and __NODE_BIN__ with
+     the directory of the node that agents should use when installing. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>uk.blogic.multica-daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/.local/bin/multica-ag</string>
+    <string>daemon</string>
+    <string>start</string>
+    <string>--foreground</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__HOME__/.local/bin:__NODE_BIN__:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>MULTICA_AG_POOL</key>
+    <string>alan</string>
+    <key>MULTICA_DAEMON_MAX_CONCURRENT_TASKS</key>
+    <string>3</string>
+    <key>MULTICA_DAEMON_AUTO_UPDATE</key>
+    <string>false</string>
+    <key>MULTICA_DAEMON_AUTO_RELOAD</key>
+    <string>false</string>
+    <key>MULTICA_AG_PACE_WORK_HOURS</key>
+    <string>Mon-Fri 08:00-19:00</string>
+    <key>MULTICA_GC_ARTIFACT_TTL</key>
+    <string>1h</string>
+    <key>MULTICA_GC_INTERVAL</key>
+    <string>30m</string>
+    <key>MULTICA_GC_ARTIFACT_PATTERNS</key>
+    <string>node_modules,.next,.turbo,.nx,dist</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Restart crashes only: `daemon stop` is a clean exit and must stay down. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/multica-daemon.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/multica-daemon.log</string>
+</dict>
+</plist>
