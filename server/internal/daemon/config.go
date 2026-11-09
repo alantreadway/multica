@@ -125,6 +125,7 @@ type Config struct {
 	AGProviderProbeURL             string                // AG patch: provider probe target; empty disables the gate (see ag_provider_probe.go)
 	AGProviderProbeTTL             time.Duration         // AG patch: how long a probe result is reused
 	AGProviderProbeTimeout         time.Duration         // AG patch: bound on one probe
+	AGPool                         string                // AG patch: runtime pool name sent on register (MULTICA_AG_POOL); empty = no pool
 	GCRepoTTL                      time.Duration         // evict a cached bare repo under .repos once no task has created a worktree from it for this long, it has no worktrees left, and it is no longer attached to any watched workspace (default: 30d, set 0 to disable)
 	GCRepoMaintenanceEnabled       bool                  // run reflog expiry and git gc after stale agent refs are removed (default: true; disable independently as an operational kill switch)
 	GCCodexSessionTTL              time.Duration         // reclaim a per-issue Codex session store (~/.codex/multica-sessions/<agent>/<issue>) untouched for at least this long, so a done/abandoned issue's conversation history does not accumulate forever (default: 14d, set 0 to disable)
@@ -634,6 +635,10 @@ func LoadConfig(overrides Overrides) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	agPool, err := agPoolFromEnv(os.LookupEnv) // AG patch: runtime pool
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		ServerBaseURL:                   serverBaseURL,
@@ -683,6 +688,7 @@ func LoadConfig(overrides Overrides) (Config, error) {
 		AGProviderProbeURL:              agProbeCfg.url,     // AG patch: provider probe
 		AGProviderProbeTTL:              agProbeCfg.ttl,     // AG patch: provider probe
 		AGProviderProbeTimeout:          agProbeCfg.timeout, // AG patch: provider probe
+		AGPool:                          agPool,             // AG patch: runtime pool
 	}, nil
 }
 

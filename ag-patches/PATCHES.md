@@ -72,6 +72,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 28 | Overview dashboard (backend + web) | `fork-only` | none found | Low: built around one person's pinned JIRA epics and the Decision Desk | Very low | None. |
 | 29 | Reject `--until-status` on the issue's own done or closed status (backend) | `candidate` | none found (searched 2026-11-06) | High: a bug fix; the rule is accepted and then can never fire | Medium-high | File a Bug Report and open the PR straight away. |
 | 30 | Provider reachability probe before claim (daemon) | `fork-only` | none found (searched 2026-11-07) | Low: a guard for our retry chain on a flaky home network | Very low | None. |
+| 31 | Runtime pool across daemons (backend + daemon) | `fork-only` | none found (searched 2026-11-09) | Low: one owner's two machines sharing one queue; upstream binds an agent to one runtime | Very low | None. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -2302,6 +2303,87 @@ keep their attempts. Tasks already running are not touched.
   - Overlap: none found (searched 2026-11-07).
   - Fit: a claim guard tied to our retry chain and the Anthropic endpoint; upstream
     has no equivalent and it is not on `VISION.md`'s path.
+
+### Runtime pool across daemons (backend + daemon)
+
+Lets two daemons of one owner share the queue of the same agents, so a second
+machine (a laptop that sleeps daily) adds capacity without stranding work. Design
+and alternatives: `ag-patches/POOLED-DAEMONS-INVESTIGATION.md`, option (b).
+
+- **Pool:** a daemon started with `MULTICA_AG_POOL=<name>` sends `ag_pool` on
+  register; the server stores it in `agent_runtime.metadata.ag_pool` (no
+  migration). Runtimes are **peers** when they are different rows with the same
+  non-empty pool, workspace, owner, provider and profile. Names are
+  `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`; an invalid name fails daemon start, and the
+  server drops one from a hand-made request. Registration rewrites metadata, so a
+  daemon restarted without the variable leaves its pool.
+- **Claim-time binding:** tasks still enqueue on the agent's runtime (its home).
+  A peer may claim them; `ClaimAgentTask` then sets the task's `runtime_id` to the
+  claimer. Lease, cancel, orphan recovery, the offline sweep, the runtime cap,
+  the session-resume gate and usage all key on `runtime_id`, so they stay per
+  machine unchanged.
+- **Fences widened:** `ClaimAgentTask` takes two optional ID arrays (tasks the
+  claimer may take from a peer, tasks held by affinity) computed by
+  `ListAGPoolClaimTasks` in the claim transaction, so its own predicate stays a
+  one-line hook. The urgent-only filter and the runtime freshness/visibility
+  join are keyed by the claimer. Both stale-dispatch reclaims accept a task whose
+  runtime is a peer of its agent's runtime. `claimTask`'s `runtime_mismatch`
+  check and both delivery rechecks in `handler/daemon.go` accept a peer. Peer
+  candidates come from `ListAGPoolClaimCandidates`, appended to both candidate
+  listings (batch and per-runtime) with `runtime_id` set to the claimer.
+- **Re-homing:** every claim poll from a pooled runtime first moves `queued` and
+  `deferred` rows of its pool that sit on a peer back to their agent's runtime
+  (`RehomeAGPoolPendingTasks`). That covers anything cloned or requeued from a
+  claimed task: the `runtime_offline` retry of a run stranded on a closed laptop
+  is retried by the home machine, not held for the laptop. One sweep in the claim
+  path instead of hooks in each retry and requeue path.
+- **Affinity:** a peer skips a queued issue task younger than 3 minutes while the
+  agent's last finished run on that issue ran on another peer that finished
+  within 60 minutes (the Claude resume window), is online and fresh, is not
+  draining (`ag_drain`) and is below its runtime cap. Otherwise any peer claims it.
+- **Wakeups:** `notifyRuntimeMayHaveWork` also bumps the empty-claim key and
+  sends the wakeup to the runtime's peers. A pooled runtime's empty claim is not
+  cached (`MarkEmpty`), as work on a peer or an affinity expiry does not bump its
+  key.
+- **Across machines:** the session-resume gate compares the prior run's runtime,
+  so a peer starts a fresh session (fails safe). `PriorWorkDir` from the other
+  machine is passed through; the daemon reuses it only if it exists locally
+  with this agent's and issue's markers, so a foreign path is ignored.
+- **Without a pool** the behaviour is upstream's: `ListAGPooledRuntimeIDs`
+  returns nothing, the pool arrays are NULL and every hook short-circuits. The
+  only extra cost is one peer lookup by primary key per
+  `notifyRuntimeMayHaveWork`.
+- Not covered: taper (the per-runtime cap is the lever, set by tooling); a task
+  dispatched to a peer that later leaves the pool is recovered as before by the
+  peer's lease or offline sweep.
+- Deploy: set `MULTICA_AG_POOL` to the same name on both daemons (same owner,
+  same workspace, same provider and profile). A longer
+  `MULTICA_RUNTIME_RECONNECT_GRACE` on the server (20 to 30 minutes) keeps a
+  sleeping laptop's runtime from being torn down between lid closes.
+- Test prefix: `TestAGPatchRuntimePool` / `AG patch:`. The `agpool` and daemon
+  ones run in `ag-patches/test.sh`; the service and handler ones need Postgres
+  (`ag-patches/test-go-full.sh`).
+- Files:
+  - `server/internal/agpool/` (new: `agpool.go`, `agpool_test.go`)
+  - `server/pkg/db/queries/ag_runtime_pool.sql`,
+    `server/pkg/db/generated/ag_runtime_pool.sql.go` (new)
+  - `server/pkg/db/queries/agent.sql`, `server/pkg/db/generated/agent.sql.go`
+    (hooks: `ClaimAgentTask` binding, peer arrays and claimer-keyed joins; the
+    two stale-dispatch reclaim fences; regenerated)
+  - `server/internal/service/ag_runtime_pool.go`, `ag_runtime_pool_test.go` (new);
+    `task.go` (hooks: re-home and pooled set at the start of both claim paths,
+    peer candidates, `runtime_mismatch`, `ClaimAgentTask` arguments, `MarkEmpty`
+    guards, peer wakeups)
+  - `server/internal/handler/ag_runtime_pool.go`, `ag_runtime_pool_test.go` (new);
+    `daemon.go` (hooks: register field and metadata, two delivery rechecks)
+  - `server/internal/daemon/ag_runtime_pool.go`, `ag_runtime_pool_test.go` (new);
+    `config.go` (`AGPool` and the env read), `daemon.go` (two register hooks)
+
+- **Upstream**
+  - Status: `fork-only`.
+  - Overlap: none found (searched 2026-11-09).
+  - Fit: upstream binds an agent to one runtime; sharing a queue across one
+    owner's machines serves our two-machine setup only.
 
 ## Tooling (not a patch)
 
