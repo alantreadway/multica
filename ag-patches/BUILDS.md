@@ -80,6 +80,7 @@ Newest first:
 | `ag/v0.7.1-ag.12` | `dfb1ca24591e55a21d322a58abab57214986bce8` | `multica-web-ag:v0.7.1-ag.12` | `multica-backend-ag:v0.7.1-ag.12` | `dist/multica-v0.7.1-ag.12-darwin-arm64` | 2026-11-06 |
 | `ag/v0.7.1-ag.13` | `69c86a82fcc28349594c1d82188b5cf31227db4b` | `multica-web-ag:v0.7.1-ag.13` | `multica-backend-ag:v0.7.1-ag.13` | `dist/multica-v0.7.1-ag.13-darwin-arm64` | 2026-11-06 |
 | `ag/v0.8.1-ag.1` | `e1d5132a17f5caf8fdaa8cd2fc58917cebcaecef` | `multica-web-ag:v0.8.1-ag.1` | `multica-backend-ag:v0.8.1-ag.1` | `dist/multica-v0.8.1-ag.1-darwin-arm64` | 2026-11-09 |
+| `ag/v0.8.1-ag.2` | `ee415d2b51a61537c4bd1e1b1d9a5ccc2ea6cd1a` | `multica-web-ag:v0.8.1-ag.2` | `multica-backend-ag:v0.8.1-ag.2` | `dist/multica-v0.8.1-ag.2-darwin-arm64` | 2026-11-09 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
@@ -91,6 +92,11 @@ retired Mac stack. A note below says only what the script does not.
 Notes, newest first. Notes for builds before `v0.7.0` are in git history
 (`git log -p -- ag-patches/PATCHES.md`).
 
+- **`v0.8.1-ag.2`**: runtime pool across daemons (#45) and the laptop taper
+  tooling (#44). Bastion's daemon now sets `MULTICA_AG_POOL=alan` (recreated with
+  `daemon-reload.sh --recreate` after the apply, since a CLI swap keeps the old
+  env) and the server `MULTICA_RUNTIME_RECONNECT_GRACE=30m`. No laptop daemon yet,
+  so claiming is unchanged until it joins.
 - **`v0.8.1-ag.1`**: rebase onto upstream `v0.8.1`, first deploy to Bastion with
   `deploy.sh`. Upstream's v0.8.0 app rail replaced the sidebar, so the agent
   status row sits at the foot of the Work, Team and Autopilots panels, Overview
