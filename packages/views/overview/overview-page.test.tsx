@@ -140,10 +140,14 @@ describe("OverviewPage", () => {
     const waiting = screen.getByRole("region", { name: "Waiting on you" });
     expect(within(waiting).getByText("Merge the theme")).toBeTruthy();
     expect(within(waiting).getByRole("link", { name: "Open Decisions" }).getAttribute("href")).toBe("/acme/decisions");
+    expect(within(waiting).getByRole("img", { name: "3 open Desk cards, by who holds them" })).toBeTruthy();
+    expect(within(waiting).getByText("You 1")).toBeTruthy();
     expect(within(waiting).getByText("Author 2")).toBeTruthy();
 
     const ageing = screen.getByRole("region", { name: "Ageing" });
     expect(within(ageing).getByText("In review 2d, usually under 20h")).toBeTruthy();
+    await userEvent.click(within(ageing).getByRole("button", { name: "MAG-7 · In review 2d, usually under 20h" }));
+    expect(mockOpen).toHaveBeenCalledWith("i7");
   });
 
   it("splits a tree into known scope and the facts that say more is coming", async () => {
@@ -189,12 +193,56 @@ describe("OverviewPage", () => {
   it("lists open units most stuck first and opens the issue peek", async () => {
     renderPage(overview({ trees: [tree()] }));
 
-    const rows = await screen.findAllByRole("row");
+    const [, ...rows] = within(await screen.findByRole("table", { name: "Stages" })).getAllByRole("row");
     expect(rows.map((row) => within(row).getAllByRole("button")[0]?.textContent)).toEqual(["MAG-12", "MAG-11"]);
     expect(within(rows[0]!).getByLabelText("Past its usual time")).toBeTruthy();
 
     await userEvent.click(within(rows[1]!).getByRole("button", { name: "MAG-11" }));
     expect(mockOpen).toHaveBeenCalledWith("i11");
+  });
+
+  it("places each open unit in its current stage column, with owners in a legend", async () => {
+    renderPage(
+      overview({
+        now: { ...EMPTY_AG_OVERVIEW.now, running: [{ id: "t1", status: "running", agentId: "a1", agentName: "Builder", issue: ref(11), reviewRound: null, since: ago(1), tree: null }] },
+        trees: [
+          tree({
+            waves: [
+              {
+                root: ref(10, "Wave two"),
+                done: false,
+                issueCount: 3,
+                startedAt: ago(24 * 5),
+                finishedAt: null,
+                units: [
+                  unit(11, { flow: ["bench", "review"], reviewRound: 3, waitingOn: "agent", pr: { number: 901, state: "open", checks: "FAILURE", review: null } }),
+                  unit(12, { status: "in_review", flow: ["review"], waitingOn: "alan" }),
+                ],
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const board = await screen.findByRole("table", { name: "Stages" });
+    expect(within(board).getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
+      "",
+      "build1",
+      "bench",
+      "review1",
+      "merge",
+      "PR",
+    ]);
+    const [, first, second] = within(board).getAllByRole("row");
+    const cells = (row: HTMLElement) => within(row).getAllByRole("cell").map((cell) => cell.textContent);
+    expect(cells(first!)).toEqual(["MAG-12", "Issue 12", "Done", "", "2hYou", "", ""]);
+    expect(cells(second!)).toEqual(["MAG-11", "Issue 11", "r32hAgent", "", "", "", "#901"]);
+    expect(within(second!).getByLabelText("CI failed")).toBeTruthy();
+
+    const article = screen.getByRole("article", { name: "AG-9003" });
+    expect(within(article).getByText("You 1")).toBeTruthy();
+    expect(within(article).getByText("Agent 1")).toBeTruthy();
   });
 
   it("pins a trimmed reference and unpins by id", async () => {

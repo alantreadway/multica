@@ -2189,8 +2189,8 @@ The design and later phases are in
 An `Overview` page with its own app-rail space directly above Inbox: what runs now, what is queued, what
 waits on you (open Decision Desk cards, linking to the Decisions page), units
 past their state's usual time, and one panel per pinned work tree. Each tree is
-split into known scope (units done of known, a stage strip per open unit, and a
-p50-p85 range for the known units only) and unknown scope (issues not yet
+split into known scope (units done of known, a stage board with one row per
+open unit and one column per stage, and a p50-p85 range for the known units only) and unknown scope (issues not yet
 broken into units, units added in the last 3 days, and how much past waves grew
 after day one), with "Scope still open" or "Scope looks complete". The page
 never acts on anything. The design and the options it was chosen from are in
@@ -2222,6 +2222,8 @@ never acts on anything. The design and the options it was chosen from are in
   one-line hooks in the app rail (`app-rail.tsx`, `spaces.ts`), paths, route
   icons (`LayoutDashboard`: a rail icon needs a body), tab subjects,
   diagnostics buckets and the palette's page keywords (`search/use-root-model.ts`).
+  Who holds a unit or card (you, agent, colleague, nobody) is drawn in colour
+  from three `--owner-*` tokens added to `packages/ui/styles/tokens.css`.
 - **Upstream**
   - Status: `fork-only`.
   - Fit: built around one person's pinned epics and the Decision Desk.
