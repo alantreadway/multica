@@ -385,3 +385,109 @@ func TestAGPatchRuntimePoolWakesPeers(t *testing.T) {
 		})
 	}
 }
+
+// pin sets the agent's runtime_config; `{"ag_pool_pinned": true}` pins it to
+// its runtime.
+func (f *agPoolFixture) pin(t *testing.T, runtimeConfig string) {
+	t.Helper()
+	f.rows.Exec(t, `UPDATE agent SET runtime_config = $2::jsonb WHERE id = $1`, f.agent, runtimeConfig)
+}
+
+func TestAGPatchRuntimePoolPinnedAgent(t *testing.T) {
+	name := agPoolName(t)
+	cases := []struct {
+		label         string
+		runtimeConfig string
+		pinned        bool
+	}{
+		{"pinned", `{"ag_pool_pinned": true, "model_override": "m"}`, true},
+		{"pinned false", `{"ag_pool_pinned": false}`, false},
+		{"pinned as a string is not pinned", `{"ag_pool_pinned": "true"}`, false},
+		{"other keys only", `{"model_override": "m"}`, false},
+	}
+	for _, c := range cases {
+		t.Run("AG patch: "+c.label, func(t *testing.T) {
+			f := newAGPoolFixture(t, agPoolRuntime{pool: name}, agPoolRuntime{pool: name})
+			f.pin(t, c.runtimeConfig)
+			task := f.queue(t, f.home, f.issue(t))
+
+			got := f.claim(t, f.laptop)
+			if !c.pinned {
+				if len(got) != 1 || util.UUIDToString(got[0].ID) != task || util.UUIDToString(got[0].RuntimeID) != f.laptop {
+					t.Fatalf("laptop claimed %v, want %s on the laptop", agPoolIDs(got), task)
+				}
+				return
+			}
+			if len(got) != 0 {
+				t.Fatalf("laptop claimed %v, want nothing for a pinned agent", agPoolIDs(got))
+			}
+			if single, err := f.svc.ClaimTaskForRuntime(f.ctx, util.MustParseUUID(f.laptop)); err != nil || single != nil {
+				t.Fatalf("laptop single claim = %+v, %v; want nothing", single, err)
+			}
+			if status, rt := f.task(t, task); status != "queued" || rt != f.home {
+				t.Fatalf("task is %s on %s, want queued on home %s", status, rt, f.home)
+			}
+			got = f.claim(t, f.home)
+			if len(got) != 1 || util.UUIDToString(got[0].ID) != task || util.UUIDToString(got[0].RuntimeID) != f.home {
+				t.Fatalf("home claimed %v, want %s on home", agPoolIDs(got), task)
+			}
+		})
+	}
+}
+
+func TestAGPatchRuntimePoolPinnedAgentClaimFence(t *testing.T) {
+	name := agPoolName(t)
+	for label, pinned := range map[string]bool{"pinned": true, "unpinned": false} {
+		t.Run("AG patch: "+label, func(t *testing.T) {
+			f := newAGPoolFixture(t, agPoolRuntime{pool: name}, agPoolRuntime{pool: name})
+			if pinned {
+				f.pin(t, `{"ag_pool_pinned": true}`)
+			}
+			laptop := util.MustParseUUID(f.laptop)
+			ctx := f.svc.agPoolPrepare(f.ctx, []pgtype.UUID{laptop})
+			agent, err := f.svc.Queries.GetAgent(ctx, util.MustParseUUID(f.agent))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// claimTask's runtime_mismatch check for a candidate listed before
+			// the agent was pinned.
+			if got := f.svc.agPoolClaimAllowed(ctx, f.svc.Queries, agent, laptop); got == pinned {
+				t.Fatalf("agPoolClaimAllowed = %v for a %s agent", got, label)
+			}
+		})
+	}
+}
+
+func TestAGPatchRuntimePoolPinnedAgentNotHeldForPeer(t *testing.T) {
+	name := agPoolName(t)
+	f := newAGPoolFixture(t, agPoolRuntime{pool: name}, agPoolRuntime{pool: name, over: testutil.Cols{"max_concurrent_tasks": 3}})
+	f.pin(t, `{"ag_pool_pinned": true}`)
+	issue := f.issue(t)
+	// Before the pin the laptop ran this issue: affinity would hold the task.
+	f.finished(t, f.laptop, issue, 10*time.Minute)
+	task := f.queue(t, f.home, issue)
+
+	got := f.claim(t, f.home)
+	if len(got) != 1 || util.UUIDToString(got[0].ID) != task || util.UUIDToString(got[0].RuntimeID) != f.home {
+		t.Fatalf("home claimed %v, want %s at once", agPoolIDs(got), task)
+	}
+}
+
+func TestAGPatchRuntimePoolPinnedAgentStrayTaskReturnsHome(t *testing.T) {
+	name := agPoolName(t)
+	f := newAGPoolFixture(t, agPoolRuntime{pool: name}, agPoolRuntime{pool: name})
+	f.pin(t, `{"ag_pool_pinned": true}`)
+	// A retry of a run the laptop claimed before the pin.
+	task := f.queue(t, f.laptop, f.issue(t))
+
+	if got := f.claim(t, f.laptop); len(got) != 0 {
+		t.Fatalf("laptop claimed %v, want nothing for a pinned agent", agPoolIDs(got))
+	}
+	if status, rt := f.task(t, task); status != "queued" || rt != f.home {
+		t.Fatalf("task is %s on %s, want queued on home %s", status, rt, f.home)
+	}
+	got := f.claim(t, f.home)
+	if len(got) != 1 || util.UUIDToString(got[0].ID) != task || util.UUIDToString(got[0].RuntimeID) != f.home {
+		t.Fatalf("home claimed %v, want %s on home", agPoolIDs(got), task)
+	}
+}

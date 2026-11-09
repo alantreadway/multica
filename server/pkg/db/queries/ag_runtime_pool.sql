@@ -10,6 +10,11 @@
 --
 -- The peer predicate is repeated in each query (and in the two stale-dispatch
 -- reclaims in agent.sql); keep the copies identical.
+--
+-- An agent whose runtime_config has "ag_pool_pinned": true (agpool.PinnedKey)
+-- is out of the pool: ListAGPoolClaimCandidates and ListAGPoolClaimTasks skip
+-- it, so only its own runtime claims its tasks, as upstream. Its runtime stays
+-- pooled for other agents.
 -- =====================
 
 -- name: ListAGPooledRuntimeIDs :many
@@ -53,9 +58,11 @@ SELECT EXISTS (
 -- claim loop uses it in place of the task's runtime_id. Mirrors the wakeup and
 -- urgent-filter predicates of ListQueuedClaimCandidatesByRuntimes (the filter
 -- keyed by the claimer); ClaimAgentTask re-checks everything, affinity included.
+-- A pinned agent's tasks are not offered.
 SELECT sqlc.embed(atq), ag_c.id AS claimer_runtime_id
 FROM agent_task_queue atq
 JOIN agent a ON a.id = atq.agent_id AND a.runtime_id = atq.runtime_id
+ AND NOT COALESCE(a.runtime_config->'ag_pool_pinned' = 'true'::jsonb, false)
 JOIN agent_runtime ag_h ON ag_h.id = atq.runtime_id
 JOIN agent_runtime ag_c
   ON ag_c.id = ANY(@runtime_ids::uuid[])
@@ -78,7 +85,8 @@ ORDER BY atq.priority DESC, atq.created_at ASC;
 -- agent's last finished run on that issue ran on a different peer that
 -- finished within @affinity_window_secs, is online, is not draining and is
 -- below its runtime cap (when it has one). Runs in the claim transaction,
--- under the agent row lock.
+-- under the agent row lock. No rows for a pinned agent: nothing via the pool
+-- and nothing held, so its home claims as upstream.
 SELECT atq.id,
        (atq.runtime_id <> ag_c.id)::boolean AS via_pool,
        (
@@ -120,6 +128,8 @@ SELECT atq.id,
        )::boolean AS held
 FROM agent_task_queue atq
 JOIN agent_runtime ag_c ON ag_c.id = @claimer_id::uuid
+JOIN agent a ON a.id = atq.agent_id
+ AND NOT COALESCE(a.runtime_config->'ag_pool_pinned' = 'true'::jsonb, false)
 WHERE atq.agent_id = @agent_id::uuid
   AND atq.status = 'queued'
   AND (
@@ -144,6 +154,7 @@ WHERE atq.agent_id = @agent_id::uuid
 -- claim) lands on the claimer. There it is claimable by nobody (the claim
 -- fences on the agent's runtime) and a deferred row would only promote once the
 -- claimer is back online. Scoped to the pools of the polling runtimes.
+-- Pinned agents are included: home is the only runtime that may claim them.
 UPDATE agent_task_queue t
 SET runtime_id = a.runtime_id
 FROM agent a, agent_runtime ag_h, agent_runtime ag_c

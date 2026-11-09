@@ -6,6 +6,7 @@
 package agpool
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"regexp"
@@ -89,4 +90,37 @@ func WithSet(ctx context.Context, s Set) context.Context {
 func From(ctx context.Context) Set {
 	s, _ := ctx.Value(ctxKey{}).(Set)
 	return s
+}
+
+// PinnedKey is the agent.runtime_config key that keeps an agent out of the
+// pool: only the agent's own runtime may claim its tasks, as upstream. Its
+// runtime stays pooled for every other agent. For an agent that must run on one
+// machine (a macOS sysadmin on the laptop, a Linux one on the server).
+const PinnedKey = "ag_pool_pinned"
+
+// Pinned reports whether runtimeConfig pins the agent to its runtime: PinnedKey
+// holds JSON true. Anything else (absent, false, "true", malformed JSON) is
+// unpinned. The SQL in ag_runtime_pool.sql tests the same thing with
+// runtime_config->'ag_pool_pinned' = 'true'::jsonb.
+func Pinned(runtimeConfig []byte) bool {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(runtimeConfig, &m); err != nil {
+		return false
+	}
+	return string(bytes.TrimSpace(m[PinnedKey])) == "true"
+}
+
+// SetPinned sets or clears PinnedKey in a decoded runtime_config, keeping its
+// other keys. A nil map (no runtime_config yet) is allocated. Unpinning
+// removes the key rather than storing false.
+func SetPinned(runtimeConfig map[string]any, pinned bool) map[string]any {
+	if runtimeConfig == nil {
+		runtimeConfig = map[string]any{}
+	}
+	if pinned {
+		runtimeConfig[PinnedKey] = true
+	} else {
+		delete(runtimeConfig, PinnedKey)
+	}
+	return runtimeConfig
 }

@@ -3645,7 +3645,7 @@ func (s *TaskService) claimTask(ctx context.Context, agentID, runtimeID pgtype.U
 		// loaded Agent before returning any payload. Runtime mutation paths settle
 		// the remaining queued rows: teardown and revocation cancel them, and
 		// UpdateAgent re-stamps them to the new runtime.
-		if runtimeID.Valid && agent.RuntimeID != runtimeID && !s.agPoolClaimAllowed(ctx, qtx, agent.RuntimeID, runtimeID) { // AG patch: runtime pool
+		if runtimeID.Valid && agent.RuntimeID != runtimeID && !s.agPoolClaimAllowed(ctx, qtx, agent, runtimeID) { // AG patch: runtime pool
 			outcome = "runtime_mismatch"
 			return nil
 		}
