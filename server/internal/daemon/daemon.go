@@ -2987,6 +2987,7 @@ func (d *Daemon) registerRuntimesForWorkspaceBatchLocked(ctx context.Context, wo
 		"runtimes":          runtimes,
 		"failed_profiles":   failedProfiles,
 	}
+	agAddPoolToRegister(req, d.cfg.AGPool) // AG patch: runtime pool
 
 	resp, err := d.client.Register(ctx, req)
 	if err != nil {
@@ -3037,6 +3038,7 @@ func (d *Daemon) registerBuiltinRuntimesForWorkspaceLocked(ctx context.Context, 
 		// report profile failures either.
 		"failed_profiles": []map[string]string{},
 	}
+	agAddPoolToRegister(req, d.cfg.AGPool) // AG patch: runtime pool
 	resp, err := d.client.Register(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("register builtin runtimes: %w", err)

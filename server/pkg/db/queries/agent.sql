@@ -770,19 +770,21 @@ WHERE atq.id = $1 AND a.workspace_id = $2;
 -- whose completion lookup would race over "most recent issue by this agent".
 UPDATE agent_task_queue
 SET status = 'dispatched',
+    runtime_id = @runtime_id, -- AG patch: runtime pool (a pool claim binds the task to the claimer)
     dispatched_at = now(),
     prepare_lease_expires_at = now() + make_interval(secs => @prepare_lease_secs::double precision)
 WHERE id = (
     SELECT atq.id FROM agent_task_queue atq
     WHERE atq.agent_id = @agent_id
-      AND atq.runtime_id = @runtime_id
+      AND (atq.runtime_id = @runtime_id OR COALESCE(atq.id = ANY(sqlc.narg('ag_pool_task_ids')::uuid[]), false)) -- AG patch: runtime pool
+      AND NOT COALESCE(atq.id = ANY(sqlc.narg('ag_pool_held_ids')::uuid[]), false) -- AG patch: runtime pool affinity
       AND atq.status = 'queued'
       AND (atq.context->>'wakeup_id' IS NULL OR EXISTS (SELECT 1 FROM issue_wakeup w WHERE w.id=(atq.context->>'wakeup_id')::uuid AND w.disabled_at IS NULL AND w.revision=(atq.context->>'wakeup_revision')::bigint))
-      AND ((sqlc.narg('ag_claim_filter')::jsonb -> atq.runtime_id::text) IS NULL OR (atq.issue_id IS NOT NULL AND EXISTS (SELECT 1 FROM issue ag_i WHERE ag_i.id = atq.issue_id AND jsonb_exists(sqlc.narg('ag_claim_filter')::jsonb -> atq.runtime_id::text, ag_i.priority)))) -- AG patch: urgent-only claim filter
+      AND ((sqlc.narg('ag_claim_filter')::jsonb -> (@runtime_id::uuid)::text) IS NULL OR (atq.issue_id IS NOT NULL AND EXISTS (SELECT 1 FROM issue ag_i WHERE ag_i.id = atq.issue_id AND jsonb_exists(sqlc.narg('ag_claim_filter')::jsonb -> (@runtime_id::uuid)::text, ag_i.priority)))) -- AG patch: urgent-only claim filter (keyed by the claimer: runtime pool)
       AND EXISTS (
           SELECT 1
           FROM agent a
-          JOIN agent_runtime r ON r.id = atq.runtime_id
+          JOIN agent_runtime r ON r.id = @runtime_id -- AG patch: runtime pool (the claimer)
           WHERE a.id = atq.agent_id
             -- A task's persisted runtime is not authority after an agent rebind.
             AND a.runtime_id = atq.runtime_id
@@ -903,7 +905,7 @@ WHERE id = (
           FROM agent a
           JOIN agent_runtime r ON r.id = atq.runtime_id
           WHERE a.id = atq.agent_id
-            AND a.runtime_id = atq.runtime_id
+            AND (a.runtime_id = atq.runtime_id OR EXISTS (SELECT 1 FROM agent_runtime ag_h JOIN agent_runtime ag_c ON ag_c.id = atq.runtime_id WHERE ag_h.id = a.runtime_id AND ag_c.id <> ag_h.id AND NULLIF(ag_h.metadata->>'ag_pool', '') = ag_c.metadata->>'ag_pool' AND ag_c.workspace_id = ag_h.workspace_id AND ag_c.owner_id = ag_h.owner_id AND ag_c.provider = ag_h.provider AND ag_c.profile_id IS NOT DISTINCT FROM ag_h.profile_id)) -- AG patch: runtime pool (a task claimed by a peer of its agent's runtime)
             AND (
                 r.visibility = 'public'
                 OR (
@@ -950,7 +952,7 @@ WITH candidates AS MATERIALIZED (
           FROM agent a
           JOIN agent_runtime r ON r.id = atq.runtime_id
           WHERE a.id = atq.agent_id
-            AND a.runtime_id = atq.runtime_id
+            AND (a.runtime_id = atq.runtime_id OR EXISTS (SELECT 1 FROM agent_runtime ag_h JOIN agent_runtime ag_c ON ag_c.id = atq.runtime_id WHERE ag_h.id = a.runtime_id AND ag_c.id <> ag_h.id AND NULLIF(ag_h.metadata->>'ag_pool', '') = ag_c.metadata->>'ag_pool' AND ag_c.workspace_id = ag_h.workspace_id AND ag_c.owner_id = ag_h.owner_id AND ag_c.provider = ag_h.provider AND ag_c.profile_id IS NOT DISTINCT FROM ag_h.profile_id)) -- AG patch: runtime pool (a task claimed by a peer of its agent's runtime)
             AND (
                 r.visibility = 'public'
                 OR (

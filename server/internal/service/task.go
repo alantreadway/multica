@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/agclaim"
+	"github.com/multica-ai/multica/server/internal/agpool"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/attribution"
 	"github.com/multica-ai/multica/server/internal/chattitle"
@@ -3644,7 +3645,7 @@ func (s *TaskService) claimTask(ctx context.Context, agentID, runtimeID pgtype.U
 		// loaded Agent before returning any payload. Runtime mutation paths settle
 		// the remaining queued rows: teardown and revocation cancel them, and
 		// UpdateAgent re-stamps them to the new runtime.
-		if runtimeID.Valid && agent.RuntimeID != runtimeID {
+		if runtimeID.Valid && agent.RuntimeID != runtimeID && !s.agPoolClaimAllowed(ctx, qtx, agent.RuntimeID, runtimeID) { // AG patch: runtime pool
 			outcome = "runtime_mismatch"
 			return nil
 		}
@@ -3698,6 +3699,11 @@ func (s *TaskService) claimTask(ctx context.Context, agentID, runtimeID pgtype.U
 		}
 		countRunningMs = time.Since(t0).Milliseconds()
 
+		agPool, err := s.agPoolClaimSets(ctx, qtx, agentID, claimRuntimeID) // AG patch: runtime pool
+		if err != nil {
+			outcome = "error_ag_pool"
+			return fmt.Errorf("runtime pool claim sets: %w", err)
+		}
 		t0 = time.Now()
 		reclaimCheckAfter = t0.Add(claimResponseRecoveryWindow + ReclaimCheckHintSafetyMargin)
 		task, err := qtx.ClaimAgentTask(ctx, db.ClaimAgentTaskParams{
@@ -3706,6 +3712,8 @@ func (s *TaskService) claimTask(ctx context.Context, agentID, runtimeID pgtype.U
 			PrepareLeaseSecs: prepareLeaseDuration.Seconds(),
 			RuntimeStaleSecs: RuntimeClaimFreshnessSeconds,
 			AgClaimFilter:    agclaim.JSONFor(ctx, claimRuntimeID), // AG patch: urgent-only claim filter
+			AgPoolTaskIds:    agPool.taskIDs,                       // AG patch: runtime pool
+			AgPoolHeldIds:    agPool.heldIDs,                       // AG patch: runtime pool
 		})
 		claimAgentMs = time.Since(t0).Milliseconds()
 		if err != nil {
@@ -3807,6 +3815,7 @@ func (s *TaskService) ClaimTaskForRuntime(ctx context.Context, runtimeID pgtype.
 	}()
 
 	runtimeKey := util.UUIDToString(runtimeID)
+	ctx = s.agPoolPrepare(ctx, []pgtype.UUID{runtimeID}) // AG patch: runtime pool
 	if err := s.PromoteDueDeferredTasksForRuntime(ctx, runtimeID); err != nil {
 		outcome = "error_promote_deferred"
 		s.recordClaimDecision(pgtype.UUID{}, runtimeID, outcome, claimScope{claimPath: claimPathRuntime}, claimDecisionDetail{})
@@ -3872,6 +3881,9 @@ func (s *TaskService) ClaimTaskForRuntime(ctx context.Context, runtimeID pgtype.
 
 	t0 := time.Now()
 	tasks, err := s.Queries.ListQueuedClaimCandidatesByRuntime(ctx, runtimeID)
+	if err == nil {
+		tasks = s.agPoolAppendCandidates(ctx, []pgtype.UUID{runtimeID}, tasks, nil) // AG patch: runtime pool
+	}
 	listMs = time.Since(t0).Milliseconds()
 	listCount = len(tasks)
 	if err != nil {
@@ -3881,7 +3893,9 @@ func (s *TaskService) ClaimTaskForRuntime(ctx context.Context, runtimeID pgtype.
 	}
 
 	if len(tasks) == 0 {
-		s.EmptyClaim.MarkEmpty(ctx, runtimeKey, preSelectVersion)
+		if !agpool.From(ctx).Has(runtimeID) { // AG patch: runtime pool (peer work and affinity expiry do not bump this key)
+			s.EmptyClaim.MarkEmpty(ctx, runtimeKey, preSelectVersion)
+		}
 		outcome = "empty_db"
 		s.recordClaimDecision(pgtype.UUID{}, runtimeID, outcome, claimScope{claimPath: claimPathRuntime}, claimDecisionDetail{})
 		return nil, nil
@@ -4121,6 +4135,7 @@ func (s *TaskService) ClaimTasksForRuntimes(ctx context.Context, runtimeIDs []pg
 	}
 
 	claimed := make([]db.AgentTaskQueue, 0, maxTasks)
+	ctx = s.agPoolPrepare(ctx, uniqueIDs) // AG patch: runtime pool
 
 	// 1. Promote due deferred tasks across the whole set (promote-first, like
 	// the singular path). Replay the per-row side effects the singular service
@@ -4225,6 +4240,9 @@ func (s *TaskService) ClaimTasksForRuntimes(ctx context.Context, runtimeIDs []pg
 
 	// 4. One candidate SELECT across the non-empty set.
 	candidates, err := s.Queries.ListQueuedClaimCandidatesByRuntimes(ctx, db.ListQueuedClaimCandidatesByRuntimesParams{RuntimeIds: nonEmpty, AgClaimFilter: agclaim.From(ctx).JSON()}) // AG patch: urgent-only claim filter
+	if err == nil {
+		candidates = s.agPoolAppendCandidates(ctx, nonEmpty, candidates, agclaim.From(ctx).JSON()) // AG patch: runtime pool
+	}
 	if err != nil {
 		s.recordClaimDecision(pgtype.UUID{}, pgtype.UUID{}, "error_list", claimScope{claimPath: claimPathBatch}, claimDecisionDetail{})
 		// Steps 2/6 commit reclaimed/claimed tasks in their own transactions,
@@ -4254,7 +4272,7 @@ func (s *TaskService) ClaimTasksForRuntimes(ctx context.Context, runtimeIDs []pg
 	for _, rid := range nonEmpty {
 		key := util.UUIDToString(rid)
 		// AG patch: a filtered runtime's miss is not an empty queue.
-		if _, ok := withCandidates[key]; !ok && !agclaim.From(ctx).Filtered(rid) {
+		if _, ok := withCandidates[key]; !ok && !agclaim.From(ctx).Filtered(rid) && !agpool.From(ctx).Has(rid) { // AG patch: runtime pool
 			s.EmptyClaim.MarkEmpty(ctx, key, versions[key])
 		}
 	}
@@ -7505,6 +7523,7 @@ func (s *TaskService) notifyRuntimeMayHaveWork(runtimeID pgtype.UUID, taskID str
 	// every Redis call with a short timeout so a wedged Redis cannot
 	// block enqueue.
 	s.EmptyClaim.Bump(context.Background(), runtimeKey)
+	s.agPoolWakePeers(runtimeID, taskID) // AG patch: runtime pool
 	if s.Wakeup == nil {
 		return
 	}

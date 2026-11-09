@@ -1543,19 +1543,21 @@ func (q *Queries) CancelSupersededDeferredRetriesForRuntimes(ctx context.Context
 const claimAgentTask = `-- name: ClaimAgentTask :one
 UPDATE agent_task_queue
 SET status = 'dispatched',
+    runtime_id = $1, -- AG patch: runtime pool (a pool claim binds the task to the claimer)
     dispatched_at = now(),
-    prepare_lease_expires_at = now() + make_interval(secs => $1::double precision)
+    prepare_lease_expires_at = now() + make_interval(secs => $2::double precision)
 WHERE id = (
     SELECT atq.id FROM agent_task_queue atq
-    WHERE atq.agent_id = $2
-      AND atq.runtime_id = $3
+    WHERE atq.agent_id = $3
+      AND (atq.runtime_id = $1 OR COALESCE(atq.id = ANY($4::uuid[]), false)) -- AG patch: runtime pool
+      AND NOT COALESCE(atq.id = ANY($5::uuid[]), false) -- AG patch: runtime pool affinity
       AND atq.status = 'queued'
       AND (atq.context->>'wakeup_id' IS NULL OR EXISTS (SELECT 1 FROM issue_wakeup w WHERE w.id=(atq.context->>'wakeup_id')::uuid AND w.disabled_at IS NULL AND w.revision=(atq.context->>'wakeup_revision')::bigint))
-      AND (($4::jsonb -> atq.runtime_id::text) IS NULL OR (atq.issue_id IS NOT NULL AND EXISTS (SELECT 1 FROM issue ag_i WHERE ag_i.id = atq.issue_id AND jsonb_exists($4::jsonb -> atq.runtime_id::text, ag_i.priority)))) -- AG patch: urgent-only claim filter
+      AND (($6::jsonb -> ($1::uuid)::text) IS NULL OR (atq.issue_id IS NOT NULL AND EXISTS (SELECT 1 FROM issue ag_i WHERE ag_i.id = atq.issue_id AND jsonb_exists($6::jsonb -> ($1::uuid)::text, ag_i.priority)))) -- AG patch: urgent-only claim filter (keyed by the claimer: runtime pool)
       AND EXISTS (
           SELECT 1
           FROM agent a
-          JOIN agent_runtime r ON r.id = atq.runtime_id
+          JOIN agent_runtime r ON r.id = $1 -- AG patch: runtime pool (the claimer)
           WHERE a.id = atq.agent_id
             -- A task's persisted runtime is not authority after an agent rebind.
             AND a.runtime_id = atq.runtime_id
@@ -1569,7 +1571,7 @@ WHERE id = (
             )
             AND r.status = 'online'
             AND COALESCE(r.last_seen_at, r.updated_at) >=
-                now() - make_interval(secs => $5::double precision)
+                now() - make_interval(secs => $7::double precision)
       )
       AND NOT EXISTS (
           SELECT 1 FROM agent_task_queue active
@@ -1596,11 +1598,13 @@ RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, c
 `
 
 type ClaimAgentTaskParams struct {
-	PrepareLeaseSecs float64     `json:"prepare_lease_secs"`
-	AgentID          pgtype.UUID `json:"agent_id"`
-	RuntimeID        pgtype.UUID `json:"runtime_id"`
-	AgClaimFilter    []byte      `json:"ag_claim_filter"`
-	RuntimeStaleSecs float64     `json:"runtime_stale_secs"`
+	RuntimeID        pgtype.UUID   `json:"runtime_id"`
+	PrepareLeaseSecs float64       `json:"prepare_lease_secs"`
+	AgentID          pgtype.UUID   `json:"agent_id"`
+	AgPoolTaskIds    []pgtype.UUID `json:"ag_pool_task_ids"`
+	AgPoolHeldIds    []pgtype.UUID `json:"ag_pool_held_ids"`
+	AgClaimFilter    []byte        `json:"ag_claim_filter"`
+	RuntimeStaleSecs float64       `json:"runtime_stale_secs"`
 }
 
 // Claims the next queued task for an agent on one healthy runtime, enforcing
@@ -1615,9 +1619,11 @@ type ClaimAgentTaskParams struct {
 // whose completion lookup would race over "most recent issue by this agent".
 func (q *Queries) ClaimAgentTask(ctx context.Context, arg ClaimAgentTaskParams) (AgentTaskQueue, error) {
 	row := q.db.QueryRow(ctx, claimAgentTask,
+		arg.RuntimeID,
 		arg.PrepareLeaseSecs,
 		arg.AgentID,
-		arg.RuntimeID,
+		arg.AgPoolTaskIds,
+		arg.AgPoolHeldIds,
 		arg.AgClaimFilter,
 		arg.RuntimeStaleSecs,
 	)
@@ -7903,7 +7909,7 @@ WHERE id = (
           FROM agent a
           JOIN agent_runtime r ON r.id = atq.runtime_id
           WHERE a.id = atq.agent_id
-            AND a.runtime_id = atq.runtime_id
+            AND (a.runtime_id = atq.runtime_id OR EXISTS (SELECT 1 FROM agent_runtime ag_h JOIN agent_runtime ag_c ON ag_c.id = atq.runtime_id WHERE ag_h.id = a.runtime_id AND ag_c.id <> ag_h.id AND NULLIF(ag_h.metadata->>'ag_pool', '') = ag_c.metadata->>'ag_pool' AND ag_c.workspace_id = ag_h.workspace_id AND ag_c.owner_id = ag_h.owner_id AND ag_c.provider = ag_h.provider AND ag_c.profile_id IS NOT DISTINCT FROM ag_h.profile_id)) -- AG patch: runtime pool (a task claimed by a peer of its agent's runtime)
             AND (
                 r.visibility = 'public'
                 OR (
@@ -8027,7 +8033,7 @@ WITH candidates AS MATERIALIZED (
           FROM agent a
           JOIN agent_runtime r ON r.id = atq.runtime_id
           WHERE a.id = atq.agent_id
-            AND a.runtime_id = atq.runtime_id
+            AND (a.runtime_id = atq.runtime_id OR EXISTS (SELECT 1 FROM agent_runtime ag_h JOIN agent_runtime ag_c ON ag_c.id = atq.runtime_id WHERE ag_h.id = a.runtime_id AND ag_c.id <> ag_h.id AND NULLIF(ag_h.metadata->>'ag_pool', '') = ag_c.metadata->>'ag_pool' AND ag_c.workspace_id = ag_h.workspace_id AND ag_c.owner_id = ag_h.owner_id AND ag_c.provider = ag_h.provider AND ag_c.profile_id IS NOT DISTINCT FROM ag_h.profile_id)) -- AG patch: runtime pool (a task claimed by a peer of its agent's runtime)
             AND (
                 r.visibility = 'public'
                 OR (
