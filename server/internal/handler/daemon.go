@@ -356,6 +356,7 @@ type DaemonRegisterRequest struct {
 		CommandName string `json:"command_name"`
 		Reason      string `json:"reason"`
 	} `json:"failed_profiles"`
+	AGPool string `json:"ag_pool,omitempty"` // AG patch: runtime pool
 }
 
 type daemonWorkspaceReposResponse struct {
@@ -817,6 +818,7 @@ func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 			"launched_by":  req.LaunchedBy,
 			"capabilities": requestClientCapabilities(r),
 		})
+		metadata = agRegisterPoolMetadata(metadata, req.AGPool) // AG patch: runtime pool
 
 		var registered db.AgentRuntime
 		var inserted bool
@@ -1634,6 +1636,8 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 		resp["pending_local_skill_imports"] = ack.PendingLocalSkillImports
 	}
 	agAddSettingsToHeartbeatResp(resp, rt) // AG patch: runtime setting
+	// AG patch: runtime pool
+	h.agAddPoolPaceToHeartbeatResp(r.Context(), resp, rt, req.AGQuota)
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -1667,6 +1671,8 @@ func (h *Handler) HandleDaemonWSHeartbeat(ctx context.Context, identity daemonws
 	h.agApplyWSTokenRate(ctx, runtimeID, lease)   // AG patch: token rate
 	ack, _, err := h.processHeartbeat(ctx, runtimeID, supportsBatchImport)
 	agAckSettingsFromLease(ack, lease) // AG patch: runtime setting
+	// AG patch: runtime pool
+	h.agAckPoolPace(ctx, ack, runtimeID)
 	return ack, err
 }
 
@@ -2576,7 +2582,7 @@ func (h *Handler) finalizeClaimDelivery(
 		if aerr != nil {
 			return fmt.Errorf("re-read agent for delivery authorization: %w", aerr)
 		}
-		if agent.RuntimeID != task.RuntimeID {
+		if agent.RuntimeID != task.RuntimeID && !agRuntimePoolPeers(ctx, qtx, agent.RuntimeID, task.RuntimeID) { // AG patch: runtime pool
 			return &service.ClaimDeliveryAuthzError{
 				Reason: "error_agent_runtime_changed",
 				Detail: "agent runtime changed before delivery",
@@ -3036,7 +3042,7 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 	// changing task state, but Agent mutations do not stay locked through HTTP
 	// response assembly. Recheck the freshly loaded Agent here so a rebind or
 	// owner change that committed after the claim cannot reach the daemon.
-	if agent.RuntimeID != task.RuntimeID {
+	if agent.RuntimeID != task.RuntimeID && !agRuntimePoolPeers(r.Context(), h.Queries, agent.RuntimeID, task.RuntimeID) { // AG patch: runtime pool
 		slog.Warn("daemon claim: agent runtime changed before delivery; refusing dispatch",
 			"task_id", uuidToString(task.ID),
 			"agent_id", uuidToString(task.AgentID),

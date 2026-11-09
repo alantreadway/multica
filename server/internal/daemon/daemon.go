@@ -3077,6 +3077,7 @@ func (d *Daemon) registerRuntimesForWorkspaceBatchLocked(ctx context.Context, wo
 		"runtimes":          runtimes,
 		"failed_profiles":   failedProfiles,
 	}
+	agAddPoolToRegister(req, d.cfg.AGPool) // AG patch: runtime pool
 
 	resp, err := d.client.Register(ctx, req)
 	if err != nil {
@@ -3127,6 +3128,7 @@ func (d *Daemon) registerBuiltinRuntimesForWorkspaceLocked(ctx context.Context, 
 		// report profile failures either.
 		"failed_profiles": []map[string]string{},
 	}
+	agAddPoolToRegister(req, d.cfg.AGPool) // AG patch: runtime pool
 	resp, err := d.client.Register(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("register builtin runtimes: %w", err)
@@ -4751,6 +4753,8 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 		return
 	}
 	d.agApplyAck(runtimeID, resp.AGSettings, resp.AGCapabilities) // AG patch: runtime backup setting
+	// AG patch: runtime pool
+	d.agPoolApplyAck(runtimeID, resp.AGPoolPace)
 	if resp.PendingUpdate != nil || resp.PendingModelList != nil || resp.PendingLocalSkills != nil || resp.PendingLocalSkillImport != nil {
 		d.logger.Debug("heartbeat: pending actions",
 			"runtime_id", runtimeID,
