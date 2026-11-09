@@ -267,6 +267,88 @@ func (q *Queries) ListAGPoolClaimTasks(ctx context.Context, arg ListAGPoolClaimT
 	return items, nil
 }
 
+const listAGPoolPaceRuntimes = `-- name: ListAGPoolPaceRuntimes :many
+SELECT ag_r.id,
+       (ag_r.id = ag_h.id)::boolean AS is_self,
+       (
+           SELECT count(*) FROM agent_task_queue busy
+           WHERE busy.runtime_id = ag_r.id
+             AND busy.status IN ('dispatched', 'running')
+       )::bigint AS active,
+       COALESCE(
+           CASE
+               WHEN COALESCE(ag_r.metadata->'ag_drain'->>'draining', '') = 'true' THEN 0
+               ELSE LEAST(
+                   CASE WHEN jsonb_typeof(ag_r.metadata->'ag_quota'->'max') = 'number'
+                        THEN (ag_r.metadata->'ag_quota'->>'max')::numeric::int END,
+                   ag_r.max_concurrent_tasks
+               )
+           END,
+           -1
+       )::int AS slots,
+       COALESCE(ag_r.metadata->'ag_quota'->'windows'->'seven_day'->>'resets_at', '')::text AS weekly_resets_at
+FROM agent_runtime ag_h
+JOIN agent_runtime ag_r
+  ON ag_r.id = ag_h.id
+  OR (
+      NULLIF(ag_h.metadata->>'ag_pool', '') = ag_r.metadata->>'ag_pool'
+      AND ag_r.workspace_id = ag_h.workspace_id
+      AND ag_r.owner_id = ag_h.owner_id
+      AND ag_r.provider = ag_h.provider
+      AND ag_r.profile_id IS NOT DISTINCT FROM ag_h.profile_id
+      AND ag_r.status = 'online'
+      AND COALESCE(ag_r.last_seen_at, ag_r.updated_at) >=
+          now() - make_interval(secs => $1::double precision)
+  )
+WHERE ag_h.id = $2::uuid
+  AND NULLIF(ag_h.metadata->>'ag_pool', '') IS NOT NULL
+`
+
+type ListAGPoolPaceRuntimesParams struct {
+	RuntimeStaleSecs float64     `json:"runtime_stale_secs"`
+	RuntimeID        pgtype.UUID `json:"runtime_id"`
+}
+
+type ListAGPoolPaceRuntimesRow struct {
+	ID             pgtype.UUID `json:"id"`
+	IsSelf         bool        `json:"is_self"`
+	Active         int64       `json:"active"`
+	Slots          int32       `json:"slots"`
+	WeeklyResetsAt string      `json:"weekly_resets_at"`
+}
+
+// For Claude pacing across a pool: this runtime (is_self) and its online, fresh
+// peers, each with its dispatched or running tasks (active) and its claim slots
+// (the lower of the daemon's reported max and the runtime cap; 0 while
+// draining; -1 when neither is known), plus the weekly reset its quota report
+// last stored (empty when none). No rows when the runtime is not pooled. The
+// handler drops peers on another account (agpool.Pace).
+func (q *Queries) ListAGPoolPaceRuntimes(ctx context.Context, arg ListAGPoolPaceRuntimesParams) ([]ListAGPoolPaceRuntimesRow, error) {
+	rows, err := q.db.Query(ctx, listAGPoolPaceRuntimes, arg.RuntimeStaleSecs, arg.RuntimeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAGPoolPaceRuntimesRow{}
+	for rows.Next() {
+		var i ListAGPoolPaceRuntimesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.IsSelf,
+			&i.Active,
+			&i.Slots,
+			&i.WeeklyResetsAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAGPoolPeerRuntimeIDs = `-- name: ListAGPoolPeerRuntimeIDs :many
 SELECT ag_c.id
 FROM agent_runtime ag_h

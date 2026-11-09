@@ -473,6 +473,7 @@ type DaemonHeartbeatAckPayload struct {
 	// AGSettings is the AG patch runtime setting stored by the UI; nil when none
 	// is stored or the server is stock.
 	AGSettings *AGRuntimeSettings `json:"ag_settings,omitempty"`
+	AGPoolPace *AGPoolPace        `json:"ag_pool_pace,omitempty"` // AG patch: runtime pool
 }
 
 // HeartbeatStatusRuntimeGone is the ack Status used when the runtime row no

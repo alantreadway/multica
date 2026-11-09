@@ -1595,6 +1595,8 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 		resp["pending_local_skill_imports"] = ack.PendingLocalSkillImports
 	}
 	agAddSettingsToHeartbeatResp(resp, rt) // AG patch: runtime setting
+	// AG patch: runtime pool
+	h.agAddPoolPaceToHeartbeatResp(r.Context(), resp, rt, req.AGQuota)
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -1628,6 +1630,8 @@ func (h *Handler) HandleDaemonWSHeartbeat(ctx context.Context, identity daemonws
 	h.agApplyWSTokenRate(ctx, runtimeID, lease)   // AG patch: token rate
 	ack, _, err := h.processHeartbeat(ctx, runtimeID, supportsBatchImport)
 	agAckSettingsFromLease(ack, lease) // AG patch: runtime setting
+	// AG patch: runtime pool
+	h.agAckPoolPace(ctx, ack, runtimeID)
 	return ack, err
 }
 

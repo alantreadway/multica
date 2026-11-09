@@ -55,6 +55,17 @@ func WithMetadata(metadata []byte, pool string) []byte {
 	return out
 }
 
+// InMetadata reports whether runtime metadata names a pool.
+func InMetadata(metadata []byte) bool {
+	var m struct {
+		Pool string `json:"ag_pool"`
+	}
+	if len(metadata) == 0 || json.Unmarshal(metadata, &m) != nil {
+		return false
+	}
+	return m.Pool != ""
+}
+
 // Set is the runtimes of one claim poll that are in a pool.
 type Set map[string]struct{}
 

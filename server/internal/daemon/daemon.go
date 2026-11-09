@@ -4572,6 +4572,8 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 		return
 	}
 	d.agApplyAck(runtimeID, resp.AGSettings, resp.AGCapabilities) // AG patch: runtime backup setting
+	// AG patch: runtime pool
+	d.agPoolApplyAck(runtimeID, resp.AGPoolPace)
 	if resp.PendingUpdate != nil || resp.PendingModelList != nil || resp.PendingLocalSkills != nil || resp.PendingLocalSkillImport != nil {
 		d.logger.Debug("heartbeat: pending actions",
 			"runtime_id", runtimeID,
