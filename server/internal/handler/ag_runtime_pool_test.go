@@ -12,7 +12,10 @@ import (
 	"time"
 
 	"github.com/multica-ai/multica/server/internal/agpool"
+	"github.com/multica-ai/multica/server/internal/agquota"
+	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/testutil"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
 type agPoolClaimResponse struct {
@@ -170,4 +173,168 @@ func TestAGPatchRuntimePoolRegisterStoresPool(t *testing.T) {
 	if m := register("not a pool!"); m[agpool.MetadataKey] != nil {
 		t.Fatalf("metadata with an invalid pool = %v, want no ag_pool", m)
 	}
+}
+
+// agPoolPaceRuntime creates a local Claude runtime with its own daemon id;
+// pool "" leaves it out of any pool.
+func agPoolPaceRuntime(t *testing.T, name, pool string, over testutil.Cols) string {
+	t.Helper()
+	meta := `{}`
+	if pool != "" {
+		meta = fmt.Sprintf(`{"ag_pool": %q}`, pool)
+	}
+	cols := testutil.Cols{
+		"daemon_id":    fmt.Sprintf("ag-pool-pace-%s-%d", name, time.Now().UnixNano()),
+		"runtime_mode": "local",
+		"provider":     "claude",
+		"metadata":     testutil.Raw(fmt.Sprintf("'%s'::jsonb", meta)),
+	}
+	for k, v := range over {
+		cols[k] = v
+	}
+	return dbfx.Runtime(t, name, cols)
+}
+
+// agPoolPaceTasks puts n tasks in status on runtimeID, for an agent bound there.
+func agPoolPaceTasks(t *testing.T, runtimeID, status string, n int) {
+	t.Helper()
+	agentID := dbfx.Agent(t, fmt.Sprintf("AG pool pace agent %d", time.Now().UnixNano()), runtimeID)
+	for range n {
+		cols := testutil.Cols{"runtime_id": runtimeID, "status": status}
+		if status != "queued" {
+			cols["dispatched_at"] = testutil.Raw("now()")
+		}
+		if status == "running" {
+			cols["started_at"] = testutil.Raw("now()")
+		}
+		dbfx.Task(t, agentID, cols)
+	}
+}
+
+// agPoolPaceReport is a quota report with a weekly reset and max.
+func agPoolPaceReport(weeklyReset string, max int) map[string]any {
+	r := agQuotaReport(0.5)
+	r["max"] = max
+	r["windows"] = map[string]any{"seven_day": map[string]any{"utilization": 0.21, "resets_at": weeklyReset, "observed_at": "2026-11-09T15:00:00Z"}}
+	return r
+}
+
+func agPoolPaceAck(t *testing.T, runtimeID string, body map[string]any) *protocol.AGPoolPace {
+	t.Helper()
+	ack := agQuotaHeartbeat(t, runtimeID, body)
+	raw, ok := ack["ag_pool_pace"]
+	if !ok {
+		return nil
+	}
+	b, _ := json.Marshal(raw)
+	var pace protocol.AGPoolPace
+	if err := json.Unmarshal(b, &pace); err != nil {
+		t.Fatalf("ag_pool_pace = %s: %v", b, err)
+	}
+	return &pace
+}
+
+func TestAGPatchRuntimePoolPace(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	const reset = "2026-11-14T06:00:00Z"
+	setPeer := func(t *testing.T, id string, metadataSQL string, args ...any) {
+		t.Helper()
+		if _, err := testPool.Exec(context.Background(), `UPDATE agent_runtime SET `+metadataSQL+` WHERE id = $1`, append([]any{id}, args...)...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	storeQuota := func(t *testing.T, id string, max int, weeklyReset string) {
+		t.Helper()
+		q := fmt.Sprintf(`{"account":"primary","max":%d,"effective_cap":1,"windows":{"seven_day":{"utilization":0.21,"resets_at":%q}}}`, max, weeklyReset)
+		setPeer(t, id, `metadata = metadata || jsonb_build_object('ag_quota', $2::jsonb)`, q)
+	}
+	pool := func() string { return fmt.Sprintf("ag-pool-pace-%d", time.Now().UnixNano()) }
+
+	t.Run("AG patch: the ack counts an online peer's dispatched and running tasks and both sides' slots", func(t *testing.T) {
+		p := pool()
+		self := agPoolPaceRuntime(t, "self", p, nil)
+		peer := agPoolPaceRuntime(t, "peer", p, nil)
+		storeQuota(t, peer, 3, reset)
+		agPoolPaceTasks(t, peer, "running", 2)
+		agPoolPaceTasks(t, peer, "dispatched", 1)
+		agPoolPaceTasks(t, peer, "queued", 2)
+		agPoolPaceTasks(t, self, "running", 1) // the daemon counts its own
+
+		got := agPoolPaceAck(t, self, map[string]any{"ag_quota": agPoolPaceReport(reset, 2)})
+		if got == nil || *got != (protocol.AGPoolPace{PeerActive: 3, PeerSlots: 3, Slots: 2}) {
+			t.Fatalf("ag_pool_pace = %+v, want peer_active 3, peer_slots 3, slots 2", got)
+		}
+	})
+
+	t.Run("AG patch: a stale, offline or other-account peer is left out", func(t *testing.T) {
+		p := pool()
+		self := agPoolPaceRuntime(t, "self", p, nil)
+		stale := agPoolPaceRuntime(t, "stale", p, testutil.Cols{"last_seen_at": testutil.Raw("now() - interval '10 minutes'"), "updated_at": testutil.Raw("now() - interval '10 minutes'")})
+		offline := agPoolPaceRuntime(t, "offline", p, testutil.Cols{"status": "offline"})
+		other := agPoolPaceRuntime(t, "other-account", p, nil)
+		storeQuota(t, other, 3, "2026-11-12T18:00:00Z")
+		for _, id := range []string{stale, offline, other} {
+			agPoolPaceTasks(t, id, "running", 1)
+		}
+
+		got := agPoolPaceAck(t, self, map[string]any{"ag_quota": agPoolPaceReport(reset, 2)})
+		if got == nil || *got != (protocol.AGPoolPace{Slots: 2, Lead: true}) {
+			t.Fatalf("ag_pool_pace = %+v, want only slots 2, lead", got)
+		}
+	})
+
+	t.Run("AG patch: a draining peer's runs count and its slots do not; a runtime cap lowers slots", func(t *testing.T) {
+		p := pool()
+		self := agPoolPaceRuntime(t, "self", p, nil)
+		draining := agPoolPaceRuntime(t, "draining", p, nil)
+		capped := agPoolPaceRuntime(t, "capped", p, testutil.Cols{"max_concurrent_tasks": 1})
+		storeQuota(t, draining, 3, reset)
+		setPeer(t, draining, `metadata = metadata || '{"ag_drain":{"draining":true}}'::jsonb`)
+		storeQuota(t, capped, 3, reset)
+		agPoolPaceTasks(t, draining, "running", 2)
+
+		got := agPoolPaceAck(t, self, map[string]any{"ag_quota": agPoolPaceReport(reset, 2)})
+		if got == nil || *got != (protocol.AGPoolPace{PeerActive: 2, PeerSlots: 1, Slots: 2, Lead: true}) {
+			t.Fatalf("ag_pool_pace = %+v, want peer_active 2, peer_slots 1, slots 2, lead", got)
+		}
+	})
+
+	t.Run("AG patch: no ag_pool_pace outside a pool or without a quota report", func(t *testing.T) {
+		lone := agPoolPaceRuntime(t, "lone", "", nil)
+		if got := agPoolPaceAck(t, lone, map[string]any{"ag_quota": agPoolPaceReport(reset, 2)}); got != nil {
+			t.Fatalf("unpooled ack carries %+v", got)
+		}
+		p := pool()
+		self := agPoolPaceRuntime(t, "self", p, nil)
+		agPoolPaceRuntime(t, "peer", p, nil)
+		if got := agPoolPaceAck(t, self, map[string]any{}); got != nil {
+			t.Fatalf("ack without a quota report carries %+v", got)
+		}
+	})
+
+	t.Run("AG patch: the WebSocket ack carries it too", func(t *testing.T) {
+		p := pool()
+		self := agPoolPaceRuntime(t, "self", p, nil)
+		peer := agPoolPaceRuntime(t, "peer", p, nil)
+		storeQuota(t, peer, 3, reset)
+		agPoolPaceTasks(t, peer, "running", 1)
+
+		lease := daemonws.NewRuntimeLease(testWorkspaceID, "online", time.Now(), true)
+		identity := daemonws.ClientIdentity{
+			WorkspaceID: testWorkspaceID, WorkspaceIDs: []string{testWorkspaceID}, RuntimeIDs: []string{self},
+			RuntimeLeases: map[string]*daemonws.RuntimeLease{self: lease},
+		}
+		weekly := protocol.DaemonQuotaWindow{ResetsAt: reset}
+		ctx := agquota.WithReport(context.Background(), &protocol.DaemonQuotaReport{Account: "primary", Max: 2, Windows: map[string]protocol.DaemonQuotaWindow{"seven_day": weekly}})
+		ack, err := testHandler.HandleDaemonWSHeartbeat(ctx, identity, self, true)
+		if err != nil || ack == nil || ack.AGPoolPace == nil || *ack.AGPoolPace != (protocol.AGPoolPace{PeerActive: 1, PeerSlots: 3, Slots: 2}) {
+			t.Fatalf("ack = %+v (%v)", ack, err)
+		}
+		ack, err = testHandler.HandleDaemonWSHeartbeat(context.Background(), identity, self, true)
+		if err != nil || ack == nil || ack.AGPoolPace != nil {
+			t.Fatalf("ack without a report = %+v (%v)", ack, err)
+		}
+	})
 }

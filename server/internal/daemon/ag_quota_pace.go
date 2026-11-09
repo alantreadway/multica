@@ -19,6 +19,10 @@ package daemon
 // With MULTICA_AG_PACE_WORK_HOURS set, the weekly c and T count working time
 // instead of clock time (ag_quota_pace_hours.go).
 //
+// In a runtime pool (MULTICA_AG_POOL) the active runs b divides by include the
+// online peers' runs on the same account, and n is scaled by this daemon's
+// share of the pool's slots (ag_runtime_pool.go).
+//
 // The limiter moves C one step toward the target at most every 10 minutes (the
 // first step after a quiet period is immediate). After a window rolls over or a
 // hold clears, C jumps to the target. Other windows are tracked by the quota
@@ -69,6 +73,11 @@ type agPaceWin struct {
 	Burn      float64       // fraction/hour per run
 	BurnKnown bool
 	Work      *agPaceWork // weekly window in working time; nil is clock time
+	// Share is the fraction of the account's runs this daemon takes when it
+	// shares the account with runtime pool peers (ag_runtime_pool.go); 0 is all.
+	// Lead takes the runs the peers' rounded-down shares leave instead.
+	Share float64
+	Lead  bool
 }
 
 // agPaceSessionAllowed is n_5h: how many runs fit. A nil window constrains nothing.
@@ -114,6 +123,9 @@ func agPaceRuns(target float64, w *agPaceWin, horizon time.Duration, max int) (f
 	n := (target - w.Util) / denom
 	if math.IsNaN(n) {
 		return float64(max), false
+	}
+	if w.Share > 0 && n > 0 {
+		n = agPoolShareRuns(n, w.Share, w.Lead) // AG patch: runtime pool
 	}
 	return n, false // the target clamps it
 }
@@ -197,6 +209,7 @@ type agPaceState struct {
 	nextRun uint64
 	running map[uint64]string   // run token -> account
 	claimed map[string]struct{} // task ids claimed and not yet through their dispatch goroutine
+	pool    agPoolPaceState     // AG patch: runtime pool peers (ag_runtime_pool.go)
 
 	hoursOnce sync.Once
 	hours     *agPaceHours // MULTICA_AG_PACE_WORK_HOURS; nil is clock time
@@ -248,7 +261,7 @@ func (d *Daemon) agPaceActiveLocked(account, def string) int {
 // agPaceAccrueLocked folds the time since the last count change into cum and records
 // the current count.
 func (d *Daemon) agPaceAccrueLocked(a *agPaceAccount, account string, now time.Time) {
-	count := d.agPaceActiveLocked(account, agQuotaAccountKey(nil))
+	count := d.agPaceActiveLocked(account, agQuotaAccountKey(nil)) + d.agPoolPeerActiveLocked(account, now) // AG patch: runtime pool
 	if a.counting && now.After(a.countAt) {
 		a.cum += float64(a.count) * now.Sub(a.countAt).Hours()
 	}
@@ -339,7 +352,7 @@ func (d *Daemon) agPaceEvaluate(account string, windows map[string]agQuotaWindow
 	defer p.mu.Unlock()
 	a := p.accountLocked(account)
 	d.agPaceAccrueLocked(a, account, now)
-	active = a.count
+	active = d.agPaceActiveLocked(account, agQuotaAccountKey(nil)) // AG patch: runtime pool (a.count adds the peers)
 
 	jump := a.wasHeld && !held
 	a.wasHeld = held
@@ -358,6 +371,7 @@ func (d *Daemon) agPaceEvaluate(account string, windows map[string]agQuotaWindow
 	w5, ok5 := windows[agQuotaWindowFiveHour]
 	w7, ok7 := windows[agQuotaWindowSevenDay]
 	in5, in7 := a.window(agQuotaWindowFiveHour, w5, ok5, hours, now), a.window(agQuotaWindowSevenDay, w7, ok7, hours, now)
+	d.agPoolShareLocked(account, now, in5, in7) // AG patch: runtime pool
 
 	n5, hold5 := agPaceSessionAllowed(in5, max)
 	n7, hold7 := agPaceWeeklyAllowed(in7, max)
@@ -506,6 +520,13 @@ type agQuotaPaceInfo struct {
 	ActiveClaude int `json:"active_claude"`
 	// EffectiveCap is C: the most Claude runs the next claim may leave in flight.
 	EffectiveCap int `json:"effective_cap"`
+	// PoolActiveClaude, PoolShare and PoolLead (AG patch: runtime pool) are the
+	// pool-wide Claude runs the burn divides by, this daemon's share of the
+	// account's runs and whether it takes the remainder; absent outside a pool
+	// or without fresh pool data.
+	PoolActiveClaude *int     `json:"pool_active_claude,omitempty"`
+	PoolShare        *float64 `json:"pool_share,omitempty"`
+	PoolLead         *bool    `json:"pool_lead,omitempty"`
 }
 
 func (d *Daemon) agPaceHealth() *agQuotaPaceInfo {
@@ -523,5 +544,6 @@ func (d *Daemon) agPaceHealth() *agQuotaPaceInfo {
 	if a := p.accounts[def]; a != nil && a.limiter.set {
 		info.EffectiveCap = a.limiter.cap
 	}
+	d.agPoolHealthLocked(info, d.agQuotaNow()) // AG patch: runtime pool
 	return info
 }
