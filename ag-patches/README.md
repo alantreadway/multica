@@ -528,6 +528,100 @@ Point the launchd plist back at `/opt/homebrew/bin/multica` and run
 so no run is cut off. Nothing on the backend or in the database changed. Keep
 the old binary in `dist/` until the new one has run for a while.
 
+## Laptop taper
+
+The laptop daemon stops claiming before Alan leaves and is idle by the time the
+lid closes. Whatever it doesn't claim stays queued for Bastion (with the runtime
+pool patch). Design: `POOLED-DAEMONS-INVESTIGATION.md` §4, v1 (scripts only).
+
+`ag-patches/taper.sh tick`, run by launchd every 2 minutes, works out the
+desired state from the schedule plus today's override and applies it:
+
+- Cap: `multica-ag runtime concurrency <id> <n>` (runtime `max_concurrent_tasks`)
+  on each runtime whose `daemon_id` is the laptop daemon's own, found through
+  `daemon status --output json` and `runtime list`. Uses the CLI's stored login.
+- Drain: `multica-ag daemon drain`, then `daemon resume` in the morning.
+
+Weekday default (Mon-Fri): cap 3 from 09:00, cap 2 at 16:05, cap 1 at 16:20,
+drain at 16:35 (leave 17:00 − p90 25 min), idle by 17:00. The p90 of completed
+runs over 14 days on Bastion was 21.6 min on 2026-11-09 (p95 30 min), rounded
+up to 25.
+
+Settings live in `~/.multica/taper.conf`, a sourced shell file; every line is
+optional:
+
+```sh
+TAPER_RESUME=09:00
+TAPER_LEAVE=17:00
+TAPER_P90_MIN=25      # last start = leave - this
+TAPER_STEP_MIN=15     # minutes per cap step before the drain
+TAPER_MAX_CAP=3
+TAPER_WORKDAYS="1 2 3 4 5"
+TAPER_PROFILE=        # multica-ag --profile, if the laptop daemon uses one
+```
+
+### Overrides
+
+Each one applies to today only and expires at midnight. It then runs a tick.
+
+| Command | Effect |
+| --- | --- |
+| `taper.sh start` | Resume now at cap 3. Lifts a manual drain too. Inside the ramp it also skips today's taper. On a weekend it makes today a workday. |
+| `taper.sh late 19:00` | Leave at 19:00 instead: the same ramp, drain at 18:35. |
+| `taper.sh late` | No taper today: claims until 23:35. |
+| `taper.sh commute 18:15` | Cap 3 until 18:15, then cap 1 + drain. Running work finishes after 18:15. |
+| `taper.sh now` | Leaving early: cap 1 + drain now, for the rest of the day. |
+| `taper.sh clear` | Back to the schedule. |
+| `taper.sh status` | Schedule, override, desired state, daemon state, caps, whether the lid is safe to close. |
+
+`--dry-run` before any command except `status` prints what it would run and
+write instead.
+
+### Sleep, reboot and manual drains
+
+- Each tick reapplies the whole state, so it doesn't matter which ticks were
+  missed. launchd runs a missed interval once on wake, and `RunAtLoad` runs a tick
+  at login.
+- Drain is held in daemon memory. A restarted daemon comes back claiming, and the
+  next tick drains it again if the schedule says so.
+- When tick drains it creates `~/.multica/taper/drained-by-taper`. It only
+  resumes a drain carrying that marker. A drain you started by hand stays until
+  you run `daemon resume` or `taper.sh start`.
+- Once a taper drain is idle, a macOS notification says the lid is safe to close.
+  It shows once per drain.
+
+### Install
+
+Needs the laptop daemon (`multica-ag`, its own `daemon.id`) running under
+launchd:
+
+```sh
+mkdir -p ~/.multica && install -m 755 ag-patches/taper.sh ~/.multica/taper.sh
+sed "s#__HOME__#$HOME#g" ag-patches/uk.blogic.multica-taper.plist \
+  > ~/Library/LaunchAgents/uk.blogic.multica-taper.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/uk.blogic.multica-taper.plist
+~/.multica/taper.sh status
+```
+
+The log is `~/Library/Logs/multica-taper.log`, one line per change. Reinstall the
+script after changing it in the repo (the `install` line).
+
+### Uninstall
+
+```sh
+launchctl bootout gui/$(id -u)/uk.blogic.multica-taper
+rm ~/Library/LaunchAgents/uk.blogic.multica-taper.plist ~/.multica/taper.sh
+rm -rf ~/.multica/taper
+multica-ag daemon resume                 # if it was left draining
+multica-ag runtime concurrency <id> 3    # or none; ids from `multica-ag runtime list`
+```
+
+### Tests
+
+`ag-patches/taper-test.sh` runs the schedule and override logic with a fake
+clock (`TAPER_NOW`), and the tick against a fake `multica-ag` that records its
+calls. It never calls the real daemon or server.
+
 ## GitHub PR snapshot fields and `pull-requests link`
 
 Backend and CLI patch. `multica issue pull-requests <id> --output json` gains,
