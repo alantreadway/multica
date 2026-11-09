@@ -71,6 +71,7 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 27 | Claude stable worktree path for resumed sessions (daemon) | `fork-only` | none for issue worktrees; [#9707](https://github.com/multica-ai/multica/pull/9707) (open, unreviewed on 2026-11-05) does the same for autopilot workdirs and adds a server query | Low: Claude Code's cwd-keyed transcript and our cache cost | Low | None. Review at the rebase if #9707 merges: it touches the same GC and reuse code. |
 | 28 | Reject `--until-status` on the issue's own done or closed status (backend) | `candidate` | none found (searched 2026-11-06) | High: a bug fix; the rule is accepted and then can never fire | Medium-high | File a Bug Report and open the PR straight away. |
 | 29 | Provider reachability probe before claim (daemon) | `fork-only` | none found (searched 2026-11-07) | Low: a guard for our retry chain on a flaky home network | Very low | None. |
+| 30 | Runtime pool across daemons (backend + daemon) | `fork-only` | none found (searched 2026-11-09) | Low: one owner's two machines sharing one queue; upstream binds an agent to one runtime | Very low | None. |
 
 `VISION.md` is a statement of direction (humans and agents as one team, work and
 decisions kept visible), not a feature list. None of the patches conflicts with
@@ -2255,6 +2256,178 @@ keep their attempts. Tasks already running are not touched.
   - Overlap: none found (searched 2026-11-07).
   - Fit: a claim guard tied to our retry chain and the Anthropic endpoint; upstream
     has no equivalent and it is not on `VISION.md`'s path.
+
+### Runtime pool across daemons (backend + daemon)
+
+Lets two daemons of one owner share the queue of the same agents, so a second
+machine (a laptop that sleeps daily) adds capacity without stranding work. Design
+and alternatives: `ag-patches/POOLED-DAEMONS-INVESTIGATION.md`, option (b).
+
+- **Pool:** a daemon started with `MULTICA_AG_POOL=<name>` sends `ag_pool` on
+  register; the server stores it in `agent_runtime.metadata.ag_pool` (no
+  migration). Runtimes are **peers** when they are different rows with the same
+  non-empty pool, workspace, owner, provider and profile. Names are
+  `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`; an invalid name fails daemon start, and the
+  server drops one from a hand-made request. Registration rewrites metadata, so a
+  daemon restarted without the variable leaves its pool.
+- **Claim-time binding:** tasks still enqueue on the agent's runtime (its home).
+  A peer may claim them; `ClaimAgentTask` then sets the task's `runtime_id` to the
+  claimer. Lease, cancel, orphan recovery, the offline sweep, the runtime cap,
+  the session-resume gate and usage all key on `runtime_id`, so they stay per
+  machine unchanged.
+- **Fences widened:** `ClaimAgentTask` takes two optional ID arrays (tasks the
+  claimer may take from a peer, tasks held by affinity) computed by
+  `ListAGPoolClaimTasks` in the claim transaction, so its own predicate stays a
+  one-line hook. The urgent-only filter and the runtime freshness/visibility
+  join are keyed by the claimer. Both stale-dispatch reclaims accept a task whose
+  runtime is a peer of its agent's runtime. `claimTask`'s `runtime_mismatch`
+  check and both delivery rechecks in `handler/daemon.go` accept a peer. Peer
+  candidates come from `ListAGPoolClaimCandidates`, appended to both candidate
+  listings (batch and per-runtime) with `runtime_id` set to the claimer.
+- **Re-homing:** every claim poll from a pooled runtime first moves `queued` and
+  `deferred` rows of its pool that sit on a peer back to their agent's runtime
+  (`RehomeAGPoolPendingTasks`). That covers anything requeued from a claimed
+  task. Since `v0.11.0` upstream stamps a retry with the agent's own runtime
+  (#10788), so the `runtime_offline` retry of a run stranded on a closed laptop
+  already lands on the home machine without the sweep. One sweep in the claim
+  path instead of hooks in each requeue path.
+- **Affinity:** a peer skips a queued issue task younger than 3 minutes while the
+  agent's last finished run on that issue ran on another peer that finished
+  within 60 minutes (the Claude resume window), is online and fresh, is not
+  draining (`ag_drain`) and is below its runtime cap. Otherwise any peer claims it.
+- **Wakeups:** `notifyRuntimeMayHaveWork` also bumps the empty-claim key and
+  sends the wakeup to the runtime's peers. A pooled runtime's empty claim is not
+  cached (`MarkEmpty`), as work on a peer or an affinity expiry does not bump its
+  key.
+- **Across machines:** the session-resume gate compares the prior run's runtime,
+  so a peer starts a fresh session (fails safe). `PriorWorkDir` from the other
+  machine is passed through; the daemon reuses it only if it exists locally
+  with this agent's and issue's markers, so a foreign path is ignored.
+- **Pinned agents:** an agent whose `runtime_config` has `"ag_pool_pinned": true`
+  (JSON `true` only) is out of the pool, for agents that must run on one machine
+  (a macOS sysadmin on the laptop, a Linux one on the server). Only its own
+  runtime claims its tasks, as upstream; the runtime stays pooled for every other
+  agent. `ListAGPoolClaimCandidates` skips its tasks, `ListAGPoolClaimTasks`
+  returns no rows for it (nothing via the pool, nothing held for a peer, so its
+  home claims at once), and `agPoolClaimAllowed` refuses it, so `claimTask`
+  reports `runtime_mismatch` for a peer's stale candidate. Re-homing still moves
+  its stray pending rows home. A run a peer already claimed before the pin
+  finishes there (delivery rechecks and stale-dispatch reclaims are unchanged).
+  Set it with `multica agent update <agent> --ag-pool-pinned` (`=false`
+  unpins); the flag merges the key into the agent's current `runtime_config`,
+  which the server otherwise replaces wholesale. Stored in `runtime_config`
+  rather than a column: no migration, no change to the generated `Agent` row
+  type or upstream's agent queries, and the API round-trips the key untouched
+  (the web UI only edits `runtime_config` for OpenClaw agents).
+- **Without a pool** the behaviour is upstream's: `ListAGPooledRuntimeIDs`
+  returns nothing, the pool arrays are NULL and every hook short-circuits. The
+  only extra cost is one peer lookup by primary key per
+  `notifyRuntimeMayHaveWork`.
+- **Claude pacing across the pool:** pool peers usually share one Claude
+  account, and each daemon's pacer ("Claude pacing" above) divided the
+  account's du/dt by its own runs only, so each overstated the burn per run by
+  about pool runs / local runs and capped itself too low. Now the heartbeat ack
+  of a pooled Claude runtime carries `ag_pool_pace`: `peer_active` (dispatched
+  and running tasks on its peers), `peer_slots` and `slots` (per runtime the
+  lower of the daemon's reported `ag_quota.max` and the runtime cap, 0 while
+  draining) and `lead`. The server computes it in the heartbeat it already
+  handles (`ListAGPoolPaceRuntimes`, one query, only when the heartbeat carries
+  an `ag_quota` report; on HTTP a runtime outside a pool skips it from the
+  loaded row). The daemon then:
+  - adds `peer_active` to the active runs its burn divides by, so b is the
+    burn per run pool-wide and n, the runs the account can afford, is pool-wide;
+  - takes w = slots / (slots + peer_slots) of n: floor(n * w). The lead (the
+    runtime with the most slots, the lowest ID on a tie) takes what the others'
+    floors leave, floor(n) - floor(n * (1 - w)). With the same n on every
+    daemon the caps add up to floor(n), what one pacer would allow, and never
+    more; the floor of 1 per daemon is the only excess. Each daemon estimates n
+    itself from the shared utilisation, so the estimates agree to within
+    sampling noise. A shared budget (target - pool active + local active) was
+    rejected: two daemons claiming in the same heartbeat interval both see the
+    same room and overshoot. Plain proportional floors were rejected too: they
+    lose up to one run per daemon (n = 4.9 split 2:3 gives 1 + 2).
+  - Only the share is new in the maths; the knee, the weekly curve, the 10-minute
+    step, the floor of 1 and the handoff predecessor's runs (local, since a
+    successor shares its predecessor's runtimes) are unchanged. Below the knee
+    or under the curve each daemon still runs its full max.
+  - `/health` (and `daemon status --output json`) adds `ag_quota.pool_active_claude`
+    (local plus peer runs), `pool_share` and `pool_lead`; absent outside a pool or
+    without fresh pool data. `active_claude` stays local, as a handoff successor
+    reads it.
+  - Worked example (2026-11-09): u = 0.21 weekly, working hours Mon-Fri
+    08:00-19:00, Monday 15:05 with the reset Saturday 06:00, so 47.9 of 55
+    working hours are left; Bastion 2 slots, the laptop 3, one run each, and
+    the account rising 1% an hour. Alone, each divides 0.01 by 1 run:
+    n = 0.76 / (47.9 * 0.01) = 1.59, cap 1 each. Pool-aware, b = 0.005 and
+    n = 3.17 pool runs: Bastion floor(3.17 * 0.4) = 1, the laptop (lead)
+    floor(3.17 - floor(1.27)) = 2, 3 together, as one pacer would allow.
+    (`TestAGPatchRuntimePoolPaceWorkedExample`.)
+  - Same account: peers are assumed to share it unless their weekly resets
+    differ. The server compares the `seven_day.resets_at` of this runtime's
+    report with each peer's stored report and leaves out a peer more than 2
+    minutes off (Anthropic reports the reset per account); when either side
+    has none yet the peer counts. A peer's runs on an agent's own
+    `CLAUDE_CONFIG_DIR` count against the shared account (the server cannot
+    tell them apart), which only makes the pacer more conservative.
+  - Stale peers: only peers that are `online` with a heartbeat within the
+    claim freshness window (150 s) count, so a closed laptop drops out within
+    about 2.5 minutes even while its tasks sit in `running` through the
+    reconnect grace. The daemon drops a runtime's pool data on an ack without
+    it and ignores data older than 2 minutes (acks stopped); both fall back to
+    local runs, the conservative side. Residual risk: a laptop that keeps
+    heartbeating while its runs hang still counts them, so Bastion's burn
+    estimate is low for as long as the hung runs last (until the running
+    timeout), and its cap can be too high by the hung runs' share; the next
+    utilisation samples pull the burn back up. With several pooled Claude
+    runtimes (one per workspace) the daemon sums their peers and leads only if
+    every runtime does.
+  - Mixed versions: an old server sends no `ag_pool_pace` and a new daemon
+    paces on local runs, as before; an old daemon ignores the field. Deploy
+    order does not matter.
+- Not covered: taper (the per-runtime cap is the lever, set by tooling); a task
+  dispatched to a peer that later leaves the pool is recovered as before by the
+  peer's lease or offline sweep.
+- Deploy: set `MULTICA_AG_POOL` to the same name on both daemons (same owner,
+  same workspace, same provider and profile). A longer
+  `MULTICA_RUNTIME_RECONNECT_GRACE` on the server (20 to 30 minutes) keeps a
+  sleeping laptop's runtime from being torn down between lid closes.
+- Test prefix: `TestAGPatchRuntimePool` / `AG patch:` (incl.
+  `TestAGPatchRuntimePoolPace*`). The `agpool`, CLI and daemon ones run in
+  `ag-patches/test.sh`; the service and handler ones need Postgres
+  (`ag-patches/test-go-full.sh`).
+- Files:
+  - `server/internal/agpool/` (new: `agpool.go`, `agpool_test.go`; `Pinned`,
+    `SetPinned`, `InMetadata`; `pace.go`, `pace_test.go`: `Pace`)
+  - `server/pkg/protocol/ag_runtime_pool.go` (new: `AGPoolPace`); `messages.go`
+    (hook: `AGPoolPace` on the heartbeat ack)
+  - `server/cmd/multica/ag_agent_pool_pin.go`, `ag_agent_pool_pin_test.go` (new:
+    `--ag-pool-pinned` on `agent update`); `cmd_agent.go` (hook: one call in
+    `runAgentUpdate`)
+  - `server/pkg/db/queries/ag_runtime_pool.sql`,
+    `server/pkg/db/generated/ag_runtime_pool.sql.go` (new)
+  - `server/pkg/db/queries/agent.sql`, `server/pkg/db/generated/agent.sql.go`
+    (hooks: `ClaimAgentTask` binding, peer arrays and claimer-keyed joins; the
+    two stale-dispatch reclaim fences; regenerated)
+  - `server/internal/service/ag_runtime_pool.go`, `ag_runtime_pool_test.go` (new);
+    `task.go` (hooks: re-home and pooled set at the start of both claim paths,
+    peer candidates, `runtime_mismatch`, `ClaimAgentTask` arguments, `MarkEmpty`
+    guards, peer wakeups)
+  - `server/internal/handler/ag_runtime_pool.go`, `ag_runtime_pool_test.go` (new);
+    `daemon.go` (hooks: register field and metadata, two delivery rechecks,
+    `ag_pool_pace` on the HTTP and WebSocket heartbeat acks)
+  - `server/internal/daemon/ag_runtime_pool.go`, `ag_runtime_pool_test.go`,
+    `ag_runtime_pool_pace_test.go` (new);
+    `config.go` (`AGPool` and the env read), `daemon.go` (two register hooks,
+    the ack hook in `handleHeartbeatActions`), `ag_quota_pace.go` (pacing
+    patch: the `pool` state field, peers in `agPaceAccrueLocked`, local-only
+    `active` in `agPaceEvaluate`, `Share`/`Lead` on `agPaceWin` applied in
+    `agPaceRuns`, the share hook, the `/health` pool fields)
+
+- **Upstream**
+  - Status: `fork-only`.
+  - Overlap: none found (searched 2026-11-09).
+  - Fit: upstream binds an agent to one runtime; sharing a queue across one
+    owner's machines serves our two-machine setup only.
 
 ## Tooling (not a patch)
 
