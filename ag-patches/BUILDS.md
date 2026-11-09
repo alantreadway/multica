@@ -82,6 +82,9 @@ Newest first:
 | `ag/v0.8.1-ag.1` | `e1d5132a17f5caf8fdaa8cd2fc58917cebcaecef` | `multica-web-ag:v0.8.1-ag.1` | `multica-backend-ag:v0.8.1-ag.1` | `dist/multica-v0.8.1-ag.1-darwin-arm64` | 2026-11-09 |
 | `ag/v0.8.1-ag.2` | `ee415d2b51a61537c4bd1e1b1d9a5ccc2ea6cd1a` | `multica-web-ag:v0.8.1-ag.2` | `multica-backend-ag:v0.8.1-ag.2` | `dist/multica-v0.8.1-ag.2-darwin-arm64` | 2026-11-09 |
 | `ag/v0.8.1-ag.3` | `6a445491a74efde22b8568bdd0e896750980c3af` | `multica-web-ag:v0.8.1-ag.3` | `multica-backend-ag:v0.8.1-ag.3` | `dist/multica-v0.8.1-ag.3-darwin-arm64` | 2026-11-09 |
+| (untagged) | `7e4c5c78c` | `multica-web-ag:v0.8.1-ag.4` | `multica-backend-ag:v0.8.1-ag.4` | — | 2026-11-09 |
+| (untagged) | `7e4c5c78c6a2a784865106910a9841bbcbb7364d` | `multica-web-ag:v0.8.1-ag.5` | `multica-backend-ag:v0.8.1-ag.5` | — | 2026-11-09 |
+| `ag/v0.8.1-ag.6` | `d72e02a70b304a5b67ad34baecefb45237cd3dbe` | `multica-web-ag:v0.8.1-ag.6` | `multica-backend-ag:v0.8.1-ag.6` | `dist/multica-v0.8.1-ag.6-darwin-arm64` | 2026-11-09 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
@@ -93,6 +96,11 @@ retired Mac stack. A note below says only what the script does not.
 Notes, newest first. Notes for builds before `v0.7.0` are in git history
 (`git log -p -- ag-patches/PATCHES.md`).
 
+- **`v0.8.1-ag.4`, `v0.8.1-ag.5`**: deployed from a parallel session (Overview dashboard fixup `7e4c5c78c`)
+  without a tag or a row here. The `ag/v0.8.1-ag.4` tag points at `d72e02a70`, not at what ran as ag.4.
+  Lesson: check Bastion's pin (`deployed_version`) and `docker images` before choosing a version number.
+- **`v0.8.1-ag.6`**: pool-aware Claude pacing (#48). Applied by a detached script on Bastion
+  (`/tmp/ag6-apply.sh`, log `/tmp/ag6-apply.log`) so the laptop could disconnect mid-drain.
 - **`v0.8.1-ag.3`**: per-agent pool pin (#47, `multica-ag agent update <agent>
   --ag-pool-pinned`). Mac Sysadmin is pinned to the laptop's Claude runtime and a
   new Linux Sysadmin to Bastion's. The apply's drain waited on a long Builder run;
