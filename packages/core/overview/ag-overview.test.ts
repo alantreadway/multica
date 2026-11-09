@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import {
+  agOverviewBoardColumns,
   agOverviewGrowth,
   agOverviewOpenUnits,
   agOverviewStages,
@@ -218,6 +219,23 @@ describe("AG patch: overview helpers", () => {
       ],
     };
     expect(agOverviewOpenUnits(wave).map((u) => u.id)).toEqual(["e", "d", "b", "a"]);
+  });
+
+  it("merges every unit's stages into one ordered set of board columns", () => {
+    expect(
+      agOverviewBoardColumns([
+        unit({ flow: ["review"] }),
+        unit({ flow: ["tests", "review"] }),
+        unit({ flow: ["bench", "tests", "review"] }),
+      ]),
+    ).toEqual(["build", "bench", "tests", "review", "merge"]);
+    expect(agOverviewBoardColumns([unit({ flow: ["docs"] }), unit({ flow: ["review"] })])).toEqual([
+      "build",
+      "review",
+      "docs",
+      "merge",
+    ]);
+    expect(agOverviewBoardColumns([])).toEqual([]);
   });
 
   it("rounds growth to one decimal", () => {

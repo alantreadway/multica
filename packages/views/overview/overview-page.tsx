@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
@@ -67,6 +67,10 @@ export function OverviewPage() {
   const { data, isPending, isError } = useQuery(agOverviewOptions(wsId));
   const unpin = useDeleteAGOverviewPin(wsId);
   const [clock, setClock] = useState(() => Date.now());
+  const runningIssueIds = useMemo(
+    () => new Set(data?.now.running.flatMap((task) => (task.issue ? [task.issue.id] : [])) ?? []),
+    [data],
+  );
 
   useEffect(() => {
     const timer = setInterval(() => setClock(Date.now()), CLOCK_TICK_MS);
@@ -114,6 +118,7 @@ export function OverviewPage() {
                     key={tree.pin.id}
                     tree={tree}
                     clock={clock}
+                    runningIssueIds={runningIssueIds}
                     unpinning={unpin.isPending && unpin.variables === tree.pin.id}
                     onUnpin={() => unpin.mutate(tree.pin.id)}
                   />

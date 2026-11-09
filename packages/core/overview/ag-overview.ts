@@ -447,6 +447,28 @@ export function agOverviewStages(unit: Pick<AGOverviewUnit, "status" | "prevStat
   }));
 }
 
+/**
+ * The stage columns for a board of units: build first, merge last, and every
+ * flow step in between in the order the units run them. A unit without a step
+ * leaves that column empty.
+ */
+export function agOverviewBoardColumns(units: Pick<AGOverviewUnit, "status" | "prevStatus" | "flow" | "reviewRound">[]): string[] {
+  const columns: string[] = [];
+  for (const unit of units) {
+    let at = -1;
+    for (const { name } of agOverviewStages(unit)) {
+      const found = columns.indexOf(name);
+      if (found >= 0) {
+        at = Math.max(at, found);
+      } else {
+        at += 1;
+        columns.splice(at, 0, name);
+      }
+    }
+  }
+  return columns;
+}
+
 /** Units still to finish, in the order the page lists them: the most stuck first. */
 const STATUS_ORDER = ["blocked", "handoff", "in_review", "in_progress", "todo", "backlog"];
 
