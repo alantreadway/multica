@@ -233,7 +233,8 @@ Each machine has its own `claude auth login`.
   the p90 before choosing the times:
   `SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY completed_at - started_at)
   FROM agent_task_queue WHERE status='completed' AND started_at > now() - interval '14 days';`
-  (not run).
+  Run on 2026-11-09: 21.6 min over 1,894 runs (p95 30 min). `taper.sh` uses 25
+  (see README.md, "Laptop taper").
 - **Default schedule (if p90 is about 45 min and you leave at 17:30):**
   - cap 3 until 16:00
   - 2 at 16:00
