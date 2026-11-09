@@ -213,14 +213,14 @@ in the shared queue for Bastion.
 
 Each machine has its own `claude auth login`.
 
-- **Same Anthropic account on both machines:** each pacer reads the account-wide
-  utilisation but divides the burn by its **local** run count
-  (`ag_quota_pace.go:9-12`, `sample()` at `:259`). Each daemon therefore
-  overestimates the per-run burn and allows itself roughly its share of the total.
-  Combined use stays at or under target, but the result is conservative and each
-  machine keeps a floor of 1 run. Acceptable; revisit only if pacing visibly
-  starves the laptop.
-- **Different accounts:** the two machines pace independently and correctly.
+- **Same Anthropic account on both machines:** pool-aware pacing (fixup to the
+  runtime pool patch, PR #48). The heartbeat reply carries the active runs and
+  slots of online pool peers on the same account, so each pacer divides the
+  account-wide burn by pool-wide runs and takes its slot-weighted share of the
+  pool's run budget. Together the machines allow what one pacer would, plus the
+  floor of 1 per machine. See PATCHES.md, "Runtime pool across daemons".
+- **Different accounts:** detected by differing weekly reset times; the two
+  machines then pace independently and correctly.
 - **Backup failover:** per machine (see §2).
 
 ## 4. Taper design
