@@ -253,6 +253,9 @@
     "done_waves": "Hechas: {{list}}",
     "done_wave_one": "{{id}} ({{count}} tarea, {{days}} d)",
     "done_wave_other": "{{id}} ({{count}} tareas, {{days}} d)",
+    "show_closed_one": "Mostrar {{count}} tarea cerrada",
+    "show_closed_other": "Mostrar {{count}} tareas cerradas",
+    "hide_closed": "Ocultar tareas cerradas",
     "age": {
       "minutes": "{{count}} min",
       "hours": "{{count}} h",
@@ -265,7 +268,8 @@
       "in_review": "En revisión",
       "handoff": "Traspaso",
       "blocked": "Bloqueada",
-      "done": "Hecha"
+      "done": "Hecha",
+      "cancelled": "Cancelada"
     },
     "pin_placeholder": "Clave de JIRA o MAG-n",
     "pin": "Fijar",

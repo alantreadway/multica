@@ -36,6 +36,8 @@ export function useStatusLabel() {
         return t(($) => $.overview.status.blocked);
       case "done":
         return t(($) => $.overview.status.done);
+      case "cancelled":
+        return t(($) => $.overview.status.cancelled);
       default:
         // A workspace can add statuses.
         return status.replace(/_/g, " ");

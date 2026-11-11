@@ -1,11 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { AlertTriangle, CheckCircle2, X, XCircle } from "@multica/ui/icons";
 import {
   agOverviewBoardColumns,
   agOverviewGrowth,
   agOverviewOpenUnits,
+  agOverviewOutline,
   agOverviewStages,
+  isAGOverviewClosed,
+  type AGOverviewNode,
+  type AGOverviewOutlineRow,
   type AGOverviewTree,
   type AGOverviewUnit,
   type AGOverviewWave,
@@ -17,8 +22,9 @@ import { useAge, useDateRange, useStatusLabel, useWaitingOnLabel } from "./overv
 import { Chip, IssueRefButton } from "./overview-now";
 import { OwnerDot, ownerOutline, ownerTone, sortByOwner } from "./overview-owner";
 
-// AG patch: Overview dashboard, one pinned work tree: known scope (a stage board
-// of open units, ETA for known units only) beside the facts that say more is coming.
+// AG patch: Overview dashboard, one pinned work tree: known scope (each open wave
+// as an outline of its issues, units on a stage board, ETA for known units only)
+// beside the facts that say more is coming.
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -75,54 +81,80 @@ function PRCell({ unit }: { unit: AGOverviewUnit }) {
   );
 }
 
+/** An issue with no stages to show: one that is not a unit, or one that is closed. */
+function StatusCell({ node, span }: { node: AGOverviewNode; span: number }) {
+  const status = useStatusLabel();
+  const waitingLabel = useWaitingOnLabel();
+  const holder = isAGOverviewClosed(node.status) ? null : node.waitingOn;
+  return (
+    <td colSpan={span} className="px-1 py-1 text-caption text-muted-foreground">
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap" title={holder ? waitingLabel(holder) : undefined}>
+        {holder && <OwnerDot tone={ownerTone(holder)} />}
+        {status(node.status)}
+        {holder && <span className="sr-only">{waitingLabel(holder)}</span>}
+      </span>
+    </td>
+  );
+}
+
+const INDENT_REM = 0.875;
+const MAX_INDENT = 6;
+
 function BoardRow({
-  unit,
+  row,
   columns,
   running,
   clock,
 }: {
-  unit: AGOverviewUnit;
+  row: AGOverviewOutlineRow;
   columns: string[];
   running: boolean;
   clock: number;
 }) {
   const { t } = useT("ag");
-  const stages = new Map(agOverviewStages(unit).map((stage) => [stage.name, stage]));
-  const waiting = unit.status === "backlog" || unit.status === "todo";
+  const { node, unit, depth } = row;
+  const closed = isAGOverviewClosed(node.status);
+  const staged = unit && !closed ? unit : null;
+  const stages = new Map(staged ? agOverviewStages(staged).map((stage) => [stage.name, stage]) : []);
+  const waiting = node.status === "backlog" || node.status === "todo";
   return (
     <tr className="border-t align-middle">
       <td className="py-1 pr-2">
-        <IssueRefButton issue={unit} />
+        <IssueRefButton issue={node} />
       </td>
-      <td className="max-w-0 py-1 pr-3">
-        <span className="block truncate" title={unit.title}>
-          {unit.title}
+      <td className="max-w-0 py-1 pr-3" style={{ paddingLeft: `${Math.min(depth, MAX_INDENT) * INDENT_REM}rem` }}>
+        <span className={cn("block truncate", closed && "text-muted-foreground")} title={node.title}>
+          {node.title}
         </span>
       </td>
-      {columns.map((name, i) => {
-        const stage = stages.get(name);
-        const current = stage?.state === "current" || (waiting && i === 0);
-        return (
-          <td key={name} className="px-1 py-1">
-            {current ? (
-              <StageToken unit={unit} running={running} clock={clock} />
-            ) : stage?.state === "done" ? (
-              <span className="block h-0.5 rounded-full bg-muted-foreground/40">
-                <span className="sr-only">{t(($) => $.overview.status.done)}</span>
-              </span>
-            ) : null}
-          </td>
-        );
-      })}
-      <td className="py-1 pl-2 text-caption">
-        <PRCell unit={unit} />
-      </td>
+      {staged ? (
+        columns.map((name, i) => {
+          const stage = stages.get(name);
+          const current = stage?.state === "current" || (waiting && i === 0);
+          return (
+            <td key={name} className="px-1 py-1">
+              {current ? (
+                <StageToken unit={staged} running={running} clock={clock} />
+              ) : stage?.state === "done" ? (
+                <span className="block h-0.5 rounded-full bg-muted-foreground/40">
+                  <span className="sr-only">{t(($) => $.overview.status.done)}</span>
+                </span>
+              ) : null}
+            </td>
+          );
+        })
+      ) : (
+        <StatusCell node={node} span={Math.max(columns.length, 1)} />
+      )}
+      <td className="py-1 pl-2 text-caption">{unit && <PRCell unit={unit} />}</td>
     </tr>
   );
 }
 
 function OpenWave({ wave, runningIssueIds, clock }: { wave: AGOverviewWave; runningIssueIds: Set<string>; clock: number }) {
   const { t } = useT("ag");
+  const [showClosed, setShowClosed] = useState(false);
+  const { rows, closed } = agOverviewOutline(wave, showClosed);
   const open = agOverviewOpenUnits(wave);
   const done = wave.units.filter((u) => u.status === "done").length;
   const columns = agOverviewBoardColumns(open);
@@ -140,7 +172,7 @@ function OpenWave({ wave, runningIssueIds, clock }: { wave: AGOverviewWave; runn
           {t(($) => $.overview.units_done, { done, units: wave.units.length })}
         </span>
       </div>
-      {open.length > 0 && (
+      {rows.length > 0 && (
         <div className="overflow-x-auto">
           <table className="mt-2 w-full min-w-[48rem] table-fixed text-label" aria-label={t(($) => $.overview.stages)}>
             <colgroup>
@@ -149,6 +181,7 @@ function OpenWave({ wave, runningIssueIds, clock }: { wave: AGOverviewWave; runn
               {columns.map((name) => (
                 <col key={name} />
               ))}
+              {columns.length === 0 && <col />}
               <col className="w-32" />
             </colgroup>
             <thead>
@@ -165,29 +198,41 @@ function OpenWave({ wave, runningIssueIds, clock }: { wave: AGOverviewWave; runn
                     </th>
                   );
                 })}
+                {columns.length === 0 && <th />}
                 <th scope="col" className="pb-1 pl-2 text-left font-normal">
                   {t(($) => $.overview.pr)}
                 </th>
               </tr>
             </thead>
             <tbody>
-              {open.map((unit) => (
-                <BoardRow key={unit.id} unit={unit} columns={columns} running={runningIssueIds.has(unit.id)} clock={clock} />
+              {rows.map((row) => (
+                <BoardRow key={row.node.id} row={row} columns={columns} running={runningIssueIds.has(row.node.id)} clock={clock} />
               ))}
             </tbody>
           </table>
         </div>
       )}
+      {closed > 0 && (
+        <Button
+          variant="ghost"
+          size="xs"
+          className="mt-1 text-muted-foreground"
+          aria-expanded={showClosed}
+          onClick={() => setShowClosed((shown) => !shown)}
+        >
+          {showClosed ? t(($) => $.overview.hide_closed) : t(($) => $.overview.show_closed, { count: closed })}
+        </Button>
+      )}
     </div>
   );
 }
 
-/** The holders present on this tree's open units, so colour is never the only label. */
-function OwnerLegend({ units }: { units: AGOverviewUnit[] }) {
+/** The holders present on this tree's open issues, so colour is never the only label. */
+function OwnerLegend({ holders }: { holders: (string | null)[] }) {
   const waitingLabel = useWaitingOnLabel();
   const counts = new Map<string, number>();
-  for (const unit of units) {
-    if (unit.waitingOn) counts.set(unit.waitingOn, (counts.get(unit.waitingOn) ?? 0) + 1);
+  for (const holder of holders) {
+    if (holder) counts.set(holder, (counts.get(holder) ?? 0) + 1);
   }
   if (counts.size === 0) return null;
   return (
@@ -287,7 +332,11 @@ export function OverviewTree({
   const { t } = useT("ag");
   const doneWaves = tree.waves.filter((w) => w.done && w.units.length + w.issueCount > 0);
   const openWaves = tree.waves.filter((w) => !w.done);
-  const openUnits = openWaves.flatMap(agOverviewOpenUnits);
+  const openHolders = openWaves.flatMap((wave) =>
+    agOverviewOutline(wave)
+      .rows.filter((row) => !isAGOverviewClosed(row.node.status))
+      .map((row) => row.unit?.waitingOn ?? row.node.waitingOn),
+  );
   const weeks = tree.startedAt ? Math.floor((clock - new Date(tree.startedAt).getTime()) / (7 * DAY)) : 0;
   const days = tree.startedAt ? Math.floor((clock - new Date(tree.startedAt).getTime()) / DAY) : 0;
   const meta = [
@@ -324,7 +373,7 @@ export function OverviewTree({
           {openWaves.map((wave) => (
             <OpenWave key={wave.root.id} wave={wave} runningIssueIds={runningIssueIds} clock={clock} />
           ))}
-          {(openUnits.length > 0 || doneWaves.length > 0) && (
+          {(openHolders.length > 0 || doneWaves.length > 0) && (
             <footer className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t pt-3">
               {doneWaves.length > 0 ? (
                 <p className="min-w-0 text-caption text-muted-foreground">
@@ -348,7 +397,7 @@ export function OverviewTree({
               ) : (
                 <span />
               )}
-              <OwnerLegend units={openUnits} />
+              <OwnerLegend holders={openHolders} />
             </footer>
           )}
         </>

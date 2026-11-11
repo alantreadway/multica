@@ -65,6 +65,13 @@ export interface AGOverviewUnit extends AGOverviewIssueRef {
   pr: AGOverviewPR | null;
 }
 
+/** One issue below a wave's root, unit or not. A unit's detail is in the wave's `units`. */
+export interface AGOverviewNode extends AGOverviewIssueRef {
+  status: string;
+  parentId: string | null;
+  waitingOn: string | null;
+}
+
 export interface AGOverviewWave {
   root: AGOverviewIssueRef;
   done: boolean;
@@ -72,6 +79,8 @@ export interface AGOverviewWave {
   startedAt: string;
   finishedAt: string | null;
   units: AGOverviewUnit[];
+  /** Every issue below the root of an open wave. Empty for a done wave, and from a server that predates the outline. */
+  issues: AGOverviewNode[];
 }
 
 export type AGOverviewETAHidden = "few_samples" | "no_open_units" | "unknown";
@@ -252,6 +261,28 @@ const unitSchema = z
     }),
   );
 
+const nodeSchema = z
+  .object({
+    id: z.string().min(1),
+    identifier: z.string().catch(""),
+    number: z.number().catch(0),
+    title: z.string().catch(""),
+    status: z.string().catch(""),
+    parent_id: optionalString,
+    waiting_on: optionalString,
+  })
+  .transform(
+    (n): AGOverviewNode => ({
+      id: n.id,
+      identifier: n.identifier || `#${n.number}`,
+      number: n.number,
+      title: n.title,
+      status: n.status,
+      parentId: n.parent_id,
+      waitingOn: n.waiting_on,
+    }),
+  );
+
 const waveSchema = z
   .object({
     root: issueRefSchema,
@@ -260,6 +291,7 @@ const waveSchema = z
     started_at: z.string().catch(""),
     finished_at: optionalString,
     units: itemsOf(unitSchema),
+    issues: itemsOf(nodeSchema),
   })
   .transform(
     (w): AGOverviewWave => ({
@@ -269,6 +301,7 @@ const waveSchema = z
       startedAt: w.started_at,
       finishedAt: w.finished_at,
       units: w.units,
+      issues: w.issues,
     }),
   );
 
@@ -469,17 +502,99 @@ export function agOverviewBoardColumns(units: Pick<AGOverviewUnit, "status" | "p
   return columns;
 }
 
-/** Units still to finish, in the order the page lists them: the most stuck first. */
+/** Work still to finish, in the order the page lists it: the most stuck first. */
 const STATUS_ORDER = ["blocked", "handoff", "in_review", "in_progress", "todo", "backlog"];
 
+const statusRank = (status: string) => {
+  const i = STATUS_ORDER.indexOf(status);
+  return i < 0 ? STATUS_ORDER.length : i;
+};
+
+export const isAGOverviewClosed = (status: string) => status === "done" || status === "cancelled";
+
 export function agOverviewOpenUnits(wave: AGOverviewWave): AGOverviewUnit[] {
-  const rank = (u: AGOverviewUnit) => {
-    const i = STATUS_ORDER.indexOf(u.status);
-    return i < 0 ? STATUS_ORDER.length : i;
-  };
   return wave.units
-    .filter((u) => u.status !== "done" && u.status !== "cancelled")
-    .sort((a, b) => Number(b.ageing) - Number(a.ageing) || rank(a) - rank(b) || a.number - b.number);
+    .filter((u) => !isAGOverviewClosed(u.status))
+    .sort((a, b) => Number(b.ageing) - Number(a.ageing) || statusRank(a.status) - statusRank(b.status) || a.number - b.number);
+}
+
+export interface AGOverviewOutlineRow {
+  node: AGOverviewNode;
+  /** 0 for an issue directly under the wave's root. */
+  depth: number;
+  /** Set when the issue is a unit, so the row can show its stages. */
+  unit: AGOverviewUnit | null;
+}
+
+/**
+ * A wave as an indented outline: every issue under its parent, siblings the
+ * most stuck first. Closed issues stay out unless asked for or something open
+ * sits below them; `closed` counts the ones left out by default. A root that is
+ * itself a unit leads the outline.
+ */
+export function agOverviewOutline(
+  wave: AGOverviewWave,
+  showClosed = false,
+): { rows: AGOverviewOutlineRow[]; closed: number } {
+  const units = new Map(wave.units.map((unit) => [unit.id, unit]));
+  const asNode = (unit: AGOverviewUnit): AGOverviewNode => ({
+    id: unit.id,
+    identifier: unit.identifier,
+    number: unit.number,
+    title: unit.title,
+    status: unit.status,
+    parentId: null,
+    waitingOn: unit.waitingOn,
+  });
+  // Without an outline from the server the units still list, flat.
+  const below = (wave.issues.length > 0 ? wave.issues : wave.units.map(asNode)).filter((node) => node.id !== wave.root.id);
+  const ids = new Set(below.map((node) => node.id));
+  const TOP = "";
+  const children = new Map<string, AGOverviewNode[]>();
+  for (const node of below) {
+    const parent = node.parentId && ids.has(node.parentId) ? node.parentId : TOP;
+    const siblings = children.get(parent);
+    if (siblings) siblings.push(node);
+    else children.set(parent, [node]);
+  }
+  let top = children.get(TOP) ?? [];
+  const rootUnit = units.get(wave.root.id);
+  if (rootUnit) {
+    children.set(rootUnit.id, top);
+    top = [asNode(rootUnit)];
+  }
+
+  const ordered = (nodes: AGOverviewNode[]) =>
+    [...nodes].sort(
+      (a, b) =>
+        Number(units.get(b.id)?.ageing ?? false) - Number(units.get(a.id)?.ageing ?? false) ||
+        statusRank(a.status) - statusRank(b.status) ||
+        a.number - b.number,
+    );
+  const openBelow = new Map<string, boolean>();
+  const hasOpen = (node: AGOverviewNode): boolean => {
+    let open = openBelow.get(node.id);
+    if (open === undefined) {
+      open = !isAGOverviewClosed(node.status) || (children.get(node.id) ?? []).some(hasOpen);
+      openBelow.set(node.id, open);
+    }
+    return open;
+  };
+  const walk = (all: boolean) => {
+    const rows: AGOverviewOutlineRow[] = [];
+    const visit = (nodes: AGOverviewNode[], depth: number) => {
+      for (const node of ordered(nodes)) {
+        if (!all && !hasOpen(node)) continue;
+        rows.push({ node, depth, unit: units.get(node.id) ?? null });
+        visit(children.get(node.id) ?? [], depth + 1);
+      }
+    };
+    visit(top, 0);
+    return rows;
+  };
+  const everything = walk(true);
+  const open = walk(false);
+  return { rows: showClosed ? everything : open, closed: everything.length - open.length };
 }
 
 /** Growth of a past wave after its first day, e.g. 2.1 for 33 issues that ended at 69. */

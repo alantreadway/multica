@@ -242,6 +242,8 @@
     "no_issues": "이 고정 항목에 해당하는 이슈가 아직 없습니다.",
     "done_waves": "완료: {{list}}",
     "done_wave_other": "{{id}} (이슈 {{count}}개, {{days}}일)",
+    "show_closed_other": "닫힌 이슈 {{count}}개 표시",
+    "hide_closed": "닫힌 이슈 숨기기",
     "age": {
       "minutes": "{{count}}분",
       "hours": "{{count}}시간",
@@ -254,7 +256,8 @@
       "in_review": "리뷰 중",
       "handoff": "인계",
       "blocked": "차단됨",
-      "done": "완료"
+      "done": "완료",
+      "cancelled": "취소됨"
     },
     "pin_placeholder": "JIRA 키 또는 MAG-n",
     "pin": "고정",

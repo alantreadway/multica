@@ -109,6 +109,15 @@ type agOverviewUnit struct {
 	PR           *agOverviewPR `json:"pr"`
 }
 
+// agOverviewNode is one issue below a wave's root, unit or not, so the page
+// can draw the wave as an outline. A unit's detail stays in Units.
+type agOverviewNode struct {
+	agOverviewIssueRef
+	Status    string  `json:"status"`
+	ParentID  string  `json:"parent_id"`
+	WaitingOn *string `json:"waiting_on"`
+}
+
 type agOverviewWave struct {
 	Root       agOverviewIssueRef `json:"root"`
 	Done       bool               `json:"done"`
@@ -117,6 +126,9 @@ type agOverviewWave struct {
 	// Last update of any issue in a done wave.
 	FinishedAt *string          `json:"finished_at"`
 	Units      []agOverviewUnit `json:"units"`
+	// Every issue below the root of an open wave. A done wave folds to one
+	// line on the page, so it sends none.
+	Issues []agOverviewNode `json:"issues"`
 }
 
 type agOverviewETAResponse struct {
@@ -306,11 +318,15 @@ func agOverviewBuildTree(rows []db.AGOverviewTreeIssuesRow, in agOverviewTreeInp
 			IssueCount: len(members),
 			StartedAt:  agOverviewTime(rootRow.CreatedAt.Time),
 			Units:      []agOverviewUnit{},
+			Issues:     []agOverviewNode{},
 		}
 		var finished time.Time
 		dayOne := 0
 		for _, row := range members {
 			started = minTime(started, row.CreatedAt.Time)
+			if row.ID != rootRow.ID {
+				wave.Issues = append(wave.Issues, agOverviewBuildNode(row, in))
+			}
 			if !agOverviewClosed(row.Status) {
 				wave.Done = false
 			}
@@ -345,6 +361,7 @@ func agOverviewBuildTree(rows []db.AGOverviewTreeIssuesRow, in agOverviewTreeInp
 			wave.Units = append(wave.Units, agOverviewBuildUnit(row, in))
 		}
 		if wave.Done {
+			wave.Issues = []agOverviewNode{}
 			f := agOverviewTime(finished)
 			wave.FinishedAt = &f
 			if len(members) >= agOverviewMinGrowthWaveIssues {
@@ -364,6 +381,18 @@ func minTime(a, b time.Time) time.Time {
 		return b
 	}
 	return a
+}
+
+func agOverviewBuildNode(row db.AGOverviewTreeIssuesRow, in agOverviewTreeInput) agOverviewNode {
+	node := agOverviewNode{
+		agOverviewIssueRef: agOverviewRef(in.Prefix, row.ID, row.Number, row.Title),
+		Status:             row.Status,
+		ParentID:           uuidToString(row.ParentIssueID),
+	}
+	if w, ok := in.WaitingOn[uuidToString(row.ID)]; ok {
+		node.WaitingOn = &w
+	}
+	return node
 }
 
 func agOverviewBuildUnit(row db.AGOverviewTreeIssuesRow, in agOverviewTreeInput) agOverviewUnit {

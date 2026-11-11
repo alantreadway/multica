@@ -242,6 +242,8 @@
     "no_issues": "尚未找到该固定项的事项。",
     "done_waves": "已完成：{{list}}",
     "done_wave_other": "{{id}}（{{count}} 个事项，{{days}} 天）",
+    "show_closed_other": "显示 {{count}} 个已关闭事项",
+    "hide_closed": "隐藏已关闭事项",
     "age": {
       "minutes": "{{count}}分钟",
       "hours": "{{count}}小时",
@@ -254,7 +256,8 @@
       "in_review": "审核中",
       "handoff": "交接",
       "blocked": "阻塞",
-      "done": "已完成"
+      "done": "已完成",
+      "cancelled": "已取消"
     },
     "pin_placeholder": "JIRA 键或 MAG-n",
     "pin": "固定",

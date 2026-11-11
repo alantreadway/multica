@@ -137,10 +137,14 @@ WHERE ipr.issue_id = ANY(sqlc.arg('issue_ids')::uuid[])
 ORDER BY ipr.issue_id, pr.pr_updated_at DESC;
 
 -- name: AGOverviewOpenDeskCards :many
+-- The cards the Decisions page lists: one whose issue is finished is over.
 SELECT c.id, c.issue_id, c.waiting_on, c.card_type, i.number AS issue_number, i.title AS issue_title
 FROM ag_decision_card c
 LEFT JOIN issue i ON i.id = c.issue_id AND i.workspace_id = c.workspace_id
 WHERE c.workspace_id = $1 AND c.resolved_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM issue f WHERE f.id = c.issue_id AND f.status IN ('done', 'cancelled')
+  )
 ORDER BY c.first_seen_at, c.id;
 
 -- name: AGOverviewActiveTasks :many

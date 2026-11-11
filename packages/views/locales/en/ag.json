@@ -253,6 +253,9 @@
     "done_waves": "Done: {{list}}",
     "done_wave_one": "{{id}} ({{count}} issue, {{days}}d)",
     "done_wave_other": "{{id}} ({{count}} issues, {{days}}d)",
+    "show_closed_one": "Show {{count}} closed issue",
+    "show_closed_other": "Show {{count}} closed issues",
+    "hide_closed": "Hide closed issues",
     "age": {
       "minutes": "{{count}}m",
       "hours": "{{count}}h",
@@ -265,7 +268,8 @@
       "in_review": "In review",
       "handoff": "Handoff",
       "blocked": "Blocked",
-      "done": "Done"
+      "done": "Done",
+      "cancelled": "Cancelled"
     },
     "pin_placeholder": "JIRA key or MAG-n",
     "pin": "Pin",

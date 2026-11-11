@@ -298,6 +298,9 @@ SELECT c.id, c.issue_id, c.waiting_on, c.card_type, i.number AS issue_number, i.
 FROM ag_decision_card c
 LEFT JOIN issue i ON i.id = c.issue_id AND i.workspace_id = c.workspace_id
 WHERE c.workspace_id = $1 AND c.resolved_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM issue f WHERE f.id = c.issue_id AND f.status IN ('done', 'cancelled')
+  )
 ORDER BY c.first_seen_at, c.id
 `
 
@@ -310,6 +313,7 @@ type AGOverviewOpenDeskCardsRow struct {
 	IssueTitle  pgtype.Text `json:"issue_title"`
 }
 
+// The cards the Decisions page lists: one whose issue is finished is over.
 func (q *Queries) AGOverviewOpenDeskCards(ctx context.Context, workspaceID pgtype.UUID) ([]AGOverviewOpenDeskCardsRow, error) {
 	rows, err := q.db.Query(ctx, aGOverviewOpenDeskCards, workspaceID)
 	if err != nil {

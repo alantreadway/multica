@@ -285,6 +285,10 @@ func TestAGPatchOverviewTreesAndNow(t *testing.T) {
 	done := agOverviewIssue(t, "Done unit", "done", `{"unit_flow":"review"}`, root, now.Add(-4*day))
 	agOverviewIssue(t, "Cancelled unit", "cancelled", `{"unit_flow":"review"}`, root, now.Add(-4*day))
 	spike := agOverviewIssue(t, "Spike the options API", "backlog", `{}`, root, now.Add(-4*day))
+	// A sub-task with a unit of its own below it: neither is lost from the outline.
+	group := agOverviewIssue(t, "Test coverage", "in_progress", `{}`, root, now.Add(-2*day))
+	nested := agOverviewIssue(t, "Nested unit", "in_progress", `{"unit_flow":"tests,review"}`, group, now.Add(-2*day))
+	agOverviewStatusChange(t, nested, "todo", "in_progress", now.Add(-10*time.Minute))
 	other := agOverviewIssue(t, "Other epic", "in_progress", `{"jira_key":"AGX-3","unit_flow":"review"}`, root, now.Add(-4*day))
 	agOverviewStatusChange(t, other, "todo", "in_progress", now.Add(-30*time.Minute))
 	otherChild := agOverviewIssue(t, "Other epic child", "todo", `{}`, other, now.Add(-4*day))
@@ -329,33 +333,56 @@ func TestAGPatchOverviewTreesAndNow(t *testing.T) {
 			t.Errorf("AGX-1 holds %s", name)
 		}
 	}
-	if a.IssueCount != 11 {
-		t.Errorf("AGX-1 issues: got %d, want 11", a.IssueCount)
+	if a.IssueCount != 13 {
+		t.Errorf("AGX-1 issues: got %d, want 13", a.IssueCount)
 	}
 	if len(a.Waves) != 3 {
 		t.Fatalf("AGX-1 waves: got %d, want 3", len(a.Waves))
 	}
-	if a.Known.Units != 3 || a.Known.Done != 1 {
-		t.Errorf("known: got %d/%d, want 1/3", a.Known.Done, a.Known.Units)
+	if a.Known.Units != 4 || a.Known.Done != 1 {
+		t.Errorf("known: got %d/%d, want 1/4", a.Known.Done, a.Known.Units)
 	}
-	if !a.Unknown.ScopeOpen || a.Unknown.UnbrokenCount != 1 || a.Unknown.Unbroken[0].ID != spike || a.Unknown.RecentUnits != 1 {
+	if !a.Unknown.ScopeOpen || a.Unknown.UnbrokenCount != 1 || a.Unknown.Unbroken[0].ID != spike || a.Unknown.RecentUnits != 2 {
 		t.Errorf("unknown: %+v", a.Unknown)
 	}
 	if len(a.Unknown.PastGrowth) != 1 || a.Unknown.PastGrowth[0].DayOne != 3 || a.Unknown.PastGrowth[0].Final != 4 {
 		t.Errorf("past growth: %+v", a.Unknown.PastGrowth)
 	}
 	// Review is past every review sample (1h), so it adds its shortest; the
-	// build unit has 3h - 10m left on every sample.
+	// build and nested units have 3h - 10m left on every sample.
 	want := agOverviewTime(now.Add(170 * time.Minute))
 	if a.Known.ETA == nil || a.Known.ETA.P50 != want || a.Known.ETA.P85 != want {
 		t.Errorf("AGX-1 ETA: got %+v, want %s", a.Known.ETA, want)
 	}
 
 	units := map[string]agOverviewUnit{}
+	outline := map[string]agOverviewNode{}
 	for _, w := range a.Waves {
 		for _, u := range w.Units {
 			units[u.ID] = u
 		}
+		if w.Done && len(w.Issues) != 0 {
+			t.Errorf("done wave %s sends an outline: %+v", w.Root.Identifier, w.Issues)
+		}
+		for _, n := range w.Issues {
+			outline[n.ID] = n
+		}
+	}
+	// The open wave lists every issue below its root with its parent, closed ones too.
+	if len(outline) != 7 {
+		t.Errorf("open wave outline: got %d issues, want 7: %+v", len(outline), outline)
+	}
+	if _, ok := outline[root]; ok {
+		t.Errorf("the outline repeats the wave's root")
+	}
+	if g := outline[group]; g.ParentID != root || g.Status != "in_progress" {
+		t.Errorf("group node: %+v", g)
+	}
+	if n := outline[nested]; n.ParentID != group || n.Status != "in_progress" {
+		t.Errorf("nested node: %+v", n)
+	}
+	if s := outline[spike]; s.WaitingOn == nil || *s.WaitingOn != "alan" {
+		t.Errorf("spike node waits on: %+v", s)
 	}
 	r := units[review]
 	if !r.Ageing || r.ReviewRound == nil || *r.ReviewRound != 2 || r.WaitingOn == nil || *r.WaitingOn != "colleague" {
@@ -402,7 +429,7 @@ func TestAGPatchOverviewTreesAndNow(t *testing.T) {
 	var open bool
 	dbfx.QueryRow(t, `SELECT p50_at, known_units, done_units, scope_open FROM ag_overview_forecast
 		WHERE workspace_id = $1 AND kind = 'jira' AND ref = 'AGX-1' AND day = $2`, testWorkspaceID, now.Format(time.DateOnly)).Scan(&p50, &known, &doneUnits, &open)
-	if !p50.Equal(now.Add(170*time.Minute)) || known != 3 || doneUnits != 1 || !open {
+	if !p50.Equal(now.Add(170*time.Minute)) || known != 4 || doneUnits != 1 || !open {
 		t.Errorf("forecast row: %v %d %d %v", p50, known, doneUnits, open)
 	}
 	dbfx.Exec(t, `UPDATE issue SET status = 'done' WHERE id = $1`, build)

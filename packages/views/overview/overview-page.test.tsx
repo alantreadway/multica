@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import {
   EMPTY_AG_OVERVIEW,
   type AGOverview,
+  type AGOverviewNode,
   type AGOverviewTree,
   type AGOverviewUnit,
 } from "@multica/core/overview/ag-overview";
@@ -77,6 +78,7 @@ const tree = (over: Partial<AGOverviewTree> = {}): AGOverviewTree => ({
       issueCount: 6,
       startedAt: ago(24 * 5),
       finishedAt: null,
+      issues: [],
       units: [
         unit(11, { title: "Fix the axis" }),
         unit(12, { status: "blocked", prevStatus: "in_review", ageing: true, waitingOn: "author", inStateSince: ago(30) }),
@@ -214,6 +216,7 @@ describe("OverviewPage", () => {
                 issueCount: 3,
                 startedAt: ago(24 * 5),
                 finishedAt: null,
+                issues: [],
                 units: [
                   unit(11, { flow: ["bench", "review"], reviewRound: 3, waitingOn: "agent", pr: { number: 901, state: "open", checks: "FAILURE", review: null } }),
                   unit(12, { status: "in_review", flow: ["review"], waitingOn: "alan" }),
@@ -243,6 +246,100 @@ describe("OverviewPage", () => {
     const article = screen.getByRole("article", { name: "AG-9003" });
     expect(within(article).getByText("You 1")).toBeTruthy();
     expect(within(article).getByText("Agent 1")).toBeTruthy();
+  });
+
+  it("outlines nested sub-tasks under their parent, units or not, and folds closed ones", async () => {
+    const node = (n: number, parent: number, status: string, waitingOn: string | null = null): AGOverviewNode => ({
+      ...ref(n),
+      status,
+      parentId: `i${parent}`,
+      waitingOn,
+    });
+    renderPage(
+      overview({
+        trees: [
+          tree({
+            waves: [
+              {
+                root: ref(10, "Wave two"),
+                done: false,
+                issueCount: 6,
+                startedAt: ago(24 * 5),
+                finishedAt: null,
+                units: [unit(22, { status: "in_review", waitingOn: "alan" }), unit(24, { status: "done", pr: { number: 77, state: "merged", checks: null, review: null } })],
+                issues: [
+                  node(21, 10, "in_progress", "agent"),
+                  node(22, 21, "in_review", "alan"),
+                  node(23, 21, "todo"),
+                  node(24, 10, "done"),
+                  node(25, 21, "cancelled"),
+                ],
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const board = await screen.findByRole("table", { name: "Stages" });
+    const outline = () =>
+      within(board)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => {
+          const [id, title, ...rest] = within(row).getAllByRole("cell");
+          return [title!.style.paddingLeft, id!.textContent, ...rest.map((cell) => cell.textContent)].join("|");
+        });
+    expect(outline()).toEqual([
+      "0rem|MAG-21|In progressAgent|",
+      "0.875rem|MAG-22|Done|2hYou||",
+      "0.875rem|MAG-23|Todo|",
+    ]);
+
+    const article = screen.getByRole("article", { name: "AG-9003" });
+    expect(within(article).getByText("You 1")).toBeTruthy();
+    expect(within(article).getByText("Agent 1")).toBeTruthy();
+
+    await userEvent.click(within(article).getByRole("button", { name: "Show 2 closed issues" }));
+    expect(outline()).toEqual([
+      "0rem|MAG-21|In progressAgent|",
+      "0.875rem|MAG-22|Done|2hYou||",
+      "0.875rem|MAG-23|Todo|",
+      "0.875rem|MAG-25|Cancelled|",
+      "0rem|MAG-24|Done|#77",
+    ]);
+    await userEvent.click(within(article).getByRole("button", { name: "Hide closed issues" }));
+    expect(outline()).toHaveLength(3);
+  });
+
+  it("outlines a wave that has no units yet", async () => {
+    renderPage(
+      overview({
+        trees: [
+          tree({
+            waves: [
+              {
+                root: ref(10, "Wave two"),
+                done: false,
+                issueCount: 3,
+                startedAt: ago(24 * 5),
+                finishedAt: null,
+                units: [],
+                issues: [
+                  { ...ref(31), status: "todo", parentId: "i10", waitingOn: null },
+                  { ...ref(32), status: "in_progress", parentId: "i31", waitingOn: null },
+                ],
+              },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const [, first, second] = within(await screen.findByRole("table", { name: "Stages" })).getAllByRole("row");
+    const cells = (row: HTMLElement) => within(row).getAllByRole("cell").map((cell) => cell.textContent);
+    expect(cells(first!)).toEqual(["MAG-31", "Issue 31", "Todo", ""]);
+    expect(cells(second!)).toEqual(["MAG-32", "Issue 32", "In progress", ""]);
   });
 
   it("pins a trimmed reference and unpins by id", async () => {

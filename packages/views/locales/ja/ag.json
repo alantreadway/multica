@@ -242,6 +242,8 @@
     "no_issues": "この固定に該当する課題はまだありません。",
     "done_waves": "完了: {{list}}",
     "done_wave_other": "{{id}}({{count}} 件、{{days}} 日)",
+    "show_closed_other": "クローズ済みの課題 {{count}} 件を表示",
+    "hide_closed": "クローズ済みの課題を非表示",
     "age": {
       "minutes": "{{count}}分",
       "hours": "{{count}}時間",
@@ -254,7 +256,8 @@
       "in_review": "レビュー中",
       "handoff": "引き継ぎ",
       "blocked": "ブロック",
-      "done": "完了"
+      "done": "完了",
+      "cancelled": "キャンセル済み"
     },
     "pin_placeholder": "JIRA キーまたは MAG-n",
     "pin": "固定",

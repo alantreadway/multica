@@ -253,6 +253,9 @@
     "done_waves": "Terminé : {{list}}",
     "done_wave_one": "{{id}} ({{count}} ticket, {{days}} j)",
     "done_wave_other": "{{id}} ({{count}} tickets, {{days}} j)",
+    "show_closed_one": "Afficher {{count}} ticket fermé",
+    "show_closed_other": "Afficher {{count}} tickets fermés",
+    "hide_closed": "Masquer les tickets fermés",
     "age": {
       "minutes": "{{count}} min",
       "hours": "{{count}} h",
@@ -265,7 +268,8 @@
       "in_review": "En revue",
       "handoff": "Transfert",
       "blocked": "Bloqué",
-      "done": "Terminé"
+      "done": "Terminé",
+      "cancelled": "Annulé"
     },
     "pin_placeholder": "Clé JIRA ou MAG-n",
     "pin": "Épingler",

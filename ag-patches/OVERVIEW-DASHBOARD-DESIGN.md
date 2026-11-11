@@ -8,7 +8,7 @@ read-only queries on the self-host database on 2026-11-06 (a Friday), about 15:2
 
 Option B: one endpoint, `GET /api/ag/overview`, computes the page in SQL and Go from data the server holds. Task,
 issue and Decision Desk WebSocket events refetch it, at most once every 5 seconds. No engine work. Alan's decisions
-changed it from option B as written in four ways:
+changed it from option B as written in five ways:
 
 1. **The ETA ships in the first cut**, using the per-unit stage method from section 2, as a p50-p85 range. It is
    hidden when any open unit's state has fewer than 20 finished samples, and it is labelled as covering known units
@@ -21,6 +21,9 @@ changed it from option B as written in four ways:
    it there. Pins live in `ag_overview_pin`.
 4. **A forecast log**, `ag_overview_forecast`: one row per pinned tree per day (p50, p85, known and done units, scope
    open), written by the first `GET` of the day, so the ETA can be scored later without a scheduler.
+5. **An open wave is an outline of every issue below its root**, each indented under its parent, not a flat list of
+   units. A unit shows its stage strip and any other issue its status. Done and cancelled issues fold behind a toggle,
+   except a closed parent of open work. Unit counts and the ETA still cover units only.
 
 The `Overview` nav item sits above Inbox on web and desktop. It is not the landing page.
 

@@ -5,11 +5,14 @@ import {
   agOverviewBoardColumns,
   agOverviewGrowth,
   agOverviewOpenUnits,
+  agOverviewOutline,
   agOverviewStages,
   EMPTY_AG_OVERVIEW,
   parseAGOverview,
   parseAGOverviewPin,
+  type AGOverviewNode,
   type AGOverviewUnit,
+  type AGOverviewWave,
 } from "./ag-overview";
 import { AG_OVERVIEW_REFRESH_MS, agOverviewKeys, subscribeAGOverview } from "./ag-overview-queries";
 import type { WSClient } from "../api/ws-client";
@@ -67,8 +70,19 @@ const rawOverview = () => ({
         past_growth: [{ root: ref(22), day_one: 33, final: 69 }],
       },
       waves: [
-        { root: ref(950), done: false, issue_count: 9, started_at: "2026-11-04T09:00:00Z", finished_at: null, units: [rawUnit()] },
-        { root: ref(22), done: true, issue_count: 69, started_at: "2026-10-01T09:00:00Z", finished_at: "2026-10-12T09:00:00Z", units: [] },
+        {
+          root: ref(950),
+          done: false,
+          issue_count: 9,
+          started_at: "2026-11-04T09:00:00Z",
+          finished_at: null,
+          units: [rawUnit()],
+          issues: [
+            { ...ref(960), status: "in_progress", parent_id: "i950", waiting_on: "agent" },
+            { ...ref(977), status: "in_review", parent_id: "i960", waiting_on: "colleague" },
+          ],
+        },
+        { root: ref(22), done: true, issue_count: 69, started_at: "2026-10-01T09:00:00Z", finished_at: "2026-10-12T09:00:00Z", units: [], issues: [] },
       ],
     },
   ],
@@ -93,6 +107,20 @@ describe("AG patch: parseAGOverview", () => {
     expect(tree.unknown).toMatchObject({ scopeOpen: true, unbrokenCount: 1, recentUnits: 2, recentDays: 3 });
     expect(tree.unknown.pastGrowth[0]).toEqual({ root: ref(22), dayOne: 33, final: 69 });
     expect(tree.waves[0]?.units[0]).toMatchObject({ identifier: "MAG-977", reviewRound: 2, pr: { number: 8984 } });
+    expect(tree.waves[0]?.issues).toEqual([
+      { ...ref(960), status: "in_progress", parentId: "i950", waitingOn: "agent" },
+      { ...ref(977), status: "in_review", parentId: "i960", waitingOn: "colleague" },
+    ]);
+  });
+
+  it("reads a wave from a server that sends no outline", () => {
+    const raw = rawOverview();
+    delete (raw.trees[0]!.waves[0] as Record<string, unknown>).issues;
+    raw.trees[0]!.waves[1]!.issues = [{ title: "no id" }, { ...ref(23), parent_id: 7 }] as never;
+    const waves = parseAGOverview(raw).trees[0]!.waves;
+    expect(waves[0]!.issues).toEqual([]);
+    expect(waves[0]!.units).toHaveLength(1);
+    expect(waves[1]!.issues).toEqual([{ ...ref(23), status: "", parentId: null, waitingOn: null }]);
   });
 
   it("falls back to empty for a response that is not an object", () => {
@@ -210,6 +238,7 @@ describe("AG patch: overview helpers", () => {
       issueCount: 6,
       startedAt: "",
       finishedAt: null,
+      issues: [],
       units: [
         unit({ id: "a", number: 5, status: "backlog" }),
         unit({ id: "b", number: 4, status: "in_progress" }),
@@ -219,6 +248,63 @@ describe("AG patch: overview helpers", () => {
       ],
     };
     expect(agOverviewOpenUnits(wave).map((u) => u.id)).toEqual(["e", "d", "b", "a"]);
+  });
+
+  const node = (n: number, parent: number | null, status = "in_progress"): AGOverviewNode => ({
+    ...ref(n),
+    status,
+    parentId: parent === null ? null : `i${parent}`,
+    waitingOn: null,
+  });
+  const wave = (over: Partial<AGOverviewWave>): AGOverviewWave => ({
+    root: ref(950),
+    done: false,
+    issueCount: 0,
+    startedAt: "",
+    finishedAt: null,
+    units: [],
+    issues: [],
+    ...over,
+  });
+  const outlined = (w: AGOverviewWave, showClosed = false) => {
+    const { rows, closed } = agOverviewOutline(w, showClosed);
+    return { rows: rows.map((r) => `${"  ".repeat(r.depth)}${r.node.number}${r.unit ? "*" : ""}`), closed };
+  };
+
+  it("outlines a wave with every issue under its parent, units marked, the most stuck sibling first", () => {
+    const w = wave({
+      units: [unit({ id: "i4", number: 4, status: "todo" }), unit({ id: "i6", number: 6, status: "in_progress", ageing: true })],
+      issues: [
+        node(2, 950, "todo"),
+        node(3, 950, "in_progress"),
+        node(4, 3, "todo"),
+        node(5, 3, "blocked"),
+        node(6, 2),
+        node(7, 950, "done"),
+      ],
+    });
+    expect(outlined(w)).toEqual({ rows: ["3", "  5", "  4*", "2", "  6*"], closed: 1 });
+  });
+
+  it("keeps closed issues out until asked, except a closed parent of open work", () => {
+    const w = wave({
+      units: [unit({ id: "i5", number: 5, status: "done" })],
+      issues: [node(2, 950, "done"), node(3, 2, "todo"), node(4, 2, "cancelled"), node(5, 950, "done"), node(6, 5, "done")],
+    });
+    expect(outlined(w)).toEqual({ rows: ["2", "  3"], closed: 3 });
+    expect(outlined(w, true)).toEqual({ rows: ["2", "  3", "  4", "5*", "  6"], closed: 3 });
+  });
+
+  it("leads the outline with a root that is itself a unit", () => {
+    const root = unit({ ...ref(950), status: "in_review" });
+    expect(outlined(wave({ units: [root], issues: [node(2, 950, "todo")] })).rows).toEqual(["950*", "  2"]);
+    expect(outlined(wave({ units: [root] })).rows).toEqual(["950*"]);
+  });
+
+  it("lists units flat without an outline, and tops an issue whose parent is missing", () => {
+    const units = [unit({ id: "i5", number: 5, status: "backlog" }), unit({ id: "i4", number: 4, status: "in_review" }), unit({ id: "i3", number: 3, status: "done" })];
+    expect(outlined(wave({ units }))).toEqual({ rows: ["4*", "5*"], closed: 1 });
+    expect(outlined(wave({ issues: [node(2, 999), node(3, 2)] })).rows).toEqual(["2", "  3"]);
   });
 
   it("merges every unit's stages into one ordered set of board columns", () => {
