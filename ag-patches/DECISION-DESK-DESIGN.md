@@ -276,8 +276,9 @@ Two design choices remove the fork's main weaknesses:
 | Strings | The `ag` namespace in 6 locales, page chrome only. Card text comes from the engine in English |
 | Docs | `ag-patches/PATCHES.md`, as the 25th patch |
 
-Clicking an issue reference opens the existing issue peek, so the diff links, comments and history stay one
-click away.
+The detail pane shows the card's summary above the issue itself (the shared `IssueDetail`, as Inbox embeds it), so
+the comments and history are on the page. The engine names the comment to open at in `content.focus_comment_id`.
+A card with no issue shows its summary alone.
 
 ### Data model
 
@@ -313,6 +314,11 @@ and `POST /records`; phase 2 adds the intent routes.
 
 - **One-tap state:** the page shows `Queued`, then `Working`, then the result on the card. The card is removed
   only once the server says the action succeeded, and a failure stays visible with a retry.
+- **A finished issue has no card.** The list and the count leave out a card whose issue is `done` or `cancelled`,
+  and the page refetches on an issue's status change. Closing the issue in the embedded view clears the card at
+  once, where the engine's next pass could be six minutes away.
+- **Actions say what they do.** The engine sends an `effect` sentence with each action, and the page lists them
+  under the buttons by key.
 - **Stale intents never run.** An intent expires if unclaimed after 15 min, so a sleeping Mac cannot merge
   something hours later. The worker refuses a `card_revision` or head that no longer matches.
 - **Engine heartbeat:** the page shows "Last updated N min ago" and warns once the engine has been silent past

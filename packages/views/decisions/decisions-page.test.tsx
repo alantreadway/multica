@@ -13,7 +13,6 @@ import enAg from "../locales/en/ag.json";
 import enLayout from "../locales/en/layout.json";
 
 const mockList = vi.hoisted(() => vi.fn());
-const mockOpen = vi.hoisted(() => vi.fn());
 const mockCreate = vi.hoisted(() => vi.fn());
 const mockCancel = vi.hoisted(() => vi.fn());
 
@@ -24,8 +23,10 @@ vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "ws-1" }));
 vi.mock("../issues/components/issue-peek", () => ({
   IssuePeekHost: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
-vi.mock("../issues/surface/peek-context", () => ({
-  useIssuePeekActions: () => ({ open: mockOpen }),
+vi.mock("../issues/components/issue-detail", () => ({
+  IssueDetail: ({ issueId, highlightCommentId }: { issueId: string; highlightCommentId?: string }) => (
+    <div data-testid="issue" data-issue={issueId} data-comment={highlightCommentId ?? ""} />
+  ),
 }));
 
 import { DecisionsPage } from "./decisions-page";
@@ -51,6 +52,7 @@ const card = (over: Partial<AGDecisionCard>): AGDecisionCard => ({
   actions: [],
   recommendedAction: "",
   overrideReasons: [],
+  focusCommentId: null,
   latestIntent: null,
   ...over,
 });
@@ -62,6 +64,7 @@ const action = (id: string, over: Partial<AGDecisionAction> = {}): AGDecisionAct
   batch: false,
   confirm: "",
   note: null,
+  effect: "",
   ...over,
 });
 const SEEN = new Date().toISOString();
@@ -109,9 +112,9 @@ describe("DecisionsPage", () => {
     expect(screen.queryByText("Fix axis")).toBeNull();
   });
 
-  it("lists a card's summary as separate bullets", async () => {
+  it("lists the summary of a card with no issue as separate bullets", async () => {
     renderPage({ workerSeenAt: recent(), lastSyncAt: recent(),
-      cards: [card({ bullets: ["Ships per-module files", "Raises the target"] })],
+      cards: [card({ issueId: null, bullets: ["Ships per-module files", "Raises the target"] })],
     });
 
     const items = await screen.findAllByRole("listitem");
@@ -131,12 +134,28 @@ describe("DecisionsPage", () => {
     expect(screen.getByText("#8953 by someone: 12 lines").tagName).toBe("P");
   });
 
-  it("opens the issue peek from the card's reference", async () => {
+  it("shows the card's issue under its summary, opened at the comment the card is about", async () => {
+    renderPage({ workerSeenAt: recent(), lastSyncAt: recent(),
+      cards: [card({ lines: ["Status: PR ready"], bullets: ["Restates the description"], focusCommentId: "cm1" })],
+    });
+
+    const issue = await screen.findByTestId("issue");
+    expect(issue.dataset).toMatchObject({ issue: "i1", comment: "cm1" });
+    expect(screen.getByText("PR ready")).toBeTruthy();
+    expect(screen.queryByText("Restates the description")).toBeNull();
+  });
+
+  it("opens the issue at its own position when the card names no comment", async () => {
     renderPage({ workerSeenAt: recent(), lastSyncAt: recent(), cards: [card({})] });
 
-    await userEvent.click(await screen.findByRole("button", { name: "MAG-1" }));
+    expect((await screen.findByTestId("issue")).dataset.comment).toBe("");
+  });
 
-    expect(mockOpen).toHaveBeenCalledWith("i1");
+  it("shows a card with no issue by its summary alone", async () => {
+    renderPage({ workerSeenAt: recent(), lastSyncAt: recent(), cards: [card({ issueId: null })] });
+
+    expect(await screen.findByRole("heading", { name: "Fix axis" })).toBeTruthy();
+    expect(screen.queryByTestId("issue")).toBeNull();
   });
 
   it("warns when the engine has gone quiet", async () => {
@@ -181,6 +200,18 @@ describe("DecisionsPage", () => {
       renderPage(list([card({ actions: [action("park")] })]));
       await userEvent.click(await screen.findByRole("button", { name: "park" }));
       expect(mockCreate).toHaveBeenCalledWith(...sent({}));
+    });
+
+    it("says what each button does, by its key, and leaves out a button that needs no telling", async () => {
+      renderPage(list([card({
+        actions: [action("close", { label: "Done reviewing", effect: "Marks this item done." }), action("park", { label: "Snooze" })],
+      })]));
+
+      const button = await screen.findByRole("button", { name: /Done reviewing/ });
+      const effect = screen.getByText("Marks this item done.");
+      expect(button.getAttribute("aria-describedby")).toBe(effect.closest("li")?.id);
+      expect(within(effect.closest("ul") as HTMLElement).getAllByRole("listitem")).toHaveLength(1);
+      expect(screen.getByRole("button", { name: /Snooze/ }).getAttribute("aria-describedby")).toBeNull();
     });
 
     it("asks for a second tap when the action has a reason to confirm", async () => {

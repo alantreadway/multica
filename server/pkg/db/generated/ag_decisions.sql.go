@@ -66,8 +66,11 @@ func (q *Queries) ClaimAGDecisionIntent(ctx context.Context, workspaceID pgtype.
 }
 
 const countAGDecisionCardsWaitingOn = `-- name: CountAGDecisionCardsWaitingOn :one
-SELECT count(*) FROM ag_decision_card
-WHERE workspace_id = $1 AND waiting_on = $2 AND resolved_at IS NULL
+SELECT count(*) FROM ag_decision_card c
+WHERE c.workspace_id = $1 AND c.waiting_on = $2 AND c.resolved_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM issue i WHERE i.id = c.issue_id AND i.status IN ('done', 'cancelled')
+  )
 `
 
 type CountAGDecisionCardsWaitingOnParams struct {
@@ -75,6 +78,7 @@ type CountAGDecisionCardsWaitingOnParams struct {
 	WaitingOn   string      `json:"waiting_on"`
 }
 
+// Counts what ListOpenAGDecisionCards lists.
 func (q *Queries) CountAGDecisionCardsWaitingOn(ctx context.Context, arg CountAGDecisionCardsWaitingOnParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countAGDecisionCardsWaitingOn, arg.WorkspaceID, arg.WaitingOn)
 	var count int64
@@ -375,11 +379,16 @@ func (q *Queries) ListLatestAGDecisionIntents(ctx context.Context, workspaceID p
 }
 
 const listOpenAGDecisionCards = `-- name: ListOpenAGDecisionCards :many
-SELECT id, workspace_id, dedupe_key, issue_id, waiting_on, card_type, revision, head_sha, content, first_seen_at, updated_at, resolved_at FROM ag_decision_card
-WHERE workspace_id = $1 AND resolved_at IS NULL
-ORDER BY first_seen_at, id
+SELECT c.id, c.workspace_id, c.dedupe_key, c.issue_id, c.waiting_on, c.card_type, c.revision, c.head_sha, c.content, c.first_seen_at, c.updated_at, c.resolved_at FROM ag_decision_card c
+WHERE c.workspace_id = $1 AND c.resolved_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM issue i WHERE i.id = c.issue_id AND i.status IN ('done', 'cancelled')
+  )
+ORDER BY c.first_seen_at, c.id
 `
 
+// A card whose issue is finished is over at once, without waiting for the
+// engine's next pass to leave it out. Reopening the issue shows it again.
 func (q *Queries) ListOpenAGDecisionCards(ctx context.Context, workspaceID pgtype.UUID) ([]AgDecisionCard, error) {
 	rows, err := q.db.Query(ctx, listOpenAGDecisionCards, workspaceID)
 	if err != nil {

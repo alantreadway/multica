@@ -45,13 +45,22 @@ WHERE workspace_id = sqlc.arg('workspace_id')
   AND NOT (dedupe_key = ANY(sqlc.arg('dedupe_keys')::text[]));
 
 -- name: ListOpenAGDecisionCards :many
-SELECT * FROM ag_decision_card
-WHERE workspace_id = $1 AND resolved_at IS NULL
-ORDER BY first_seen_at, id;
+-- A card whose issue is finished is over at once, without waiting for the
+-- engine's next pass to leave it out. Reopening the issue shows it again.
+SELECT c.* FROM ag_decision_card c
+WHERE c.workspace_id = $1 AND c.resolved_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM issue i WHERE i.id = c.issue_id AND i.status IN ('done', 'cancelled')
+  )
+ORDER BY c.first_seen_at, c.id;
 
 -- name: CountAGDecisionCardsWaitingOn :one
-SELECT count(*) FROM ag_decision_card
-WHERE workspace_id = $1 AND waiting_on = $2 AND resolved_at IS NULL;
+-- Counts what ListOpenAGDecisionCards lists.
+SELECT count(*) FROM ag_decision_card c
+WHERE c.workspace_id = $1 AND c.waiting_on = $2 AND c.resolved_at IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM issue i WHERE i.id = c.issue_id AND i.status IN ('done', 'cancelled')
+  );
 
 -- name: ListIssueIDsInWorkspace :many
 -- Which of these issues belong to the workspace, to validate the engine's references.

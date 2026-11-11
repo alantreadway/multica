@@ -34,6 +34,8 @@ export interface AGDecisionAction {
   confirm: string;
   /** Asks for text first. */
   note: { required: boolean; placeholder: string } | null;
+  /** What the click does, in a sentence, or empty when the label says it all. */
+  effect: string;
 }
 
 export type AGDecisionIntentStatus =
@@ -76,6 +78,8 @@ export interface AGDecisionCard {
   /** The id of the action the engine recommends, when it recommends one it can run. */
   recommendedAction: string;
   overrideReasons: string[];
+  /** The issue comment this card is about, when the engine names one. */
+  focusCommentId: string | null;
   latestIntent: AGDecisionIntent | null;
 }
 
@@ -142,10 +146,12 @@ const contentSchema = z.object({
         .nullable()
         .catch(null)
         .default(null),
+      effect: z.string().catch(""),
     }),
   ),
   recommended_action: z.string().catch(""),
   override_reasons: itemsOf(z.string().min(1)),
+  focus_comment_id: z.string().catch(""),
 });
 
 const INTENT_STATUSES = ["pending", "running", "succeeded", "failed", "refused", "expired", "cancelled"] as const;
@@ -205,6 +211,7 @@ const cardSchema = z
       actions: content.actions,
       recommendedAction: content.recommended_action,
       overrideReasons: content.override_reasons,
+      focusCommentId: content.focus_comment_id || null,
       latestIntent: card.latest_intent,
     };
   });

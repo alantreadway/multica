@@ -252,6 +252,51 @@ func TestAGPatchDecisionCardSnapshot(t *testing.T) {
 	}
 }
 
+func TestAGPatchDecisionCardHiddenOnceItsIssueIsFinished(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	agDecisionsCleanup(t)
+	issueID := dbfx.Issue(t, "Reviewed in the issue view", testutil.Cols{"status": "todo"})
+	other := `{"dedupe_key":"other","waiting_on":"alan","card_type":"bot_pr","content":{"title":"Other"}}`
+	mine := `{"dedupe_key":"mine","issue_id":"` + issueID + `","waiting_on":"alan","card_type":"report","content":{"title":"Mine"}}`
+	if w := agPutCards(t, `{"cards":[`+other+`,`+mine+`]}`); w.Code != http.StatusOK {
+		t.Fatalf("put: %d %s", w.Code, w.Body)
+	}
+	waitingOnAlan := func() int64 {
+		t.Helper()
+		var count struct {
+			Count int64 `json:"count"`
+		}
+		req := newRequestAs(testUserID, http.MethodGet, "/api/ag/decisions/count", nil)
+		testutil.Call(t, testHandler.CountAGDecisions, req).Want(http.StatusOK).JSON(&count)
+		return count.Count
+	}
+	setStatus := func(status string) {
+		t.Helper()
+		if _, err := testPool.Exec(context.Background(), `UPDATE issue SET status = $1 WHERE id = $2`, status, issueID); err != nil {
+			t.Fatalf("set status %s: %v", status, err)
+		}
+	}
+	if got := agListCards(t); len(got.Cards) != 2 || waitingOnAlan() != 2 {
+		t.Fatalf("open issue: %d cards listed, %d counted", len(got.Cards), waitingOnAlan())
+	}
+
+	// Closed outside the page, and the engine has not sent a snapshot since.
+	for _, status := range []string{"done", "cancelled"} {
+		setStatus(status)
+		got := agListCards(t)
+		if len(got.Cards) != 1 || got.Cards[0].DedupeKey != "other" || waitingOnAlan() != 1 {
+			t.Fatalf("%s issue: listed %+v, counted %d", status, got.Cards, waitingOnAlan())
+		}
+	}
+
+	setStatus("todo")
+	if got := agListCards(t); len(got.Cards) != 2 || waitingOnAlan() != 2 {
+		t.Fatalf("reopened issue: %d cards listed, %d counted", len(got.Cards), waitingOnAlan())
+	}
+}
+
 func TestAGPatchDecisionCardRejectsForeignIssue(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")

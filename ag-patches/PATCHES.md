@@ -2161,19 +2161,25 @@ The design and later phases are in
   `workspaceDeletionManifest`.
 - API: `/api/ag/decisions` (`GET /`, `GET /count`, `PUT /cards`, `GET` and `POST
   /records`), behind `RequireHumanActor`. `PUT /cards` takes the complete set: an
-  open card that is not listed is resolved. `POST /records` ignores a repeated id.
+  open card that is not listed is resolved. `GET /`, `GET /count` and the
+  Overview leave out a card whose issue is `done` or `cancelled`, so closing the
+  issue clears its card without waiting for the engine's next pass. `POST /records` ignores a repeated id.
   Intents: `POST /{id}/intents` checks the card is open, at the revision on screen
   and offers the action; one live intent per card. `POST /intents/claim` is also the
   worker's heartbeat, expires intents unclaimed after 15 minutes and fails ones
   running over 10, never retrying them. `DELETE /intents/{id}` cancels a queued one,
   and `POST /intents/{id}/result` stores the outcome and its record together.
-- WebSocket: `ag:decision_changed` carries no data and invalidates the queries.
+- WebSocket: `ag:decision_changed` carries no data and invalidates the queries,
+  as does an `issue:updated` with `status_changed`.
 - CLI: `multica decisions push` reads `{cards, records}` from stdin, so the sync
   never reads the CLI's token, and refuses input with no card list. `decisions
   claim` and `decisions result <id>` are the worker's two calls.
 - Web: `packages/core/decisions/` (parser, queries, mutations),
   `packages/views/decisions/` (page: a list of compact rows beside the selected
-  card's detail, action buttons with number-key shortcuts and `j`/`k`/`z`,
+  card's detail, which is the card's summary above the issue itself (the shared
+  `IssueDetail`, opened at the card's `focus_comment_id` when the engine sends
+  one), action buttons with number-key shortcuts and `j`/`k`/`z`, each action's
+  `effect` sentence listed under the buttons by its key,
   second-tap and note dialogs, override reasons, group batches, clicked cards
   moving to an Activity list with an undo toast, a worker-offline warning), web and desktop routes, the reserved slug `decisions`, and one-line
   hooks in the app rail (`app-rail.tsx`, `spaces.ts`, `rail.decisions` in

@@ -1,5 +1,8 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
+import { describe, expect, it, vi } from "vitest";
+import type { WSClient } from "../api/ws-client";
+import { agDecisionKeys, subscribeAGDecisions } from "./ag-decisions-queries";
 import {
   agDecisionBatchActions,
   agDecisionCardIsActionable,
@@ -63,6 +66,7 @@ const card = (over: Partial<AGDecisionCard>): AGDecisionCard => ({
   actions: [],
   recommendedAction: "",
   overrideReasons: [],
+  focusCommentId: null,
   latestIntent: null,
   ...over,
 });
@@ -102,6 +106,14 @@ describe("parseAGDecisionList", () => {
     const [parsed] = parseAGDecisionList({ cards: [rawCard({ content })], last_sync_at: null }).cards;
     expect(parsed?.chips).toEqual([{ label: "ok", tone: "neutral" }]);
     expect(parsed?.lines).toEqual(["kept"]);
+  });
+
+  it("reads the comment a card is about, and has none when it is missing or malformed", () => {
+    const focus = (content: unknown) =>
+      parseAGDecisionList({ cards: [rawCard({ content })], last_sync_at: null }).cards[0]?.focusCommentId;
+    expect(focus({ focus_comment_id: "cm1" })).toBe("cm1");
+    expect(focus({})).toBeNull();
+    expect(focus({ focus_comment_id: 7 })).toBeNull();
   });
 
   it("drops a link that is not http or https", () => {
@@ -197,9 +209,16 @@ describe("actions", () => {
 
   it("keeps the readable actions, and defaults what an older engine leaves out", () => {
     const card = firstCard({ actions: [{ id: "park", label: "Snooze" }, { id: "" }, "nope"], recommended_action: 7 });
-    expect(card.actions).toEqual([{ id: "park", label: "Snooze", primary: false, batch: false, confirm: "", note: null }]);
+    expect(card.actions).toEqual([
+      { id: "park", label: "Snooze", primary: false, batch: false, confirm: "", note: null, effect: "" },
+    ]);
     expect(card.recommendedAction).toBe("");
     expect(card.latestIntent).toBeNull();
+  });
+
+  it("reads what an action does", () => {
+    const card = firstCard({ actions: [{ id: "park", label: "Snooze", effect: "Moves it to backlog." }] });
+    expect(card.actions[0]?.effect).toBe("Moves it to backlog.");
   });
 
   it("reads the worker's last check-in, and a payload without one", () => {
@@ -279,5 +298,33 @@ describe("splitAGDecisionLine", () => {
     expect(splitAGDecisionLine("note: lower case")).toBeNull();
     expect(splitAGDecisionLine("A label that runs far too long: value")).toBeNull();
     expect(splitAGDecisionLine("Status:")).toBeNull();
+  });
+});
+
+describe("subscribeAGDecisions", () => {
+  it("refetches on a card change and on an issue's status change, and on nothing else", () => {
+    const handlers = new Map<string, (payload: unknown) => void>();
+    const offs: string[] = [];
+    const ws = {
+      on: (event: string, handler: (payload: unknown) => void) => {
+        handlers.set(event, handler);
+        return () => offs.push(event);
+      },
+    } as unknown as WSClient;
+    const qc = new QueryClient();
+    const invalidate = vi.spyOn(qc, "invalidateQueries").mockResolvedValue();
+
+    const unsubscribe = subscribeAGDecisions(ws, qc);
+    handlers.get("issue:updated")!({ issue: {}, status_changed: false });
+    handlers.get("issue:updated")!(null);
+    expect(invalidate).not.toHaveBeenCalled();
+
+    handlers.get("issue:updated")!({ issue: {}, status_changed: true });
+    handlers.get("ag:decision_changed")!({});
+    expect(invalidate).toHaveBeenCalledTimes(2);
+    expect(invalidate).toHaveBeenLastCalledWith({ queryKey: agDecisionKeys.all() });
+
+    unsubscribe();
+    expect(offs.sort()).toEqual(["ag:decision_changed", "issue:updated"]);
   });
 });

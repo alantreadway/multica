@@ -1,6 +1,7 @@
 import { queryOptions, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import type { WSClient } from "../api/ws-client";
+import type { IssueUpdatedPayload } from "../types/events";
 import type { AGDecisionIntentInput } from "./ag-decisions";
 
 // AG patch: Decision Desk. Events carry no data, so a change refetches.
@@ -32,10 +33,21 @@ export function agDecisionCountOptions(wsId: string) {
   });
 }
 
+/**
+ * A status change refetches too: the server stops listing a card once its issue is finished, and the engine's own
+ * event for that is a sync pass away.
+ */
 export function subscribeAGDecisions(ws: WSClient, qc: QueryClient): () => void {
-  return ws.on("ag:decision_changed", () => {
-    void qc.invalidateQueries({ queryKey: agDecisionKeys.all() });
-  });
+  const refetch = () => void qc.invalidateQueries({ queryKey: agDecisionKeys.all() });
+  const unsubs = [
+    ws.on("ag:decision_changed", refetch),
+    ws.on("issue:updated", (payload) => {
+      if ((payload as IssueUpdatedPayload | null)?.status_changed) refetch();
+    }),
+  ];
+  return () => {
+    for (const unsub of unsubs) unsub();
+  };
 }
 
 /**
