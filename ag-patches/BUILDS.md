@@ -85,6 +85,7 @@ Newest first:
 | (untagged) | `7e4c5c78c` | `multica-web-ag:v0.8.1-ag.4` | `multica-backend-ag:v0.8.1-ag.4` | — | 2026-11-09 |
 | (untagged) | `7e4c5c78c6a2a784865106910a9841bbcbb7364d` | `multica-web-ag:v0.8.1-ag.5` | `multica-backend-ag:v0.8.1-ag.5` | — | 2026-11-09 |
 | `ag/v0.8.1-ag.6` | `d72e02a70b304a5b67ad34baecefb45237cd3dbe` | `multica-web-ag:v0.8.1-ag.6` | `multica-backend-ag:v0.8.1-ag.6` | `dist/multica-v0.8.1-ag.6-darwin-arm64` | 2026-11-09 |
+| `ag/v0.8.1-ag.7` | `b4f851d8c4770da33d93066ebacf026f436d39ba` | `multica-web-ag:v0.8.1-ag.7` | `multica-backend-ag:v0.8.1-ag.7` | `dist/multica-v0.8.1-ag.6-darwin-arm64` (unchanged) | 2026-11-12 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
@@ -96,6 +97,10 @@ retired Mac stack. A note below says only what the script does not.
 Notes, newest first. Notes for builds before `v0.7.0` are in git history
 (`git log -p -- ag-patches/PATCHES.md`).
 
+- **`v0.8.1-ag.7`**: Overview outline of every issue below each root, with closed issues folded
+  away (#49); Decision Desk detail with the embedded issue and per-action effect lines, and cards of
+  done or cancelled issues no longer listed. Shipped with ag-jira-sync `a722cf7` (copied to the daemon
+  container, desk worker restarted). No CLI change, so the Mac CLI stays on `ag.6`.
 - **`v0.8.1-ag.4`, `v0.8.1-ag.5`**: deployed from a parallel session (Overview dashboard fixup `7e4c5c78c`)
   without a tag or a row here. The `ag/v0.8.1-ag.4` tag points at `d72e02a70`, not at what ran as ag.4.
   Lesson: check Bastion's pin (`deployed_version`) and `docker images` before choosing a version number.
