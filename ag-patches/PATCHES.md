@@ -1664,7 +1664,9 @@ the backup; a rejected resume is a normal quota failure.
     `ag_quota_backup_run_test.go`, `ag_quota_backup_setup_test.go`,
     `ag_quota_backup_spec_test.go`, `ag_quota_backup_limit_test.go`,
     `ag_quota_backup_org_test.go` (new), `ag_quota_backup_identity_test.go` (new),
-    `ag_quota_backup_urgent_test.go` (new)
+    `ag_quota_backup_urgent_test.go` (new), `ag_quota_backup_recheck_test.go`
+    (new: the claim's force-recheck hints reach the server while the backup
+    serves)
   - `server/internal/daemon/ag_quota_report.go` (null ack disables; report fill),
     `ag_quota.go` (rejection note and slot release in the observer, one hook in
     `agQuotaClaim`, and `agQuotaClaim` split into the early urgent claim and
