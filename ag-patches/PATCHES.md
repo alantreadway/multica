@@ -126,8 +126,10 @@ lanes sit under their parent lane. Status: landed in
   - `packages/core/issues/queries.ts` (append only),
     `queries.tree-lanes.ag.test.ts` (new)
   - The `ag` i18n namespace: `packages/views/locales/ag.ts`,
-    `locales/{en,fr,ja,ko,zh-Hans,zh-Hant}/ag.json`, `i18n/ag-resources-types.ts` (new);
-    one hook line in `locales/index.ts` and in `i18n/resources-types.ts`
+    `locales/{en,es,fr,ja,ko,ru,zh-Hans,zh-Hant}/ag.json`, `i18n/ag-resources-types.ts` (new);
+    `withAg` around the default export of each locale entry module
+    (`locales/{en,es,fr,ja,ko,ru,zh-Hans,zh-Hant}.ts`, an import and the export
+    line), and one hook line in `i18n/resources-types.ts`
     (`ag:issues.swimlane`)
 
 Nesting is shown by an alternating band, not an indent: every root lane and its
