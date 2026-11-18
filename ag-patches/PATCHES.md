@@ -2251,6 +2251,9 @@ never acts on anything. The design and the options it was chosen from are in
   diagnostics buckets and the palette's page keywords (`search/use-root-model.ts`).
   Who holds a unit or card (you, agent, colleague, nobody) is drawn in colour
   from three `--owner-*` tokens added to `packages/ui/styles/tokens.css`.
+  Upstream tests adjusted: `layout/app-rail.test.tsx` and
+  `core/navigation/rail-order-store.test.ts` (Overview and Decisions head the
+  reorderable rail).
 - **Upstream**
   - Status: `fork-only`.
   - Fit: built around one person's pinned epics and the Decision Desk.
