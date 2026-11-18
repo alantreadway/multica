@@ -530,6 +530,9 @@ Needs a CLI built with `ag-patches/build-cli.sh`.
 - Files:
   - `server/internal/daemon/ag_slotlock.go`, `ag_slotlock_unix.go`,
     `ag_slotlock_other.go` (new: slot locks, wait loop, GC probe)
+  - `server/internal/daemon/task_slot.go` (upstream's slot lease takes and
+    returns its slot through the machine-wide lock set, so a task parked for its
+    directory frees the machine-wide slot too)
   - `server/internal/daemon/ag_slotlock_test.go`, `ag_slotlock_extra_test.go` (new)
   - `server/internal/daemon/daemon.go` (`agSlotDir` and `agSlots` fields,
     `pollLoop` builds its slots through `agNewTaskSlots`, `runBatchPoller`; the
@@ -549,7 +552,9 @@ Needs a CLI built with `ag-patches/build-cli.sh`.
     `terminal_report_queue_test.go`, `ag_drain_test.go` (slot semaphore API and
     a temp slot dir for `pollLoop`), `repocache/cache_test.go` (real temp bare
     paths, since the repo lock now needs a lock file beside the repo),
-    `gc_repo_evict_test.go` (tolerates the lock file)
+    `gc_repo_evict_test.go` (tolerates the lock file), `gc_test.go`,
+    `task_slot_test.go` and `task_slot_wait_test.go` (lease tests run against
+    the lock set)
   - Handoff and overlap:
     - `server/internal/daemon/ag_handoff.go`, `ag_handoff_unix.go`,
       `ag_handoff_other.go` (new: handoff state, `/handoff`, overlap loop,
