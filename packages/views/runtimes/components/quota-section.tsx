@@ -7,84 +7,21 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import {
   runtimeQuota,
   useAGRuntimeSettings,
-  type QuotaWindow,
   type RuntimeQuota,
 } from "@multica/core/runtimes/ag-quota";
 import type { AgentRuntime } from "@multica/core/types";
 import { Input } from "@multica/ui/components/ui/input";
 import { Switch } from "@multica/ui/components/ui/switch";
-import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../../i18n";
 import { useLocale } from "../../i18n/use-locale";
 import { formatHoldUntil } from "../ag-quota-format";
 
 // AG patch: Claude quota section. The caller gates on the Claude provider; this
 // renders nothing without a quota report, so an unpatched daemon shows no section.
+// Plan usage (the 5-hour and 7-day windows) is upstream's Rate limits section;
+// this one holds only what the fork adds: the hold, the pacing cap and the backup.
 
 const MAX_BACKUP_CONCURRENT = 100;
-
-function formatReset(date: Date, locale: string, withDay: boolean): string {
-  return new Intl.DateTimeFormat(locale, {
-    ...(withDay ? { weekday: "short", day: "numeric", month: "short" } : {}),
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).format(date);
-}
-
-function WindowRow({
-  label,
-  window: w,
-  withDay,
-}: {
-  label: string;
-  window: QuotaWindow | null;
-  withDay: boolean;
-}) {
-  const { t } = useT("ag");
-  const locale = useLocale();
-  const used = w?.utilization ?? null;
-  const percent = used === null ? null : Math.round(used * 100);
-  const tone =
-    used === null
-      ? "bg-faint-foreground"
-      : used >= 0.95
-        ? "bg-destructive"
-        : used >= 0.8
-          ? "bg-warning"
-          : "bg-brand";
-  return (
-    <div className="space-y-1">
-      <div className="flex items-baseline justify-between gap-2 text-caption">
-        <span className="font-medium">{label}</span>
-        <span className="text-muted-foreground">
-          {percent === null ? "—" : `${percent}%`}
-          {w?.resetsAt && (
-            <>
-              {" · "}
-              {t(($) => $.runtimes.quota.resets, {
-                time: formatReset(w.resetsAt, locale, withDay),
-              })}
-            </>
-          )}
-        </span>
-      </div>
-      <div
-        role="progressbar"
-        aria-label={label}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent === null ? undefined : Math.min(percent, 100)}
-        className="h-1.5 overflow-hidden rounded-full bg-muted"
-      >
-        <div
-          className={cn("h-full rounded-full", tone)}
-          style={{ width: `${Math.min(Math.max(percent ?? 0, 0), 100)}%` }}
-        />
-      </div>
-    </div>
-  );
-}
 
 function BackupStatus({ quota }: { quota: RuntimeQuota }) {
   const { t } = useT("ag");
@@ -184,19 +121,6 @@ function QuotaBody({
 
   return (
     <div className="space-y-4 px-4 py-3">
-      <div className="space-y-3">
-        <WindowRow
-          label={t(($) => $.runtimes.quota.five_hour)}
-          window={quota.fiveHour}
-          withDay={false}
-        />
-        <WindowRow
-          label={t(($) => $.runtimes.quota.seven_day)}
-          window={quota.sevenDay}
-          withDay
-        />
-      </div>
-
       {online && (
         <div className="space-y-0.5 text-caption">
           {quota.holdUntil && (

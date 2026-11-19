@@ -67,9 +67,6 @@
     },
     "quota": {
       "title": "Claude 配額",
-      "five_hour": "5 小時",
-      "seven_day": "7 天",
-      "resets": "{{time}} 重置",
       "hold": "暫停至 {{time}}",
       "cap": "最多同時執行 {{cap}} / {{max}}",
       "pace": "Claude 限速",

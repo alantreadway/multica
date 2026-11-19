@@ -109,26 +109,11 @@ describe("AG patch: QuotaSection", () => {
     expect(screen.queryByTestId("ag-quota-section")).not.toBeInTheDocument();
   });
 
-  it("AG patch: shows both windows with utilisation and reset time", () => {
+  it("AG patch: leaves plan usage to upstream's Rate limits section", () => {
     renderSection(makeRuntime(base));
-    expect(screen.getByRole("progressbar", { name: "5-hour" })).toHaveAttribute(
-      "aria-valuenow",
-      "84",
-    );
-    expect(screen.getByText(`84% · resets ${clock(21, 10)}`)).toBeInTheDocument();
-    expect(screen.getByRole("progressbar", { name: "7-day" })).toHaveAttribute(
-      "aria-valuenow",
-      "40",
-    );
-    expect(screen.getByText("40%")).toBeInTheDocument();
-  });
-
-  it("AG patch: shows a dash for a window the daemon has not seen", () => {
-    renderSection(makeRuntime({ ...base, windows: {} }));
-    expect(screen.getAllByText("—")).toHaveLength(2);
-    expect(screen.getByRole("progressbar", { name: "5-hour" })).not.toHaveAttribute(
-      "aria-valuenow",
-    );
+    expect(screen.getByTestId("ag-quota-section")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(screen.queryByText(/84%/)).not.toBeInTheDocument();
   });
 
   it("AG patch: shows the effective cap", () => {
@@ -444,20 +429,6 @@ describe("AG patch: QuotaSection", () => {
     await user.click(screen.getByRole("switch", { name: "Use backup account" }));
     await waitFor(() => expect(toastError).toHaveBeenCalled());
     expect(screen.getByRole("switch", { name: "Use backup account" })).not.toBeChecked();
-  });
-
-  it("AG patch: a window over 100% shows the real figure with a full bar", () => {
-    renderSection(
-      makeRuntime({
-        ...base,
-        windows: { five_hour: { utilization: 1.12, resets_at: at(21, 10) } },
-      }),
-    );
-    expect(screen.getByText(/112%/)).toBeInTheDocument();
-    expect(screen.getByRole("progressbar", { name: "5-hour" })).toHaveAttribute(
-      "aria-valuenow",
-      "100",
-    );
   });
 
   it("AG patch: the controls lock while a save is in flight", async () => {

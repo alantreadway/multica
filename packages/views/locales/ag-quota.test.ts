@@ -6,9 +6,6 @@ import { RESOURCES } from "./index";
 // "On hold until {{time}}".
 const QUOTA_STRINGS: Record<string, readonly string[]> = {
   title: [],
-  five_hour: [],
-  seven_day: [],
-  resets: ["{{time}}"],
   hold: ["{{time}}"],
   cap: ["{{cap}}", "{{max}}"],
   on_backup: [],

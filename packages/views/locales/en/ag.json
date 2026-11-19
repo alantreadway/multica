@@ -68,9 +68,6 @@
     },
     "quota": {
       "title": "Claude quota",
-      "five_hour": "5-hour",
-      "seven_day": "7-day",
-      "resets": "resets {{time}}",
       "hold": "On hold until {{time}}",
       "cap": "Running up to {{cap}} of {{max}}",
       "pace": "Pace Claude runs",

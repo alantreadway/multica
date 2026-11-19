@@ -67,9 +67,6 @@
     },
     "quota": {
       "title": "Claude 할당량",
-      "five_hour": "5시간",
-      "seven_day": "7일",
-      "resets": "{{time}} 초기화",
       "hold": "{{time}}까지 보류 중",
       "cap": "최대 {{max}}개 중 {{cap}}개까지 실행",
       "pace": "Claude 실행 속도 조절",

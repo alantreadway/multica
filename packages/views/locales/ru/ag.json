@@ -70,9 +70,6 @@
     },
     "quota": {
       "title": "Квота Claude",
-      "five_hour": "5 часов",
-      "seven_day": "7 дней",
-      "resets": "сброс {{time}}",
       "hold": "Приостановлено до {{time}}",
       "cap": "Параллельно до {{cap}} из {{max}}",
       "pace": "Регулировать темп запусков Claude",

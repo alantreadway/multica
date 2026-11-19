@@ -68,9 +68,6 @@
     },
     "quota": {
       "title": "Cuota de Claude",
-      "five_hour": "5 horas",
-      "seven_day": "7 días",
-      "resets": "se restablece {{time}}",
       "hold": "En espera hasta {{time}}",
       "cap": "Ejecutando hasta {{cap}} de {{max}}",
       "pace": "Dosificar las ejecuciones de Claude",

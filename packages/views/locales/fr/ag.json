@@ -68,9 +68,6 @@
     },
     "quota": {
       "title": "Quota Claude",
-      "five_hour": "5 heures",
-      "seven_day": "7 jours",
-      "resets": "réinitialisation {{time}}",
       "hold": "En pause jusqu'à {{time}}",
       "cap": "Jusqu'à {{cap}} sur {{max}} en parallèle",
       "pace": "Ralentir Claude selon le quota",
