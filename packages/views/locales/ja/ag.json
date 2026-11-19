@@ -67,9 +67,6 @@
     },
     "quota": {
       "title": "Claude クォータ",
-      "five_hour": "5 時間",
-      "seven_day": "7 日間",
-      "resets": "{{time}} にリセット",
       "hold": "{{time}} まで保留中",
       "cap": "最大 {{max}} 件中 {{cap}} 件まで実行",
       "pace": "Claude の実行ペースを調整",

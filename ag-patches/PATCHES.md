@@ -53,8 +53,8 @@ merged. Some patches appear in two parts where only one part is worth offering.
 | 9 | Tree view mode (outline) | `candidate` | [#5685](https://github.com/multica-ai/multica/issues/5685) (open request, 3 👍), [#2966](https://github.com/multica-ai/multica/pull/2966) (open, overlaps) | Medium | Medium-low | After the tree lanes; read #2966 first. |
 | 10 | Label row: show all labels, Compact/Full display (web) | `candidate` | none on the display; [#8784](https://github.com/multica-ai/multica/pull/8784), [#9266](https://github.com/multica-ai/multica/pull/9266), [#8925](https://github.com/multica-ai/multica/pull/8925), [#9335](https://github.com/multica-ai/multica/pull/9335) / [#9336](https://github.com/multica-ai/multica/pull/9336) (open, edit `board-card.tsx`; the last two from a maintainer) | Medium | Medium-low | Wait for the maintainer's board refactor to land. |
 | 11 | Sidebar agent and drain status (web) | `fork-only` (the agent count alone could go) | none found | Low-medium | Low-medium | Only if asked; the drain marker comes out first. |
-| 12 | Claude quota report and runtime backup setting (daemon + backend) | `fork-only` (the report alone is a `candidate` only if it lines up with #7413) | [#10752](https://github.com/multica-ai/multica/pull/10752) (in v0.11.0) shows Claude Code and Codex plan limits on runtime pages and parses `rate_limit_event`; [#7413](https://github.com/multica-ai/multica/pull/7413) closed unmerged 2026-11-18, [#8679](https://github.com/multica-ai/multica/pull/8679) closed unmerged; [#6000](https://github.com/multica-ai/multica/issues/6000) (the request) | High for plan usage, now shipped | Very low | Decide whether upstream's limits cover the report; hold, pacing cap and backup setting stay ours. |
-| 13 | Runtime quota section and sidebar warning (web) | `fork-only` (the Runtimes-page section alone could line up with #7413) | [#10752](https://github.com/multica-ai/multica/pull/10752) (in v0.11.0): a Rate limits section on Claude and Codex runtime pages, shown above ours; [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) closed unmerged; sidebar line: none found | Shipped upstream for the section | Very low | As the quota report. |
+| 12 | Claude quota report and runtime backup setting (daemon + backend) | `fork-only` (the report alone is a `candidate` only if it lines up with #7413) | [#10752](https://github.com/multica-ai/multica/pull/10752) (in v0.11.0) shows Claude Code and Codex plan limits on runtime pages and parses `rate_limit_event`; [#7413](https://github.com/multica-ai/multica/pull/7413) closed unmerged 2026-11-18, [#8679](https://github.com/multica-ai/multica/pull/8679) closed unmerged; [#6000](https://github.com/multica-ai/multica/issues/6000) (the request) | High for plan usage, now shipped | Very low | None: the web card leaves plan usage to upstream; the report stays, since the hold, pacing cap and backup setting read it. |
+| 13 | Runtime quota section and sidebar warning (web) | `fork-only` (the Runtimes-page section alone could line up with #7413) | [#10752](https://github.com/multica-ai/multica/pull/10752) (in v0.11.0): a Rate limits section on Claude and Codex runtime pages, above ours, which now leaves plan usage to it; [#7413](https://github.com/multica-ai/multica/pull/7413), [#8679](https://github.com/multica-ai/multica/pull/8679) closed unmerged; sidebar line: none found | Shipped upstream for the section | Very low | As the quota report. |
 | 14 | Claude quota tracker and auto-hold (daemon) | `fork-only` (upstream parses `rate_limit_event` itself since v0.11.0) | [#4123](https://github.com/multica-ai/multica/pull/4123), [#8931](https://github.com/multica-ai/multica/pull/8931) (open), [#6255](https://github.com/multica-ai/multica/issues/6255) (open), [#6650](https://github.com/multica-ai/multica/issues/6650) (RFC, active 2026-10-19, 6 👍); #8965 closed, #8969 withdrawn | Medium | Low | Add our use case to RFC #6650. |
 | 15 | Daemon drain mode | `fork-only` | [#5631](https://github.com/multica-ai/multica/pull/5631) (changes requested, last touched 2026-07-28), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High: upstream's reviewer agreed on #5631 | Low for ours | Help #5631 land, then drop ours. |
 | 16 | Drain badge (backend + web) | `fork-only` | [#6679](https://github.com/multica-ai/multica/pull/6679) (changes requested), [#6678](https://github.com/multica-ai/multica/pull/6678), [#6677](https://github.com/multica-ai/multica/pull/6677) (open, stalled since 2026-08) | High | Low for ours | Drop once upstream shows the drain state. |
@@ -1700,8 +1700,7 @@ the backup; a rejected resume is a normal quota failure.
 ### Runtime quota section and sidebar warning (web)
 
 The Runtimes detail page gets a "Claude quota" card under Usage for a Claude runtime
-that carries `metadata.ag_quota`: both windows (5-hour, 7-day) as a bar with the
-utilisation and reset time, the current cap ("Running up to 3 of 5") and any
+that carries `metadata.ag_quota`: the current cap ("Running up to 3 of 5") and any
 hold ("On hold until 21:10"), then the backup account: status (not found, found
 but invalid with the reason, or ready), a switch, the `backup_max_concurrent`
 input and one help line ("Only urgent issues run on the backup."). Above the
@@ -1718,6 +1717,11 @@ switch is off, and both for anyone who cannot edit the runtime. Saves go to
 `PUT /api/runtimes/{id}/ag-settings` with both fields; the form awaits the server
 and shows server state again on failure, with a toast. The hold and cap are
 hidden while the runtime is offline (stale once heartbeats stop).
+
+The card shows no plan usage. From v0.11.0 upstream's Rate limits section, just
+above it, shows the 5-hour and weekly windows with utilisation, reset time and
+pace, so ours dropped its own two window bars. The daemon still reports both
+windows, since the hold, the pacing cap and the sidebar line read them.
 
 The sidebar status row (`agent-status-indicator.tsx`) gets one more line while any
 online runtime is on the backup account ("Backup account · urgent only") or, if
@@ -1764,14 +1768,14 @@ guard. Frontend only: rollback is switching the web image back.
 - Upstream:
   - Status: `fork-only`. Needs the quota report and settings patch above.
   - Overlap: [#10752](https://github.com/multica-ai/multica/pull/10752) (in
-    v0.11.0) adds a Rate limits section to Claude and Codex runtime pages; on a
-    Claude runtime it shows above ours, so the page has two limits sections.
+    v0.11.0) adds a Rate limits section to Claude and Codex runtime pages, above
+    ours. It covers plan usage, so our card dropped its window bars and keeps only
+    the hold, the cap, pacing and the backup.
     [#7413](https://github.com/multica-ai/multica/pull/7413) and
     [#8679](https://github.com/multica-ai/multica/pull/8679) closed unmerged. The
     sidebar line has no upstream counterpart. Last checked 2026-11-18.
-  - Fit: plan usage on the Runtimes page is a plausible product feature; the
-    backup switch and the sidebar warning are operator tooling for subscription
-    users. The `ConnectRemoteDialog` filter is generic and would go upstream with
+  - Fit: what is left (the hold, the pacing switch, the backup switch and the
+    sidebar warning) is operator tooling for subscription users. The `ConnectRemoteDialog` filter is generic and would go upstream with
     any change that publishes non-registration `daemon:register` events.
 
 ### Task GC meta on every terminal path (daemon)
