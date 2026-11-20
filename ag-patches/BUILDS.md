@@ -110,6 +110,7 @@ Newest first:
 | (untagged) | `7e4c5c78c6a2a784865106910a9841bbcbb7364d` | `multica-web-ag:v0.8.1-ag.5` | `multica-backend-ag:v0.8.1-ag.5` | — | 2026-11-09 |
 | `ag/v0.8.1-ag.6` | `d72e02a70b304a5b67ad34baecefb45237cd3dbe` | `multica-web-ag:v0.8.1-ag.6` | `multica-backend-ag:v0.8.1-ag.6` | `dist/multica-v0.8.1-ag.6-darwin-arm64` | 2026-11-09 |
 | `ag/v0.8.1-ag.7` | `b4f851d8c4770da33d93066ebacf026f436d39ba` | `multica-web-ag:v0.8.1-ag.7` | `multica-backend-ag:v0.8.1-ag.7` | `dist/multica-v0.8.1-ag.6-darwin-arm64` (unchanged) | 2026-11-12 |
+| `ag/v0.11.0-ag.1` | `a95bd93cd1503d480eeb1e67ceb04ece08f985e9` | `multica-web-ag:v0.11.0-ag.1` | `multica-backend-ag:v0.11.0-ag.1` | `dist/multica-v0.11.0-ag.1-darwin-arm64` | 2026-11-20 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
@@ -121,6 +122,16 @@ retired Mac stack. A note below says only what the script does not.
 Notes, newest first. Notes for builds before `v0.7.0` are in git history
 (`git log -p -- ag-patches/PATCHES.md`).
 
+- **`v0.11.0-ag.1`**: the rebase from `v0.8.1` to `v0.11.0`, three upstream minors, so the apply ran the
+  v0.9 to v0.11 migrations (pre-migration hooks up to `684_entitlement_feature_attempt_scope_idx`, no
+  errors). Built from `a95bd93cd` with `build-cli.sh --rev 1 --skip-tests`: `test.sh` exits 1 on a Mac
+  from `v0.11.0` (upstream's find-in-issue test is Mac-only and fails on stock `v0.11.0` too), and the
+  Linux `guard` check passes. The build needed `git fetch upstream --tags` first, and the Go build runs in
+  Colima, which mounts only `~/multica_workspaces`, so its worktree has to live there. The apply's drain
+  took 6 min 38 s, waiting on one running task; nothing was cancelled. `deploy.sh` did not swap the
+  laptop daemon, which kept running `v0.8.1-ag.6`: it was drained (`daemon drain --wait`, idle) and
+  restarted by hand (`launchctl kickstart -k`). Rollback: back to `v0.8.1-ag.7` (images are still on
+  Bastion) and restore the pre-apply dump, because the migrations have run.
 - **`v0.8.1-ag.7`**: Overview outline of every issue below each root, with closed issues folded
   away (#49); Decision Desk detail with the embedded issue and per-action effect lines, and cards of
   done or cancelled issues no longer listed. Shipped with ag-jira-sync `a722cf7` (copied to the daemon
