@@ -81,7 +81,7 @@ Newest first:
 
 - **2026-11-26: Decision Desk and Overview dashboard.** Both commits were
   dropped from the patch branch, with their design docs and mocks; the last
-  build that has them is `v0.11.0-ag.1` (branch `ag/v0.11.0`). The self-host
+  build that has them is `v0.11.0-ag.1` (tag `ag/v0.11.0-ag.1`). The self-host
   keeps migrations `9004`-`9017` recorded and the tables `ag_decision_card`,
   `ag_decision_record`, `ag_decision_engine`, `ag_decision_intent`,
   `ag_overview_pin` and `ag_overview_forecast`; nothing reads them. The next
@@ -121,8 +121,8 @@ Newest first:
 | (untagged) | `7e4c5c78c6a2a784865106910a9841bbcbb7364d` | `multica-web-ag:v0.8.1-ag.5` | `multica-backend-ag:v0.8.1-ag.5` | — | 2026-11-09 |
 | `ag/v0.8.1-ag.6` | `d72e02a70b304a5b67ad34baecefb45237cd3dbe` | `multica-web-ag:v0.8.1-ag.6` | `multica-backend-ag:v0.8.1-ag.6` | `dist/multica-v0.8.1-ag.6-darwin-arm64` | 2026-11-09 |
 | `ag/v0.8.1-ag.7` | `b4f851d8c4770da33d93066ebacf026f436d39ba` | `multica-web-ag:v0.8.1-ag.7` | `multica-backend-ag:v0.8.1-ag.7` | `dist/multica-v0.8.1-ag.6-darwin-arm64` (unchanged) | 2026-11-12 |
-| (untagged, `ag/v0.11.0`) | `a95bd93cd1503d480eeb1e67ceb04ece08f985e9` | `multica-web-ag:v0.11.0-ag.1` | `multica-backend-ag:v0.11.0-ag.1` | `dist/multica-v0.11.0-ag.1-darwin-arm64` | 2026-11-20 |
-| (untagged) | `8c45c2e663b41744107a948694b6ea1e1a215299` | `multica-web-ag:v0.13.0-ag.1` | `multica-backend-ag:v0.13.0-ag.1` | `dist/multica-v0.13.0-ag.1-darwin-arm64` | 2026-11-27 |
+| `ag/v0.11.0-ag.1` | `a95bd93cd1503d480eeb1e67ceb04ece08f985e9` | `multica-web-ag:v0.11.0-ag.1` | `multica-backend-ag:v0.11.0-ag.1` | `dist/multica-v0.11.0-ag.1-darwin-arm64` | 2026-11-20 |
+| `ag/v0.13.0-ag.1` | `8c45c2e663b41744107a948694b6ea1e1a215299` | `multica-web-ag:v0.13.0-ag.1` | `multica-backend-ag:v0.13.0-ag.1` | `dist/multica-v0.13.0-ag.1-darwin-arm64` | 2026-11-27 |
 
 The CLI column is the binary from `ag-patches/build-cli.sh`, installed as
 `~/.local/bin/multica-ag`; `none (stock)` means the daemon ran the upstream
@@ -142,7 +142,8 @@ Notes, newest first. Notes for builds before `v0.7.0` are in git history
   with the other jobs done. `deploy.sh` did not swap the laptop daemon: drained (idle) and restarted
   by hand (`launchctl kickstart -k`); launchd's first start of the replaced binary was killed for
   code signing and the second came up. Rollback: back to `v0.11.0-ag.1` (images are still on
-  Bastion) and restore the pre-apply dump, because the migrations have run.
+  Bastion) and restore the pre-apply dump, because the migrations have run. The nightly dump
+  overwrites `multica.dump`, so a copy is kept beside it as `multica.pre-v0.13.0-ag.1.dump`.
 - **`v0.11.0-ag.1`**: recorded on `ag/v0.11.0` (its `BUILDS.md`), the port this branch did not start from.
 - **`v0.8.1-ag.7`**: Overview outline of every issue below each root, with closed issues folded
   away (#49); Decision Desk detail with the embedded issue and per-action effect lines, and cards of
